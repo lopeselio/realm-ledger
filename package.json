@@ -7,6 +7,9 @@
   "scripts": {
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "sim": "pnpm --filter @realm-ledger/rules sim"
+    "sim": "pnpm --filter @realm-ledger/rules sim",
+    "contract:test": "cd contracts/realm && cargo test --locked",
+    "contract:build": "cd contracts/realm && cargo near build non-reproducible-wasm --locked",
+    "contract:smoke": "contracts/realm/scripts/smoke-testnet.sh"
   }
 }
