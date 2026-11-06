@@ -1,0 +1,71 @@
+import {
+  FORT_DEFENCE,
+  LOSER_LOSS_PCT,
+  OUT_OF_SUPPLY,
+  RIVER_DEFENCE,
+  TERRAIN_DEFENCE,
+  WINNER_MAX_LOSS_PCT,
+} from './constants.ts';
+import { rng } from './rng.ts';
+import { strength } from './state.ts';
+import type { GameState, Troops } from './types.ts';
+
+export interface BattleSide {
+  realm: number;
+  troops: Troops;
+  /** holds the province and fights from its walls and terrain */
+  defending: boolean;
+  /** none of its own provinces is here or next door */
+  outOfSupply: boolean;
+}
+
+export interface BattleResult {
+  winner: number;
+  sides: { realm: number; power: number; roll: number; troopsBefore: Troops; troopsAfter: Troops }[];
+}
+
+/** Defence bonus in tenths for a side holding `province` (terrain, fort, river). */
+export function defenceBonus(s: GameState, province: number): number {
+  const p = s.map.provinces[province]!;
+  return TERRAIN_DEFENCE[p.terrain] + s.forts[province]! * FORT_DEFENCE + (p.river ? RIVER_DEFENCE : 0);
+}
+
+const lose = (t: Troops, pct: Troops | number): Troops => {
+  const p = (k: keyof Troops): number => (typeof pct === 'number' ? pct : pct[k]);
+  // losses round up so a beaten side always bleeds
+  const cut = (n: number, k: keyof Troops): number => n - Math.min(n, Math.ceil((n * p(k)) / 100));
+  return { levies: cut(t.levies, 'levies'), regulars: cut(t.regulars, 'regulars'), mercs: cut(t.mercs, 'mercs') };
+};
+
+/**
+ * Resolves one battle. Power = strength x (10 + bonuses + roll - 3) where roll is a d6
+ * drawn from the season's committed roll seed, so anyone with the seed can replay it.
+ * The highest power wins; ties go to the defender, then to the lower realm id.
+ * `where` names the battle in the roll stream (a province id, or a border "a-b").
+ */
+export function fight(s: GameState, province: number, sides: BattleSide[], rollSeed: string, where: string): BattleResult {
+  const bonus = defenceBonus(s, province);
+  const scored = sides.map((side) => {
+    const roll = rng(rollSeed, s.season, where, side.realm).range(1, 6);
+    const mod = (side.defending ? bonus : 0) + (side.outOfSupply ? OUT_OF_SUPPLY : 0) + roll - 3;
+    const power = strength(side.troops) * Math.max(1, 10 + mod);
+    return { side, roll, power };
+  });
+  const ranked = [...scored].sort(
+    (a, b) => b.power - a.power || Number(b.side.defending) - Number(a.side.defending) || a.side.realm - b.side.realm,
+  );
+  const top = ranked[0]!;
+  const runnerUp = ranked[1];
+  const winnerLossPct =
+    runnerUp && top.power > 0 ? Math.floor((WINNER_MAX_LOSS_PCT * runnerUp.power) / top.power) : 0;
+  return {
+    winner: top.side.realm,
+    sides: scored.map(({ side, roll, power }) => ({
+      realm: side.realm,
+      power,
+      roll,
+      troopsBefore: { ...side.troops },
+      troopsAfter: side.realm === top.side.realm ? lose(side.troops, winnerLossPct) : lose(side.troops, LOSER_LOSS_PCT),
+    })),
+  };
+}

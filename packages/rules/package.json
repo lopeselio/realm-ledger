@@ -1,0 +1,22 @@
+{
+  "name": "@realm-ledger/rules",
+  "version": "0.1.0",
+  "description": "Deterministic rules for Realm Ledger: seeded map, economy, battles, season resolution and the AI strategy engine.",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "sim": "tsx scripts/sim.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
