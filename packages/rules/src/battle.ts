@@ -30,10 +30,9 @@ export function defenceBonus(s: GameState, province: number): number {
   return TERRAIN_DEFENCE[p.terrain] + s.forts[province]! * FORT_DEFENCE + (p.river ? RIVER_DEFENCE : 0);
 }
 
-const lose = (t: Troops, pct: Troops | number): Troops => {
+const lose = (t: Troops, pct: Troops | number, round: (x: number) => number): Troops => {
   const p = (k: keyof Troops): number => (typeof pct === 'number' ? pct : pct[k]);
-  // losses round up so a beaten side always bleeds
-  const cut = (n: number, k: keyof Troops): number => n - Math.min(n, Math.ceil((n * p(k)) / 100));
+  const cut = (n: number, k: keyof Troops): number => n - Math.min(n, round((n * p(k)) / 100));
   return { levies: cut(t.levies, 'levies'), regulars: cut(t.regulars, 'regulars'), mercs: cut(t.mercs, 'mercs') };
 };
 
@@ -65,7 +64,9 @@ export function fight(s: GameState, province: number, sides: BattleSide[], rollS
       power,
       roll,
       troopsBefore: { ...side.troops },
-      troopsAfter: side.realm === top.side.realm ? lose(side.troops, winnerLossPct) : lose(side.troops, LOSER_LOSS_PCT),
+      // a beaten side always bleeds (round up); a winner never loses more than its share (round down)
+      troopsAfter:
+        side.realm === top.side.realm ? lose(side.troops, winnerLossPct, Math.floor) : lose(side.troops, LOSER_LOSS_PCT, Math.ceil),
     })),
   };
 }

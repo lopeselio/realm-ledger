@@ -226,6 +226,24 @@ describe('fight', () => {
     expect(defenderWins).toBeGreaterThan(150);
   });
 
+  it('never wipes out the winner of a battle', () => {
+    const s = lineWorld();
+    for (let i = 0; i < 100; i++) {
+      const r = fight(
+        s,
+        1,
+        [
+          { realm: 0, troops: army(0, 1, 1), defending: true, outOfSupply: false },
+          { realm: 1, troops: army(1, 1, 0, 3), defending: false, outOfSupply: false },
+        ],
+        `close-${i}`,
+        'p1',
+      );
+      const w = r.sides.find((x) => x.realm === r.winner)!;
+      expect(w.troopsAfter.levies + w.troopsAfter.regulars).toBeGreaterThan(0);
+    }
+  });
+
   it('always costs the loser troops', () => {
     const s = lineWorld();
     const r = fight(
