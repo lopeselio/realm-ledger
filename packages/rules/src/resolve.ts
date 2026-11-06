@@ -289,6 +289,7 @@ function movement(
         if (peace) {
           s.treaties = s.treaties.filter((t) => t !== peace);
           events.push({ kind: 'treaty-broken', realm, against: v, treaty: 'peace', province: o.to });
+          s.betrayals.push({ by: realm, against: v, season: s.season });
         }
       }
     }
@@ -450,6 +451,17 @@ function harvest(s: GameState, pillaged: Set<number>, events: GameEvent[]): void
     const purse = s.realms[realm]!.purse;
     for (const k of Object.keys(g) as (keyof Purse)[]) purse[k] += g[k];
     events.push({ kind: 'harvest', realm, gained: g });
+  }
+  // tribute: realms[0] pays realms[1] each season, as far as its treasury allows
+  for (const t of s.treaties) {
+    if (t.kind !== 'tribute' || !t.amount) continue;
+    const [from, to] = t.realms;
+    const payer = s.realms[from]!;
+    const amount = Math.min(t.amount, payer.purse.crowns);
+    if (!payer.alive || !s.realms[to]!.alive || amount <= 0) continue;
+    payer.purse.crowns -= amount;
+    s.realms[to]!.purse.crowns += amount;
+    events.push({ kind: 'tribute', from, to, amount });
   }
   // fighting spoils the harvest everywhere: lost output is missing from the market
   for (const g of GOODS) moveStock(s.market, g, -lost[g], 'war', `fighting spoiled ${lost[g]} ${g}`);

@@ -1,0 +1,26 @@
+{
+  "name": "@realm-ledger/server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "setup:agents": "tsx --env-file-if-exists=../../.env src/setup-agents.ts",
+    "playtest": "tsx src/playtest.ts"
+  },
+  "dependencies": {
+    "@realm-ledger/rules": "workspace:*",
+    "@realm-ledger/verify": "workspace:*",
+    "near-api-js": "7.3.1",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

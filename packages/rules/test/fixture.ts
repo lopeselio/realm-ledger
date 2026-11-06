@@ -50,6 +50,7 @@ export function lineWorld(n = 5, terrain: Partial<Record<number, Terrain>> = {})
     armies: [],
     market: newMarket(),
     treaties: [],
+    betrayals: [],
     winner: null,
   };
 }

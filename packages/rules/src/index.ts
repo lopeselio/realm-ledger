@@ -9,5 +9,6 @@ export { fight, defenceBonus, type BattleSide, type BattleResult } from './battl
 export * from './state.ts';
 export { resolveSeason, type ResolveOptions, type SeasonResult } from './resolve.ts';
 export { decideOrders } from './ai.ts';
+export { considerTreaty, proposeTreaties, signTreaty, visibleStrength, type Verdict } from './diplomacy.ts';
 export * from './seal.ts';
 export * from './campaign.ts';

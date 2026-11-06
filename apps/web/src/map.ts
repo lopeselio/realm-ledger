@@ -30,8 +30,19 @@ function frost(hex: string, amount: number): string {
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
+export interface Overlay {
+  /** the province the player has selected */
+  selected?: number;
+  /** provinces the selection can march to */
+  targets?: Set<number>;
+  /** planned marches, drawn as arrows */
+  arrows?: [number, number][];
+  /** provinces with planned builds */
+  marks?: Set<number>;
+}
+
 /** Renders the board for one state as SVG markup. */
-export function renderMap(svg: SVGSVGElement, s: GameState): void {
+export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {}): void {
   const winter = s.season % 4 === 3 ? 0.35 : s.season % 4 === 2 ? 0.08 : 0;
   const pts = s.map.tiles.map((t) => center(t.q, t.r));
   const xs = pts.map((p) => p[0]);
@@ -66,6 +77,22 @@ export function renderMap(svg: SVGSVGElement, s: GameState): void {
     if (capitals.has(p.id)) parts.push(`<text x="${x}" y="${y - 14}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.6">♛</text>`);
     parts.push('</g>');
   }
+  // selection and legal targets
+  for (const id of overlay.targets ?? []) {
+    const p = s.map.provinces[id]!;
+    const [x, y] = center(p.q, p.r);
+    parts.push(`<polygon points="${corners(x, y, SIZE - 4)}" fill="#f5d76e" fill-opacity="0.18" stroke="#f5d76e" stroke-width="1.5" stroke-dasharray="4 3" pointer-events="none"/>`);
+  }
+  if (overlay.selected !== undefined) {
+    const p = s.map.provinces[overlay.selected]!;
+    const [x, y] = center(p.q, p.r);
+    parts.push(`<polygon points="${corners(x, y, SIZE - 1)}" fill="none" stroke="#fff4c2" stroke-width="3" pointer-events="none"/>`);
+  }
+  for (const id of overlay.marks ?? []) {
+    const p = s.map.provinces[id]!;
+    const [x, y] = center(p.q, p.r);
+    parts.push(`<text x="${x + 11}" y="${y - 6}" font-size="11" text-anchor="middle" pointer-events="none">⚒</text>`);
+  }
   // armies
   const byProvince = new Map<number, typeof s.armies>();
   for (const a of s.armies) byProvince.set(a.province, [...(byProvince.get(a.province) ?? []), a]);
@@ -81,6 +108,19 @@ export function renderMap(svg: SVGSVGElement, s: GameState): void {
           `<text x="${x + ox}" y="${y + 8.3}" text-anchor="middle" font-size="${n > 99 ? 6.5 : 8.5}" font-family="Alegreya Sans, sans-serif" font-weight="700" fill="#fff">${n}</text></g>`,
       );
     });
+  }
+  // planned marches
+  for (const [from, to] of overlay.arrows ?? []) {
+    const a = s.map.provinces[from]!;
+    const b = s.map.provinces[to]!;
+    const [x1, y1] = center(a.q, a.r);
+    const [x2, y2] = center(b.q, b.r);
+    const mx = x1 + (x2 - x1) * 0.78;
+    const my = y1 + (y2 - y1) * 0.78;
+    parts.push(
+      `<g pointer-events="none"><line x1="${x1}" y1="${y1 + 5}" x2="${mx}" y2="${my + 5}" stroke="#fff4c2" stroke-width="3" stroke-linecap="round"/>` +
+        `<circle cx="${mx}" cy="${my + 5}" r="3.5" fill="#fff4c2"/></g>`,
+    );
   }
   svg.innerHTML = parts.join('');
 }

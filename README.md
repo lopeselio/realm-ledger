@@ -4,19 +4,41 @@ A turn-based conquest game on a living war table. Rival realms are ruled by AI a
 
 Built at NEAR HACKATHON (1–14 Nov 2026). Tracks: Games With Real Economies, Privacy & Private AI, Agent Economy.
 
-**Live: [realm-ledger.vercel.app](https://realm-ledger.vercel.app)**. Watch an AI-only campaign play out season by season on the real rules engine, check that it replays to the same state hash, and see the campaigns recorded by the testnet contract.
+**Play: [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html)**. You rule one realm against 2–4 AI rulers.
+- **Envoys:** you send envoys to the rival rulers. Their replies come from a model running in a TEE on NEAR AI Cloud, and each reply is signed.
+- **Orders:** you seal your orders in your browser, then reveal them. Every season is settled on the NEAR testnet contract.
+- **Watch:** [realm-ledger.vercel.app](https://realm-ledger.vercel.app) shows AI-only campaigns playing out season by season.
 
 ## Status
 
 The full design, including the game loop, how the AI agents hold their keys, the fair-play protocol and the art direction, is in [DESIGN.md](./DESIGN.md).
 
 Built so far:
-- **The deterministic rules engine** (`packages/rules`): the seeded hex map, the economy and market, simultaneous orders, battles, the AI rulers' strategy engine and the order seals.
-- **The `realm` contract** (`contracts/realm`, Rust, near-sdk 5.29.1), deployed on testnet at [`realm-ledger.testnet`](https://testnet.nearblocks.io/address/realm-ledger.testnet). It handles campaigns, sealed orders checked on reveal, treasuries, treaties signed by both rulers, agent hires with escrow and receipts, and spending caps the contract enforces. Agent accounts hold only a function-call key: they can call a fixed list of methods on this contract and can't move NEAR.
+- **The deterministic rules engine** (`packages/rules`): the seeded hex map, the economy and market, simultaneous orders, battles, diplomacy decisions, the AI rulers' strategy engine and the order seals.
+- **The `realm` contract** (`contracts/realm`, Rust, near-sdk 5.29.1), deployed on testnet at [`realm-ledger.testnet`](https://testnet.nearblocks.io/address/realm-ledger.testnet). It handles:
+  - campaigns, and sealed orders checked when they are revealed,
+  - treasuries, and treaties signed by both rulers,
+  - agent hires with escrow and receipts, and spending caps the contract enforces.
+- **Agent accounts.** Every ruler seat (`ruler0`–`ruler7`, `player`) is an agent account whose only key is a function-call key: it can call a fixed list of methods on this contract and can't move NEAR. The game server's referee key is restricted in the same way, to `create_campaign`, `settle_season` and `finish_campaign`.
+- **The game server** (`apps/server`, hosted on Azure App Service at `realm-ledger-api.azurewebsites.net`). It hosts campaigns and runs the AI rulers.
+  - **AI orders:** each ruler decides its orders with the deterministic engine, from its own fog-of-war view.
+  - **Diplomacy:** the engine decides whether a treaty is accepted. The model only voices the envoy's reply, in character; it may bluff, but it can't change the decision.
+  - **Proof:** every reply is signed in the TEE, and the server collects everything needed to check a campaign into a proof bundle.
+- **The verifier** (`packages/verify`) checks a proof bundle with no API key:
+  - every reveal matches its seal,
+  - every season replays to the state hash posted on chain,
+  - the battle-roll secret and every agenda match the commitments made at campaign start,
+  - every model reply's signature recovers the TEE signing address named in the model's attestation report.
+- **The web app** (`apps/web`, hosted on Vercel): the play page and the AI-campaign viewer, both drawn as a 2D hex map.
 
-- **A campaign viewer** (`apps/web`, hosted on Vercel). It runs the rules engine in the browser and draws the board as a 2D hex map. It replays every campaign from its recorded orders and reads the contract over public testnet RPC.
+The 3D war table, the Chancellor agent and mercenary/spy hiring in play come next.
 
-The game server, the TEE-attested AI diplomacy and the 3D war table come next.
+## How a season works
+
+1. **Plan.** You give orders on the map and send envoys. A treaty the rival ruler accepts is signed on chain by both seat accounts.
+2. **Seal.** Your browser hashes `canonical orders | random salt` and keeps the orders and salt to itself; only the hash goes to the server and on chain. The AI rulers seal theirs at the same moment.
+3. **Reveal.** Every ruler reveals. The contract checks each reveal against its seal, and the server resolves the season with `packages/rules`, using a battle-roll seed derived one-way from a secret committed at campaign start. The new state hash and treasury changes are settled on chain.
+4. **End.** The roll secret and every ruler's secret agenda are revealed and checked on chain against their commitments.
 
 ## Try it
 
@@ -28,14 +50,33 @@ pnpm install
 
 | Do | See |
 |---|---|
-| `pnpm test` | about 56 tests pass. They check that maps are connected, battles favour fortified defenders, a march onto a peace partner's land breaks the treaty, seals reject altered orders, and that a whole AI campaign replays to the same state hash from its recorded orders. |
-| `pnpm sim` | 100 AI-only campaigns in a few seconds, followed by a balance report: battles, fallen realms, wins by seat, which personality traits win, and price ranges for each good. |
-| `pnpm sim -- 1 5 myseed` | one campaign on seed `myseed`, logged season by season, with each realm's final land, troops, treasury and personality. |
-| Open [realm-ledger.vercel.app](https://realm-ledger.vercel.app), or run `pnpm --filter @realm-ledger/web dev` | A hex map of one campaign. Press ▶ to watch the seasons turn, hover a province for its details, and read the chronicle of battles and captures. Below the map: "✓ Replayed 20 seasons from the recorded orders: the same hash", plus the latest campaign on `realm-ledger.testnet`. Change the seed to play a different campaign; `?seed=...&realms=...` links share it. |
-| `pnpm contract:test` (needs Rust) | 20 contract tests pass. One of them checks, with shared test vectors, that the contract computes the same seal hashes as the TypeScript rules. |
-| `pnpm contract:smoke` (needs near CLI and the testnet keys) | A full campaign runs on testnet against the live contract. Each step prints a ✓: agents with function-call keys only, seals, a tampered reveal refused, a spy hired with escrow and a receipt, a spend over the cap refused, the season settled, the roll secret and agendas checked against their commitments, and an agent's NEAR transfer refused. |
+| Open [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html), choose rivals and length, press **New campaign** | Within a few seconds: "Campaign N is onchain. Plan your first season." Click your army (the red circle), then a highlighted province, to march. Send an envoy with a treaty proposal: the reply appears with a "TEE-signed ✓" badge, and the treaty is marked signed or refused. Press **Seal orders**: about 10 seconds later the season turns and the chronicle lists what everyone did. |
+| `pnpm verify:campaign https://realm-ledger-api.azurewebsites.net/api/campaigns/<N>/proof` | One ✓ line per check: seals, replays, onchain state hashes and seals, signed TEE replies and their attested signer. Use the campaign number shown on the play page; its "check it" box has the exact command. After the last season it also checks the revealed roll secret and agendas. It needs no API key. |
+| `pnpm test` | 74 tests pass. They check map connectivity, battles, treaties and betrayals, diplomacy decisions, seals, whole-campaign replays, and verification of real TEE-signed replies, including that tampering is caught. |
+| `pnpm sim` | 100 AI-only campaigns in a few seconds, then a balance report: battles, fallen realms, wins by seat, which personality traits win, and price ranges. |
+| Open [realm-ledger.vercel.app](https://realm-ledger.vercel.app) | An AI-only campaign: press ▶ to watch the seasons turn. Below the map: "✓ Replayed 20 seasons from the recorded orders: the same hash", and the latest campaign recorded on `realm-ledger.testnet`. |
+| `pnpm contract:test` (needs Rust) | 20 contract tests pass. One checks, with shared test vectors, that the contract computes the same seal hashes as the TypeScript rules. |
+| `pnpm contract:smoke` (needs near CLI and the testnet keys) | A full campaign runs on testnet with a ✓ per step, including a tampered reveal refused, a spend over the cap refused, and an agent's NEAR transfer refused. |
+| `pnpm --filter @realm-ledger/server playtest <server-url> 4` | Plays a 4-season campaign through the API, the way the browser does, and runs every proof check against the chain. |
 
-Every rule number (costs, yields, battle modifiers, market drift) is in [`packages/rules/src/constants.ts`](./packages/rules/src/constants.ts). Each price change carries its reasons (`trade`, `war`, `harvest`, `drift`).
+### Running it yourself
+
+- **Server:** `.env` needs `NEARAI_API_KEY`. Run `pnpm --filter @realm-ledger/server setup:agents` once to create the seat accounts, then `pnpm server` (port 8787).
+- **Web app:** `VITE_API_URL=http://localhost:8787 pnpm web`.
+- **Docker:** the `Dockerfile` builds the server image used on Azure.
+
+Every rule number (costs, yields, battle modifiers, market drift) is in [`packages/rules/src/constants.ts`](./packages/rules/src/constants.ts).
+
+## What is and isn't proven
+
+- **Proven by the chain and the verifier:**
+  - nobody changed sealed orders,
+  - every season's result follows from the revealed orders and the committed roll secret,
+  - the AI rulers' secret agendas were fixed at the start,
+  - every envoy reply came from a key that NEAR AI's attestation report binds to the TEE.
+- **Not checked by our verifier:** the Intel TDX and NVIDIA quotes inside the attestation report. That needs Intel's DCAP collateral; NEAR AI documents how to check them.
+- **What the server can see:** the game server sees all orders once they are revealed, and it holds the seat keys, within what the contract allows each seat. Human players currently sign through one shared `player` seat account held by the server. Wallet or social login (open question 1 in DESIGN.md) comes later.
+- **A known gap:** if the server restarts in the middle of a request, its saved state can fall one step behind the chain.
 
 ## Our other hackathon project
 

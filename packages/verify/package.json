@@ -1,0 +1,25 @@
+{
+  "name": "@realm-ledger/verify",
+  "version": "0.1.0",
+  "description": "Checks a Realm Ledger campaign proof bundle with no API key: seals, replay, state hashes, and the TEE model's signed replies.",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "bin": { "realm-verify": "./src/cli.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "verify": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@noble/curves": "2.3.0",
+    "@noble/hashes": "2.4.0",
+    "@realm-ledger/rules": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

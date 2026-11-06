@@ -3,7 +3,7 @@ import {
   BASE_PRICE,
   GOODS,
   newCampaign,
-  resolveSeason,
+  replaySeason,
   runCampaign,
   scores,
   seasonName,
@@ -31,7 +31,7 @@ function play(seed: string, realms: number): void {
   history = result.history;
   // rebuild every season's state by replaying the recorded orders: this is what the verifier does
   states = [newCampaign({ seed, realms, human: null })];
-  for (const h of history) states.push(resolveSeason(states.at(-1)!, h.orders, { rollSeed: h.rollSeed }).state);
+  for (const h of history) states.push(replaySeason(states.at(-1)!, h).state);
   const replayed = stateHash(states.at(-1)!);
   const original = stateHash(result.state);
   $('state-hash').textContent = original;

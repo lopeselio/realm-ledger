@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+contracts
+apps/web
+.env
+.env.*
+.git
+.vercel
+**/test

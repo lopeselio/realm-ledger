@@ -8,3 +8,4 @@ target/
 .DS_Store
 .vercel
 .env*
+apps/server/data/

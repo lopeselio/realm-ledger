@@ -131,6 +131,8 @@ export interface GameState {
   armies: Army[];
   market: Market;
   treaties: Treaty[];
+  /** every broken treaty, remembered by every ruler */
+  betrayals: { by: number; against: number; season: number }[];
   /** set when the campaign is over */
   winner: number | null;
 }
@@ -171,6 +173,7 @@ export type GameEvent =
   | { kind: 'captured'; realm: number; province: number; from: number }
   | { kind: 'fallen'; realm: number; by: number }
   | { kind: 'treaty-broken'; realm: number; against: number; treaty: Treaty['kind']; province: number }
+  | { kind: 'tribute'; from: number; to: number; amount: number }
   | { kind: 'harvest'; realm: number; gained: Purse }
   | { kind: 'upkeep'; realm: number; paid: Purse; deserted: Troops; spoiled: Omit<Purse, 'crowns'> }
   | { kind: 'price'; good: Good; from: number; to: number }

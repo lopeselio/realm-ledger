@@ -1,0 +1,1 @@
+{"model":"Qwen/Qwen3.6-35B-A3B-FP8","messages":[{"role":"system","content":"You are the envoy of a small kingdom. Reply in one sentence."},{"role":"user","content":"Will you grant my army passage through your hills?"}],"max_tokens":200}

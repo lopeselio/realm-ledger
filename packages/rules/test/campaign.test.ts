@@ -6,7 +6,8 @@ import {
   decideOrders,
   newCampaign,
   newSalt,
-  resolveSeason,
+  replaySeason,
+  seasonRollSeed,
   runCampaign,
   sealOrders,
   stateHash,
@@ -48,7 +49,7 @@ describe('AI campaigns', () => {
   it('can be re-resolved season by season from the recorded orders', () => {
     const { state, history } = runCampaign({ seed: 'verify-me', realms: 5 });
     let s = newCampaign({ seed: 'verify-me', realms: 5, human: null });
-    for (const h of history) s = resolveSeason(s, h.orders, { rollSeed: h.rollSeed }).state;
+    for (const h of history) s = replaySeason(s, h).state;
     expect(stateHash(s)).toBe(stateHash(state));
   });
 
@@ -81,5 +82,15 @@ describe('AI campaigns', () => {
     const s = newCampaign({ seed: 'orders', human: 1 });
     const sets = aiOrders(s);
     expect(sets.map((x) => x.realm)).toEqual(s.realms.filter((r) => !r.human).map((r) => r.id));
+  });
+});
+
+describe('season roll seeds', () => {
+  it('do not reveal the roll secret and differ by season', () => {
+    const a = seasonRollSeed('top-secret', 0);
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(a).not.toContain('top-secret');
+    expect(seasonRollSeed('top-secret', 1)).not.toBe(a);
+    expect(seasonRollSeed('top-secret', 0)).toBe(a);
   });
 });

@@ -188,6 +188,7 @@ export function newCampaign(opts: CampaignOptions): GameState {
     armies,
     market: newMarket(),
     treaties: [],
+    betrayals: [],
     winner: null,
   };
 }

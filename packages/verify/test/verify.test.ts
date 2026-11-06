@@ -1,0 +1,112 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  aiOrders,
+  commit,
+  newCampaign,
+  replaySeason,
+  sealOrders,
+  seasonRollSeed,
+  stateHash,
+  type GameState,
+} from '@realm-ledger/rules';
+import { describe, expect, it } from 'vitest';
+import { checkReply, recoverSigner, verifyBundle, type ProofBundle, type SignedReply } from '../src/index.ts';
+
+const fx = (f: string): string => readFileSync(join(import.meta.dirname, 'fixtures', f), 'utf8');
+
+// A real reply from NEAR AI Cloud's TEE-hosted Qwen model, captured 2026-11-06.
+const sig = JSON.parse(fx('signature.json')) as { text: string; signature: string; signing_address: string; signature_kind: string };
+const reply: SignedReply = {
+  realm: 1,
+  season: 0,
+  model: 'Qwen/Qwen3.6-35B-A3B-FP8',
+  request: fx('request.json'),
+  response: fx('response.json'),
+  text: sig.text,
+  signature: sig.signature,
+  signingAddress: sig.signing_address,
+  signatureKind: sig.signature_kind,
+};
+
+describe('TEE reply signatures', () => {
+  it('recover the attested signing address from a real reply', () => {
+    expect(recoverSigner(reply.text, reply.signature)).toBe('0xfdbd7952498b333206f360d71d97a1e0961e8ddf');
+    expect(checkReply(reply).ok).toBe(true);
+  });
+
+  it('fail when a single byte of the response changes', () => {
+    const tampered = { ...reply, response: reply.response.replace('"assistant"', '"Assistant"') };
+    expect(tampered.response).not.toBe(reply.response);
+    expect(checkReply(tampered).ok).toBe(false);
+  });
+
+  it('fail when the claimed signer is someone else', () => {
+    expect(checkReply({ ...reply, signingAddress: '0x0000000000000000000000000000000000000001' }).ok).toBe(false);
+  });
+});
+
+/** Plays a short AI campaign the way the server does and builds its bundle. */
+function bundleFor(seed: string, seasons: number): ProofBundle {
+  const options = { seed, realms: 3, human: null, maxSeasons: seasons };
+  let s: GameState = newCampaign(options);
+  const rollSecret = 'roll-secret';
+  const rollSalt = 'rs';
+  const agendaSalts = s.realms.map((_, i) => `as-${i}`);
+  const b: ProofBundle = {
+    version: 1,
+    contract: 'realm-ledger.testnet',
+    campaign: 0,
+    options,
+    rollCommit: commit(rollSecret, rollSalt),
+    agendaCommits: s.realms.map((r, i) => commit(r.agenda, agendaSalts[i]!)),
+    rollSecret,
+    rollSalt,
+    agendaSalts,
+    seasons: [],
+    replies: [reply],
+    attestation: { nonce: 'n', model: reply.model, report: { model_attestations: [{ signing_address: reply.signingAddress }] } },
+  };
+  for (let i = 0; i < seasons; i++) {
+    const orders = aiOrders(s);
+    const rollSeed = seasonRollSeed(rollSecret, s.season);
+    const seals = orders.map((o) => ({ realm: o.realm, salt: `salt-${i}-${o.realm}`, orders: o, seal: sealOrders(o, `salt-${i}-${o.realm}`) }));
+    s = replaySeason(s, { season: s.season, treaties: [], orders, rollSeed, events: [] }).state;
+    b.seasons.push({ season: i, treaties: [], seals, rollSeed, stateHash: stateHash(s) });
+  }
+  return b;
+}
+
+describe('verifyBundle', () => {
+  it('passes an honest campaign', () => {
+    const checks = verifyBundle(bundleFor('verify', 4));
+    expect(checks.filter((c) => !c.ok)).toEqual([]);
+    expect(checks.length).toBeGreaterThan(10);
+  });
+
+  it('catches orders changed after sealing', () => {
+    const b = bundleFor('verify', 3);
+    const x = b.seasons[1]!.seals[0]!;
+    x.orders = { ...x.orders, orders: [] };
+    const failed = verifyBundle(b).filter((c) => !c.ok).map((c) => c.name);
+    expect(failed.some((n) => n.includes('match their seals'))).toBe(true);
+  });
+
+  it('catches a changed battle roll', () => {
+    const b = bundleFor('verify', 3);
+    b.seasons[0]!.rollSeed = 'different';
+    expect(verifyBundle(b).some((c) => !c.ok && c.name.includes('roll seed'))).toBe(true);
+  });
+
+  it('catches a lied-about agenda', () => {
+    const b = bundleFor('verify', 1);
+    b.agendaSalts![0] = 'wrong';
+    expect(verifyBundle(b).some((c) => !c.ok && c.name.includes('agenda'))).toBe(true);
+  });
+
+  it('catches a reply signed by a key the attestation does not vouch for', () => {
+    const b = bundleFor('verify', 1);
+    b.attestation!.report.model_attestations = [{ signing_address: '0x0000000000000000000000000000000000000002' }];
+    expect(verifyBundle(b).some((c) => !c.ok && c.name.includes('attested TEE key'))).toBe(true);
+  });
+});
