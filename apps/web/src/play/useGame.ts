@@ -88,6 +88,23 @@ export function useGame(id: number | null, signer: Signer | null) {
     return s;
   };
 
+  /** The fresh campaign, for checking what the server did after a call failed; keeps that call's error if this fails too. */
+  const recheck = (v: View, e: unknown): Promise<View> =>
+    api<View>(`/campaigns/${v.id}`).catch(() => {
+      throw e;
+    });
+
+  /** POSTs /reveal and resolves to the settled season, also when the connection dropped after the server settled. */
+  const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View }> => {
+    try {
+      return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
+    } catch (e) {
+      const now = await recheck(v, e);
+      if (now.season === v.season) throw e;
+      return { events: now.lastEvents, view: now };
+    }
+  };
+
   const reveal = async (): Promise<void> => {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
@@ -95,7 +112,8 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!secret) {
       // the season can still settle without them once the contract's reveal window closes
       const c = await chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null);
-      const at = c && c.season === v.season ? c.seal_deadline_ms + c.season_ms + 60_000 : null;
+      // the chain may be past this season already (the server crashed before saving): open now
+      const at = !c ? null : c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
       if (viewRef.current?.id !== v.id) return;
       setForfeitAt(at);
       say(
@@ -112,14 +130,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         const rec = await chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human });
         if (!rec?.revealed) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
       }
-      let r: { events: GameEvent[]; view: View };
-      try {
-        r = await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, secret);
-      } catch (e) {
-        const now = await api<View>(`/campaigns/${v.id}`);
-        if (now.season === v.season) throw e;
-        r = { events: now.lastEvents, view: now };
-      }
+      const r = await settle(v, secret);
       if (!adopt(r.view)) return;
       freshDraft();
       say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : `The season turned. ${r.view.envoysLeft} envoys available.`);
@@ -132,15 +143,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     await withBusy('Settling the season without your orders; every AI ruler reveals…', async () => {
       setBefore(v.state);
-      let r: { events: GameEvent[]; view: View };
-      try {
-        r = await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, { forfeit: true });
-      } catch (e) {
-        // the connection may drop after the server settled; check before giving up
-        const now = await api<View>(`/campaigns/${v.id}`);
-        if (now.season === v.season) throw e;
-        r = { events: now.lastEvents, view: now };
-      }
+      const r = await settle(v, { forfeit: true });
       if (!adopt(r.view)) return;
       setForfeitAt(null);
       freshDraft();
@@ -224,15 +227,18 @@ export function useGame(id: number | null, signer: Signer | null) {
         say('Posting your seal onchain from your account…');
         await wallet.call('seal', { campaign: v.id, realm: v.human, seal: hash });
       }
+      let after: View;
       try {
-        adopt(await api<View>(`/campaigns/${v.id}/seal`, { seal: hash }));
+        after = await api<View>(`/campaigns/${v.id}/seal`, { seal: hash });
       } catch (e) {
         // the connection may drop after the server acted; check before giving up
-        const now = await api<View>(`/campaigns/${v.id}`);
-        if (now.phase !== 'sealed') throw e;
-        adopt(now);
+        after = await recheck(v, e);
+        if (after.phase !== 'sealed') throw e;
       }
-      say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
+      adopt(after);
+      // the server keeps a seal an earlier attempt already put onchain
+      if (after.yourSeal && after.yourSeal !== hash) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
+      else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
     // reveals only if the season is sealed, even when the seal call itself errored
     await reveal();

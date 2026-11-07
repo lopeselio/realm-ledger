@@ -263,11 +263,9 @@ export async function checkAgainstChain(
     }
     // every seal onchain is accounted for: revealed in the bundle, or listed as forfeited
     const accounted = new Set([...sp.seals.map((x) => x.realm), ...(sp.forfeited ?? [])]);
-    const missing: number[] = [];
-    for (let r = 0; r < c.realms.length; r++) {
-      if (accounted.has(r)) continue;
-      if (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })) missing.push(r);
-    }
+    const others = c.realms.map((_, r) => r).filter((r) => !accounted.has(r));
+    const posted = await Promise.all(others.map((r) => view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })));
+    const missing = others.filter((_, i) => posted[i]);
     checks.push({
       name: `season ${sp.season}: every seal onchain is revealed or forfeited in the bundle`,
       ok: missing.length === 0,

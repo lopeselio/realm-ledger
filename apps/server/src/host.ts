@@ -543,8 +543,8 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 // ---------- reveal and resolve ----------
 
 /**
- * When the contract lets this season settle without every reveal: a full season after seals
- * closed. 0 if the chain already settled it (a crash before the server saved): retry freely.
+ * When the contract lets this season settle without every reveal: a full season after the
+ * season's seal deadline. 0 if the chain already settled it (a crash before the server saved): retry freely.
  */
 async function forfeitOpensAt(id: number, season: number): Promise<number> {
   const c = await view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: id });
