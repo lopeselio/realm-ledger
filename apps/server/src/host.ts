@@ -542,20 +542,40 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 
 // ---------- reveal and resolve ----------
 
-export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null): Promise<GameEvent[]> {
+/** When the contract lets a season settle without every reveal: a full season after seals closed. */
+async function forfeitOpensAt(id: number): Promise<number> {
+  const c = await view<{ seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: id });
+  if (!c) throw new GameError('campaign not found onchain', 502);
+  return c.seal_deadline_ms + c.season_ms;
+}
+
+/**
+ * Reveals every seal and resolves the season. With `forfeit`, your sealed orders are given up
+ * (your realm does nothing this season): for when the browser holding them is gone. The
+ * contract only allows that once the reveal window has closed.
+ */
+export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false): Promise<GameEvent[]> {
   return locked(id, async () => {
     const h = get(id);
     if (h.phase !== 'sealed') throw new GameError('nothing sealed to reveal');
     const before = h.state;
     const reveals: { realm: number; orders: OrderSet; salt: string; seal: string }[] = [...h.pending.ai];
-    if (h.pending.humanSeal) {
+    const forfeited: number[] = [];
+    if (h.pending.humanSeal && forfeit) {
+      const opens = await forfeitOpensAt(h.id);
+      // a minute of margin for the chain's clock
+      if (Date.now() < opens + 60_000) throw new GameError(`your orders can be forfeited from ${new Date(opens + 60_000).toISOString()}`, 409);
+      const rec = await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: HUMAN });
+      if (rec?.revealed) throw new GameError('your orders are already revealed onchain; reveal them here instead');
+      forfeited.push(HUMAN);
+    } else if (h.pending.humanSeal) {
       if (!orders || salt === null) throw new GameError('reveal needs your orders and salt');
       if (orders.realm !== HUMAN || orders.season !== before.season) throw new GameError('those orders are for another realm or season');
       if (sealOrders(orders, salt) !== h.pending.humanSeal) throw new GameError('those orders do not match your seal');
       reveals.push({ realm: HUMAN, orders, salt, seal: h.pending.humanSeal });
     }
     reveals.sort((a, b) => a.realm - b.realm);
-    if (h.player && h.pending.humanSeal) {
+    if (h.player && h.pending.humanSeal && !forfeit) {
       const rec = await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: HUMAN });
       if (!rec?.revealed) throw new GameError('reveal your orders onchain from your wallet first');
     }
@@ -595,6 +615,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       treaties: h.pending.treaties,
       deals: h.pending.deals,
       seals: reveals,
+      ...(forfeited.length > 0 ? { forfeited } : {}),
       rollSeed,
       stateHash: hash,
     });

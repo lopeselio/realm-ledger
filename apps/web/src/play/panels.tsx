@@ -104,6 +104,11 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
         Seal orders
       </button>
       <p className="fine">Your browser hashes your orders with a secret salt. Only the hash goes onchain until every ruler has sealed.</p>
+      {v.phase === 'sealed' && game.forfeitAt !== null && (
+        <button type="button" className="wide" disabled={game.busy || Date.now() < game.forfeitAt} onClick={() => void game.forfeit()}>
+          {Date.now() < game.forfeitAt ? `Settle without my orders (from ${new Date(game.forfeitAt).toLocaleString()})` : 'Settle without my orders'}
+        </button>
+      )}
     </section>
   );
 }

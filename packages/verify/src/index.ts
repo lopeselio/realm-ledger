@@ -58,8 +58,13 @@ export interface SeasonProof {
   treaties: Treaty[];
   /** market purchases applied before the season resolved */
   deals?: Deal[];
-  /** one per realm that sealed */
+  /** one per realm that sealed and revealed */
   seals: { realm: number; seal: string; salt: string; orders: OrderSet }[];
+  /**
+   * realms that sealed but never revealed: the referee settled without their orders once the
+   * contract allowed it (a full season after seals closed), so they did nothing that season
+   */
+  forfeited?: number[];
   rollSeed: string;
   /** stateHash after the season resolved */
   stateHash: string;
@@ -146,6 +151,7 @@ export function verifyBundle(b: ProofBundle): Check[] {
     if (b.rollSecret !== undefined) push(`season ${sp.season}: roll seed derives from the secret`, seasonRollSeed(b.rollSecret, sp.season) === sp.rollSeed);
     const sealsOk = sp.seals.every((x) => x.orders.realm === x.realm && x.orders.season === sp.season && sealOrders(x.orders, x.salt) === x.seal);
     push(`season ${sp.season}: ${sp.seals.length} reveals match their seals`, sealsOk);
+    for (const r of sp.forfeited ?? []) push(`season ${sp.season}: realm ${r} never revealed and forfeited its orders`, !sp.seals.some((x) => x.realm === r));
     const result = replaySeason(state, {
       season: sp.season,
       treaties: sp.treaties,
@@ -248,6 +254,11 @@ export async function checkAgainstChain(
     for (const x of sp.seals) {
       const rec = (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: x.realm })) as { seal: string } | null;
       checks.push({ name: `season ${sp.season}: realm ${x.realm}'s seal is the one posted onchain`, ok: rec?.seal === x.seal });
+    }
+    for (const r of sp.forfeited ?? []) {
+      // the contract only settles without a sealed realm's reveal after the reveal window closed
+      const rec = (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })) as { revealed: boolean } | null;
+      checks.push({ name: `season ${sp.season}: realm ${r} sealed but never revealed onchain`, ok: !!rec && !rec.revealed });
     }
   }
   return checks;
