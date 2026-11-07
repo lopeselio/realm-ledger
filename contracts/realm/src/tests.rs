@@ -89,9 +89,9 @@ fn seal_reveal_settle_finish() {
     assert!(c.get_seal(id, 0, 1).unwrap().revealed);
     assert!(get_logs().iter().any(|l| l.contains("\"event\":\"revealed\"") && l.contains("march")));
 
-    // realms 0 and 2 never reveal: after a further season the referee may settle anyway
+    // realms 0 and 2 never reveal: after a further season the referee may settle them as forfeited
     as_(referee(), 2_000 + SEASON_MS * 2 + 1);
-    c.settle_season(id, seal_hex(9), vec![10, -20, 0], vec![], vec![], None);
+    c.settle_season(id, seal_hex(9), vec![10, -20, 0], vec![], vec![], Some(vec![0, 2]));
     let camp = c.get_campaign(id).unwrap();
     assert_eq!(camp.season, 1);
     assert_eq!(camp.phase, Phase::Sealing);
@@ -413,4 +413,20 @@ fn agent_seat_reveals_are_not_kept() {
     testing_env!(VMContextBuilder::new().current_account_id("contract.testnet".parse().unwrap()).predecessor_account_id(seat).block_timestamp(3_000 * 1_000_000).build());
     c.reveal(id2, 1, ORDERS.into(), ORDERS_SALT.into());
     assert_eq!(c.get_reveal(id2, 0, 1), None);
+}
+
+#[test]
+#[should_panic(expected = "waiting for reveals")]
+fn an_unrevealed_realm_must_be_named_even_after_the_window() {
+    let (mut c, id) = all_sealed();
+    as_(referee(), 1_000 + SEASON_MS * 3);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], None);
+}
+
+#[test]
+#[should_panic(expected = "a realm is listed twice")]
+fn a_forfeited_realm_is_listed_once() {
+    let (mut c, id) = all_sealed();
+    as_(referee(), 1_000 + SEASON_MS * 3);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 0, 1, 2]));
 }

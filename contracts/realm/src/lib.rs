@@ -27,8 +27,6 @@ pub const AGENT_METHODS: &str = "seal,reveal,propose_treaty,accept_treaty,set_po
 /// Gas allowance on each agent key. When it runs out the agent can't sign; a new key is needed.
 pub const AGENT_GAS_ALLOWANCE: NearToken = NearToken::from_millinear(500);
 const MAX_ORDERS_JSON: usize = 8_000;
-/// Largest reveal (orders and salt) the contract keeps until the season settles.
-const MAX_KEPT_REVEAL: usize = 2_000;
 const MAX_TEXT: usize = 1_000;
 const MAX_REALMS: usize = 8;
 
@@ -393,10 +391,10 @@ impl RealmLedger {
         require!(c.phase == Phase::Revealing, "seals are not closed yet");
         let r = c.realms.get(realm as usize).unwrap_or_else(|| env::panic_str("no such realm"));
         require!(r.ruler == caller || c.referee == caller, "only the ruler or the referee reveals");
-        // kept only for rulers outside this contract (players' own wallets), and only small
-        // order sets: the referee already holds every agent seat's orders, and the contract
-        // pays for this storage
-        let keep = !r.ruler.is_sub_account_of(&env::current_account_id()) && orders.len() + salt.len() <= MAX_KEPT_REVEAL;
+        // kept only for rulers outside this contract (players' own wallets): the referee
+        // already holds every agent seat's orders, and the contract pays for this storage
+        // (at most MAX_ORDERS_JSON bytes per wallet realm, freed when the season settles)
+        let keep = !r.ruler.is_sub_account_of(&env::current_account_id());
         require!(!c.revealed[realm as usize], "already revealed");
         c.revealed[realm as usize] = true;
         let season = c.season;
@@ -432,10 +430,9 @@ impl RealmLedger {
     /// The referee posts the result of resolving the season with packages/rules: the new
     /// state hash, each realm's treasury change, realms that fell and treaties broken.
     ///
-    /// `forfeited` lists the sealed realms settled without their orders. Each must have sealed
-    /// and not revealed, and either forfeited itself or waited out a full season after the
-    /// seal deadline; every other sealed realm must have revealed. Without the list (older
-    /// callers), it settles once every sealed realm revealed or a full season has passed.
+    /// `forfeited` lists the sealed realms settled without their orders (omitted: none). Each
+    /// must have sealed and not revealed, and either forfeited itself or waited out a full
+    /// season after the seal deadline; every other sealed realm must have revealed.
     pub fn settle_season(
         &mut self,
         campaign: u64,
@@ -456,24 +453,16 @@ impl RealmLedger {
         require!(c.phase == Phase::Revealing, "seals are not closed yet");
         let window_closed = now >= c.seal_deadline_ms + c.season_ms;
         let n = c.realms.len();
-        let forfeited = match forfeited {
-            None => {
-                let all_revealed = (0..n).all(|i| !c.sealed[i] || c.revealed[i]);
-                require!(all_revealed || window_closed, "waiting for reveals");
-                vec![]
-            }
-            Some(list) => {
-                for &f in &list {
-                    let i = f as usize;
-                    require!(i < n, "no such realm");
-                    require!(c.sealed[i] && !c.revealed[i], "a forfeited realm must have sealed and not revealed");
-                    let declared = env::storage_has_key(&season_key(FORFEIT_PREFIX, campaign, c.season, f));
-                    require!(declared || window_closed, "a realm can only be forfeited by its ruler or after the reveal window");
-                }
-                require!((0..n).all(|i| !c.sealed[i] || c.revealed[i] || list.contains(&(i as u8))), "waiting for reveals");
-                list
-            }
-        };
+        let forfeited = forfeited.unwrap_or_default();
+        for (k, &f) in forfeited.iter().enumerate() {
+            let i = f as usize;
+            require!(i < n, "no such realm");
+            require!(!forfeited[..k].contains(&f), "a realm is listed twice");
+            require!(c.sealed[i] && !c.revealed[i], "a forfeited realm must have sealed and not revealed");
+            let declared = env::storage_has_key(&season_key(FORFEIT_PREFIX, campaign, c.season, f));
+            require!(declared || window_closed, "a realm can only be forfeited by its ruler or after the reveal window");
+        }
+        require!((0..n).all(|i| !c.sealed[i] || c.revealed[i] || forfeited.contains(&(i as u8))), "waiting for reveals");
         require!(treasury_deltas.len() == c.realms.len(), "one treasury delta per realm");
 
         for (realm, delta) in c.realms.iter_mut().zip(&treasury_deltas) {

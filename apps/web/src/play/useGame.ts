@@ -197,7 +197,9 @@ export function useGame(id: number | null, signer: Signer | null) {
             // revealed from another browser meanwhile: those orders count, so settle with them
             if (/already revealed/.test(msg)) {
               revealedElsewhere = true;
-            } else if (/method|permission|not allowed|access key/i.test(msg)) {
+            } else if (/already forfeited/.test(msg)) {
+              // another tab got there first: settle as forfeited
+            } else if (/MethodNameMismatch|MethodNotAllowed|method name is not allowed|not allowed to call/i.test(msg)) {
               throw new Error(`${msg} Your wallet key predates this action: sign out and sign in again.`);
             } else throw e;
           }
