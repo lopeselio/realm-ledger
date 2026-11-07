@@ -1,9 +1,10 @@
 import { seasonName, type GameState, type Order } from '@realm-ledger/rules';
 
+export const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
 /** "Spring, year 1" */
 export function seasonTitle(season: number): string {
-  const name = seasonName(season);
-  return `${name[0]!.toUpperCase()}${name.slice(1)}, year ${Math.floor(season / 4) + 1}`;
+  return `${capitalize(seasonName(season))}, year ${Math.floor(season / 4) + 1}`;
 }
 
 /** One order in words, for the orders list and the Chancellor's advice. */

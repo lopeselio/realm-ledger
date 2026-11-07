@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty } from '@realm-ledger/rules';
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
+import { capitalize } from '../format.ts';
 import { findSecret, keepSecret } from '../secrets.ts';
 import type { Signer } from '../wallet.ts';
 
@@ -28,6 +29,9 @@ export function useGame(id: number | null, signer: Signer | null) {
   // flows await the server and the chain: they read the latest values through refs
   const viewRef = useRef<View | null>(null);
   const busyRef = useRef(false);
+  // the campaign in the URL: a flow that finishes after you navigated away must not bring its campaign back
+  const routeRef = useRef(id);
+  const triedRef = useRef<number | null>(null);
   const signerRef = useRef(signer);
   signerRef.current = signer;
   const setView = (v: View | null): void => {
@@ -38,7 +42,18 @@ export function useGame(id: number | null, signer: Signer | null) {
     busyRef.current = b;
     setBusyState(b);
   };
-  const say = (text: string, tone: Status['tone'] = 'info'): void => setStatusState({ text, tone });
+  /** Shows a campaign the server returned, if it is still the one in the URL. */
+  const adopt = (v: View, route: number | null = v.id): boolean => {
+    if (routeRef.current !== route) return false;
+    setView(v);
+    return true;
+  };
+  // the URL a running flow started on: its messages are dropped once you navigate away
+  const flowRouteRef = useRef<number | null>(null);
+  const say = (text: string, tone: Status['tone'] = 'info'): void => {
+    if (busyRef.current && flowRouteRef.current !== routeRef.current) return;
+    setStatusState({ text, tone });
+  };
   const freshDraft = (): void => {
     setOrders([]);
     setSelected(undefined);
@@ -50,6 +65,7 @@ export function useGame(id: number | null, signer: Signer | null) {
 
   const withBusy = useCallback(async (label: string, fn: () => Promise<void>): Promise<void> => {
     if (busyRef.current) return;
+    flowRouteRef.current = routeRef.current;
     setBusy(true);
     say(label);
     try {
@@ -91,25 +107,31 @@ export function useGame(id: number | null, signer: Signer | null) {
         if (now.season === v.season) throw e;
         r = { events: now.lastEvents, view: now };
       }
-      setView(r.view);
+      if (!adopt(r.view)) return;
       freshDraft();
       say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : `The season turned. ${r.view.envoysLeft} envoys available.`);
     });
   };
 
-  // open the campaign in the URL (unless it is the one just created here)
+  // a new URL: drop whatever campaign was on screen unless it is the one asked for
   useEffect(() => {
-    if (id === null) {
+    routeRef.current = id;
+    triedRef.current = null;
+    if (viewRef.current && viewRef.current.id !== id) {
       setView(null);
       setBefore(null);
       freshDraft();
-      say(INTRO);
-      return;
     }
-    if (viewRef.current?.id === id) return;
+    if (id === null) setStatusState({ text: INTRO, tone: 'info' });
+  }, [id]);
+
+  // load the campaign in the URL once nothing else is running (a flow may still be finishing)
+  useEffect(() => {
+    if (id === null || busy || viewRef.current?.id === id || triedRef.current === id) return;
+    triedRef.current = id;
     void withBusy('Loading campaign…', async () => {
       const v = await api<View>(`/campaigns/${id}`);
-      setView(v);
+      if (!adopt(v, id)) return;
       setBefore(null);
       freshDraft();
       say(v.phase === 'over' ? 'This campaign is over. Everything is revealed.' : `Campaign ${v.id}: plan your orders, then seal them.`);
@@ -118,11 +140,12 @@ export function useGame(id: number | null, signer: Signer | null) {
       if (viewRef.current?.id === id && viewRef.current.phase === 'sealed') return reveal();
     });
     // reveal and withBusy read only refs
-  }, [id]);
+  }, [id, busy]);
 
   /** Creates a campaign onchain; resolves to its id, or null if it failed. */
   const newCampaign = async (realms: number, seasons: number): Promise<number | null> => {
     let created: number | null = null;
+    const route = routeRef.current;
     await withBusy('Creating the campaign onchain and fetching the model attestation…', async () => {
       const s = signerRef.current;
       const v = await api<View>('/campaigns', {
@@ -131,7 +154,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         // signed in: your own account rules realm 0 onchain
         ...(s ? { player: s.accountId } : {}),
       });
-      setView(v);
+      if (!adopt(v, route)) return;
       setBefore(null);
       freshDraft();
       created = v.id;
@@ -154,12 +177,12 @@ export function useGame(id: number | null, signer: Signer | null) {
         await walletFor(v).call('seal', { campaign: v.id, realm: v.human, seal: hash });
       }
       try {
-        setView(await api<View>(`/campaigns/${v.id}/seal`, { seal: hash }));
+        adopt(await api<View>(`/campaigns/${v.id}/seal`, { seal: hash }));
       } catch (e) {
         // the connection may drop after the server acted; check before giving up
         const now = await api<View>(`/campaigns/${v.id}`);
         if (now.phase !== 'sealed') throw e;
-        setView(now);
+        adopt(now);
       }
       say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
@@ -185,8 +208,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         await walletFor(v).call('set_policy', { campaign: v.id, realm: v.human, spender: v.chancellor, season_cap: spentSeason + budget, campaign_cap: spentTotal + budget });
       }
       const r = await api<{ task: ChancellorTask; view: View }>(`/campaigns/${v.id}/chancellor`, { task, budget });
-      setView(r.view);
-      ok = true;
+      ok = adopt(r.view);
       say(r.task.jobs.length ? `Hired ${r.task.jobs.length}; ${r.task.plan.spent} crowns in escrow until the season turns.` : 'The Chancellor bought nothing this time.');
     });
     return ok;
@@ -199,14 +221,13 @@ export function useGame(id: number | null, signer: Signer | null) {
     let ok = false;
     await withBusy('Your envoy rides out…', async () => {
       const r = await api<{ envoy: Envoy; view: View }>(`/campaigns/${v.id}/envoy`, draft);
-      setView(r.view);
+      if (!adopt(r.view)) return;
       const t = r.view.proposeTreaty;
       if (t && v.player) {
         // the envoy agreed: propose the treaty from your own account, then the rival accepts onchain
         say('Proposing the treaty onchain from your account…');
-        const kindName = t.kind[0]!.toUpperCase() + t.kind.slice(1);
-        const treaty = await walletFor(v).call<number>('propose_treaty', { campaign: v.id, from: t.from, to: t.to, kind: kindName, amount: t.amount });
-        setView(await api<View>(`/campaigns/${v.id}/treaty`, { treaty }));
+        const treaty = await walletFor(v).call<number>('propose_treaty', { campaign: v.id, from: t.from, to: t.to, kind: capitalize(t.kind), amount: t.amount });
+        adopt(await api<View>(`/campaigns/${v.id}/treaty`, { treaty }));
       }
       ok = true;
       say(r.envoy.accepted === undefined ? 'The envoy returns.' : r.envoy.accepted ? 'Treaty signed onchain by both rulers.' : 'Refused.');

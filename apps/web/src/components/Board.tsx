@@ -71,27 +71,35 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend }: BoardPr
     tip.style.top = `${y + 14}px`;
   };
 
-  // load the 3D table the first time it is shown
+  // load the 3D table the first time it is shown; flipping back to flat meanwhile doesn't
+  // cancel it, so it loads once
+  const mounted = useRef(true);
+  const loading = useRef(false);
   useEffect(() => {
-    if (mode !== '3d' || table || unavailable) return;
-    let cancelled = false;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (mode !== '3d' || table || unavailable || loading.current) return;
+    loading.current = true;
     import('../table3d.ts')
       .then(({ createTable3D }) => createTable3D(containerRef.current!))
       .then((t) => {
-        if (cancelled) return t.dispose();
+        loading.current = false;
+        if (!mounted.current) return t.dispose();
         t.onPick((p) => handlers.current.onPick?.(p));
         t.onHover(showTip);
         setTable(t);
       })
       .catch((e: unknown) => {
-        if (cancelled) return;
+        loading.current = false;
+        if (!mounted.current) return;
         console.warn('3D table unavailable, using the 2D map:', e);
         setUnavailable(true);
         setMode('2d');
       });
-    return () => {
-      cancelled = true;
-    };
     // showTip reads only refs, so it need not be a dependency
   }, [mode, table, unavailable]);
 

@@ -17,6 +17,7 @@ function Selection({ game, v }: { game: Game; v: View }) {
   const p = s.map.provinces[sel]!;
   const army = game.armyAt(sel);
   const mine = s.owner[sel] === v.human;
+  const off = !planningOf(game);
   return (
     <>
       <p>
@@ -26,20 +27,20 @@ function Selection({ game, v }: { game: Game; v: View }) {
       {mine && (
         <div className="actions">
           {s.forts[sel]! < 3 && (
-            <button type="button" onClick={() => game.addOrder({ kind: 'fortify', province: sel })}>
+            <button type="button" disabled={off} onClick={() => game.addOrder({ kind: 'fortify', province: sel })}>
               Fortify ({COST.fortify.crowns}c {COST.fortify.timber}t {COST.fortify.iron}i)
             </button>
           )}
-          <button type="button" onClick={() => game.addOrder({ kind: 'levy', province: sel })}>
+          <button type="button" disabled={off} onClick={() => game.addOrder({ kind: 'levy', province: sel })}>
             Raise {COST.levyTroops} levies ({COST.levy.crowns}c {COST.levy.grain}g)
           </button>
           {s.towns[sel] ? (
-            <button type="button" onClick={() => game.addOrder({ kind: 'recruit', province: sel, count: 2 })}>
+            <button type="button" disabled={off} onClick={() => game.addOrder({ kind: 'recruit', province: sel, count: 2 })}>
               Recruit 2 regulars ({2 * COST.regular.crowns}c 2i)
             </button>
           ) : (
             p.terrain !== 'pass' && (
-              <button type="button" onClick={() => game.addOrder({ kind: 'build', province: sel })}>
+              <button type="button" disabled={off} onClick={() => game.addOrder({ kind: 'build', province: sel })}>
                 Build a town ({COST.town.crowns}c {COST.town.timber}t)
               </button>
             )
