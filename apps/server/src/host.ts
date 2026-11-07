@@ -227,10 +227,11 @@ export async function loadAll(): Promise<number> {
       if (age > STALE_TMP_MS) await unlink(path).catch(() => undefined);
       continue;
     }
-    if (!/^campaign-\d+\.json$/.test(f)) continue;
+    const name = /^campaign-(0|[1-9]\d*)\.json$/.exec(f);
+    if (!name) continue;
     try {
       const h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
-      const id = Number(/\d+/.exec(f)![0]);
+      const id = Number(name[1]);
       if (h?.id !== id || !Array.isArray(h.state?.realms) || typeof h.phase !== 'string' || !h.pending || !h.bundle) throw new Error('not a campaign save');
       if (campaigns.has(id)) throw new Error(`campaign ${id} already loaded`);
       // campaigns from before the agent market
