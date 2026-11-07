@@ -114,21 +114,34 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     const secret = findSecret(v.id, v.season, v.yourSeal);
     if (!secret) {
-      // the season can still settle without them once the contract's reveal window closes
       const [c, rec] = await Promise.all([
         chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
         chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }).catch(() => null),
       ]);
-      // revealed onchain from elsewhere: only that browser can finish; nothing to forfeit
-      // past this season onchain already (the server crashed before saving): open now
-      const at = !c || rec?.revealed ? null : c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
       // still the same sealed season once the chain answered
       const cur = viewRef.current;
       if (cur?.id !== v.id || cur.season !== v.season || cur.phase !== 'sealed') return;
+      if (rec?.revealed) {
+        // revealed onchain from another browser: the contract keeps those orders until the
+        // season settles, so the server can finish it without them being here
+        await withBusy('Your orders are revealed onchain; settling the season with them…', async () => {
+          setBefore(v.state);
+          const r = await settle(v, {});
+          if (!adopt(r.view)) return;
+          freshDraft();
+          say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : `The season turned. ${r.view.envoysLeft} envoys available.`);
+        });
+        return;
+      }
+      // a wallet gives up its own orders at once; a guest seat's settle without them once the
+      // contract's reveal window closes (or now, if the chain already settled this season)
+      const at = !c ? null : v.player || c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
       setForfeitAt(at);
       say(
         `Your sealed orders are not stored in this browser, so they cannot be revealed here. Reveal from a browser that still holds them${
-          at ? `, or settle the season without them (your realm does nothing this season) ${at <= Date.now() ? 'now' : `from ${new Date(at).toLocaleString()}`}` : ''
+          at
+            ? `, or settle the season without them (your realm does nothing this season) ${at <= Date.now() ? (v.player ? 'now, from your wallet' : 'now') : `from ${new Date(at).toLocaleString()}`}`
+            : ''
         }.`,
         'error',
       );
@@ -163,6 +176,18 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     await withBusy('Settling the season without your orders; every AI ruler reveals…', async () => {
       setBefore(v.state);
+      if (v.player) {
+        // only your wallet can give up your orders; the contract then blocks their reveal
+        const declared = await chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human });
+        if (!declared) {
+          say('Giving up your sealed orders onchain from your account…');
+          try {
+            await walletFor(v).call('forfeit', { campaign: v.id, realm: v.human });
+          } catch (e) {
+            throw new Error(`${(e as Error).message} If your wallet key predates this action, sign out and sign in again.`);
+          }
+        }
+      }
       const r = await settle(v, { forfeit: true });
       if (!adopt(r.view)) return;
       setForfeitAt(null);

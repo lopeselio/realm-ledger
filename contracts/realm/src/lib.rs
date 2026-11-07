@@ -110,6 +110,28 @@ pub struct SealRecord {
     pub revealed: bool,
 }
 
+/// A season's revealed orders, kept until the season settles so the referee can resolve it
+/// even if the browser that revealed them never told the game server.
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RevealedOrders {
+    pub orders: String,
+    pub salt: String,
+}
+
+// Per-season records kept under their own storage prefixes (outside the contract state
+// struct, so adding them needed no state migration) and removed when the season settles.
+const REVEAL_PREFIX: u8 = b'o';
+const FORFEIT_PREFIX: u8 = b'f';
+
+fn season_key(prefix: u8, campaign: u64, season: u32, realm: u8) -> Vec<u8> {
+    let mut k = vec![prefix];
+    k.extend_from_slice(&campaign.to_le_bytes());
+    k.extend_from_slice(&season.to_le_bytes());
+    k.push(realm);
+    k
+}
+
 /// How much an agent may spend from its realm's treasury.
 #[near(serializers = [json, borsh])]
 #[derive(Clone, Debug, Default)]
@@ -178,8 +200,10 @@ pub enum Event {
     Sealed { campaign: u64, season: u32, realm: u8, seal: String },
     #[event_version("1.0.0")]
     Revealed { campaign: u64, season: u32, realm: u8, orders: String, salt: String },
+    #[event_version("1.1.0")]
+    SeasonSettled { campaign: u64, season: u32, state_hash: String, treasury_deltas: Vec<i64>, fallen: Vec<u8>, forfeited: Vec<u8> },
     #[event_version("1.0.0")]
-    SeasonSettled { campaign: u64, season: u32, state_hash: String, treasury_deltas: Vec<i64>, fallen: Vec<u8> },
+    Forfeited { campaign: u64, season: u32, realm: u8 },
     #[event_version("1.0.0")]
     TreatyProposed { campaign: u64, treaty: u32, kind: TreatyKind, realms: [u8; 2], amount: u64 },
     #[event_version("1.0.0")]
@@ -368,16 +392,39 @@ impl RealmLedger {
         require!(!c.revealed[realm as usize], "already revealed");
         c.revealed[realm as usize] = true;
         let season = c.season;
+        require!(!env::storage_has_key(&season_key(FORFEIT_PREFIX, campaign, season, realm)), "this realm forfeited its orders this season");
         let key = (campaign, season, realm);
         let record = self.seals.get_mut(&key).unwrap_or_else(|| env::panic_str("this realm did not seal"));
         require!(commitment(&orders, &salt) == record.seal, "orders do not match the seal");
         record.revealed = true;
+        env::storage_write(&season_key(REVEAL_PREFIX, campaign, season, realm), &near_sdk::serde_json::to_vec(&RevealedOrders { orders: orders.clone(), salt: salt.clone() }).unwrap());
         Event::Revealed { campaign, season, realm, orders, salt }.emit();
+    }
+
+    /// The ruler gives up this season's sealed orders, so the season can settle without
+    /// them: for when the orders are lost. After this the realm can't reveal this season.
+    pub fn forfeit(&mut self, campaign: u64, realm: u8) {
+        let caller = env::predecessor_account_id();
+        let c = self.campaign(campaign);
+        require!(c.phase == Phase::Sealing || c.phase == Phase::Revealing, "this season is over");
+        let r = c.realms.get(realm as usize).unwrap_or_else(|| env::panic_str("no such realm"));
+        require!(r.ruler == caller, "only the ruler forfeits its orders");
+        require!(c.sealed[realm as usize], "this realm did not seal");
+        require!(!c.revealed[realm as usize], "already revealed");
+        let season = c.season;
+        let key = season_key(FORFEIT_PREFIX, campaign, season, realm);
+        require!(!env::storage_has_key(&key), "already forfeited");
+        env::storage_write(&key, &[1]);
+        Event::Forfeited { campaign, season, realm }.emit();
     }
 
     /// The referee posts the result of resolving the season with packages/rules: the new
     /// state hash, each realm's treasury change, realms that fell and treaties broken.
-    /// Allowed once every sealed realm has revealed, or a full season after seals closed.
+    ///
+    /// `forfeited` lists the sealed realms settled without their orders. Each must have sealed
+    /// and not revealed, and either forfeited itself or waited out a full season after the
+    /// seal deadline; every other sealed realm must have revealed. Without the list (older
+    /// callers), it settles once every sealed realm revealed or a full season has passed.
     pub fn settle_season(
         &mut self,
         campaign: u64,
@@ -385,6 +432,7 @@ impl RealmLedger {
         treasury_deltas: Vec<i64>,
         fallen: Vec<u8>,
         broken_treaties: Vec<(u32, u8)>,
+        forfeited: Option<Vec<u8>>,
     ) {
         let caller = env::predecessor_account_id();
         let now = env::block_timestamp_ms();
@@ -395,8 +443,26 @@ impl RealmLedger {
             c.phase = Phase::Revealing;
         }
         require!(c.phase == Phase::Revealing, "seals are not closed yet");
-        let all_revealed = (0..c.realms.len()).all(|i| !c.sealed[i] || c.revealed[i]);
-        require!(all_revealed || now >= c.seal_deadline_ms + c.season_ms, "waiting for reveals");
+        let window_closed = now >= c.seal_deadline_ms + c.season_ms;
+        let n = c.realms.len();
+        let forfeited = match forfeited {
+            None => {
+                let all_revealed = (0..n).all(|i| !c.sealed[i] || c.revealed[i]);
+                require!(all_revealed || window_closed, "waiting for reveals");
+                vec![]
+            }
+            Some(list) => {
+                for &f in &list {
+                    let i = f as usize;
+                    require!(i < n, "no such realm");
+                    require!(c.sealed[i] && !c.revealed[i], "a forfeited realm must have sealed and not revealed");
+                    let declared = env::storage_has_key(&season_key(FORFEIT_PREFIX, campaign, c.season, f));
+                    require!(declared || window_closed, "a realm can only be forfeited by its ruler or after the reveal window");
+                }
+                require!((0..n).all(|i| !c.sealed[i] || c.revealed[i] || list.contains(&(i as u8))), "waiting for reveals");
+                list
+            }
+        };
         require!(treasury_deltas.len() == c.realms.len(), "one treasury delta per realm");
 
         for (realm, delta) in c.realms.iter_mut().zip(&treasury_deltas) {
@@ -418,8 +484,12 @@ impl RealmLedger {
             Event::TreatyBroken { campaign, treaty: id, by, season }.emit();
         }
         c.state_hashes.push(state_hash.clone());
+        // this season's kept reveals and forfeits are no longer needed
+        for i in 0..n as u8 {
+            env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
+            env::storage_remove(&season_key(FORFEIT_PREFIX, campaign, season, i));
+        }
         c.season += 1;
-        let n = c.realms.len();
         c.sealed = vec![false; n];
         c.revealed = vec![false; n];
         let standing = c.realms.iter().filter(|r| r.alive).count();
@@ -429,7 +499,7 @@ impl RealmLedger {
             c.phase = Phase::Sealing;
             c.seal_deadline_ms = now + c.season_ms;
         }
-        Event::SeasonSettled { campaign, season, state_hash, treasury_deltas, fallen }.emit();
+        Event::SeasonSettled { campaign, season, state_hash, treasury_deltas, fallen, forfeited }.emit();
     }
 
     /// Final reveal: the battle-roll secret and every agenda, each checked against its
@@ -643,6 +713,16 @@ impl RealmLedger {
 
     pub fn get_seal(&self, campaign: u64, season: u32, realm: u8) -> Option<&SealRecord> {
         self.seals.get(&(campaign, season, realm))
+    }
+
+    /// A realm's revealed orders for a season that hasn't settled yet.
+    pub fn get_reveal(&self, campaign: u64, season: u32, realm: u8) -> Option<RevealedOrders> {
+        env::storage_read(&season_key(REVEAL_PREFIX, campaign, season, realm)).map(|v| near_sdk::serde_json::from_slice(&v).unwrap())
+    }
+
+    /// Whether a realm's ruler forfeited its orders for a season that hasn't settled yet.
+    pub fn get_forfeit(&self, campaign: u64, season: u32, realm: u8) -> bool {
+        env::storage_has_key(&season_key(FORFEIT_PREFIX, campaign, season, realm))
     }
 
     pub fn get_policy(&self, campaign: u64, spender: AccountId) -> Option<&Policy> {

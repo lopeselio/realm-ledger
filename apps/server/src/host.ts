@@ -552,67 +552,93 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     const h = get(id);
     if (h.phase !== 'sealed') throw new GameError('nothing sealed to reveal');
     const before = h.state;
-    const reveals: { realm: number; orders: OrderSet; salt: string; seal: string }[] = [...h.pending.ai];
-    const forfeited: number[] = [];
-    if (h.pending.humanSeal) {
-      const [c, rec] = await Promise.all([
+
+    /** Your part of the season: your revealed orders, or your realm forfeited. */
+    const humanPart = async (): Promise<{ reveal?: { realm: number; orders: OrderSet; salt: string; seal: string }; forfeited: number[] }> => {
+      const seal = h.pending.humanSeal;
+      if (!seal) return { forfeited: [] };
+      const where = { campaign: h.id, season: before.season, realm: HUMAN };
+      const [c, rec, declared] = await Promise.all([
         view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }),
-        view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: HUMAN }),
+        view<{ revealed: boolean }>('get_seal', where),
+        view<boolean>('get_forfeit', where),
       ]);
       if (!c) throw new GameError('campaign not found onchain', 502);
-      // the chain settled this season without your reveal (a forfeit that crashed before we
-      // saved): it stands, whatever orders arrive now
-      const settledWithout = c.season > before.season && !rec?.revealed;
-      if (forfeit || settledWithout) {
-        if (rec?.revealed) throw new GameError('your orders are already revealed onchain; reveal them from a browser that holds them instead');
-        // the contract allows it a full season after the seal deadline; a minute of margin for its clock
-        const opens = c.seal_deadline_ms + c.season_ms + 60_000;
-        if (!settledWithout && Date.now() < opens) throw new GameError(`your orders can be forfeited from ${new Date(opens).toISOString()}`, 409);
-        forfeited.push(HUMAN);
-      } else {
-        if (!orders || salt === null) throw new GameError('reveal needs your orders and salt');
-        if (orders.realm !== HUMAN || orders.season !== before.season) throw new GameError('those orders are for another realm or season');
-        if (sealOrders(orders, salt) !== h.pending.humanSeal) throw new GameError('those orders do not match your seal');
-        if (h.player && !rec?.revealed) throw new GameError('reveal your orders onchain from your wallet first');
-        reveals.push({ realm: HUMAN, orders, salt, seal: h.pending.humanSeal });
+      const check = (o: OrderSet, s: string) => {
+        if (o.realm !== HUMAN || o.season !== before.season) throw new GameError('those orders are for another realm or season');
+        if (sealOrders(o, s) !== seal) throw new GameError('those orders do not match your seal');
+        return { reveal: { realm: HUMAN, orders: o, salt: s, seal }, forfeited: [] };
+      };
+      if (rec?.revealed) {
+        // revealed onchain, from whichever browser: those orders count, and the contract keeps
+        // them until the season settles, so a browser that lost them doesn't matter
+        if (orders && salt !== null) return check(orders, salt);
+        const kept = await view<{ orders: string; salt: string }>('get_reveal', where);
+        if (!kept) throw new GameError('your orders were revealed onchain but are no longer kept there; reveal from a browser that holds them', 409);
+        return check(JSON.parse(kept.orders) as OrderSet, kept.salt);
       }
-    }
-    reveals.sort((a, b) => a.realm - b.realm);
+      // settled onchain without your reveal (a forfeit that crashed before we saved): it stands
+      const settledWithout = c.season > before.season;
+      if (forfeit || settledWithout || declared) {
+        if (!settledWithout && !declared) {
+          // a wallet's orders are given up only by that wallet; a guest seat's after the window
+          if (h.player) throw new GameError('forfeit your orders from your wallet first', 403);
+          // the contract allows it a full season after the seal deadline; a minute of margin for its clock
+          const opens = c.seal_deadline_ms + c.season_ms + 60_000;
+          if (Date.now() < opens) throw new GameError(`your orders can be forfeited from ${new Date(opens).toISOString()}`, 409);
+        }
+        return { forfeited: [HUMAN] };
+      }
+      if (h.player) throw new GameError('reveal your orders onchain from your wallet first');
+      if (!orders || salt === null) throw new GameError('reveal needs your orders and salt');
+      return check(orders, salt);
+    };
 
-    // every reveal is checked against its seal by the contract too
-    await Promise.all(
-      reveals.map((x) =>
-        call(
-          seatOf(h, x.realm),
-          'reveal',
-          { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt },
-          { done: async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: x.realm }))?.revealed },
+    /** Reveals, resolves and settles onchain. */
+    const resolveOnce = async () => {
+      const human = await humanPart();
+      const reveals = [...h.pending.ai, ...(human.reveal ? [human.reveal] : [])].sort((a, b) => a.realm - b.realm);
+      // every reveal is checked against its seal by the contract too
+      await Promise.all(
+        reveals.map((x) =>
+          call(
+            seatOf(h, x.realm),
+            'reveal',
+            { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt },
+            { done: async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: x.realm }))?.revealed },
+          ),
         ),
-      ),
-    );
+      );
+      const rollSeed = seasonRollSeed(h.rollSecret, before.season);
+      // treaties and deals were already applied to the state as they were made
+      const { state, events } = replaySeason(before, { season: before.season, treaties: [], deals: [], orders: reveals.map((x) => x.orders), rollSeed, events: [] });
+      const hash = stateHash(state);
+      const deltas = state.realms.map((r, i) => r.purse.crowns - before.realms[i]!.purse.crowns);
+      const fallen = state.realms.filter((r, i) => !r.alive && before.realms[i]!.alive).map((r) => r.id);
+      const broken = events.flatMap((e) =>
+        e.kind === 'treaty-broken' ? [[h.treatyIds[treatyKey({ kind: e.treaty, realms: [e.realm, e.against], since: 0 })], e.realm] as const] : [],
+      );
+      // the contract refuses a forfeit of orders that were revealed, so a reveal racing this
+      // settle can't be dropped: it fails, and the retry below uses the revealed orders
+      await call(config.referee, 'settle_season', {
+        campaign: h.id,
+        state_hash: hash,
+        treasury_deltas: deltas,
+        fallen,
+        broken_treaties: broken.filter(([t]) => t !== undefined),
+        forfeited: human.forfeited,
+      }, { waitUntil: 'FINAL', done: async () => ((await view<{ season: number }>('get_campaign', { campaign: h.id }))?.season ?? 0) > before.season });
+      return { reveals, forfeited: human.forfeited, rollSeed, hash, state, events };
+    };
 
-    if (forfeited.length > 0) {
-      // your orders may have been revealed from another browser meanwhile; then they count
-      const rec = await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: HUMAN });
-      if (rec?.revealed) throw new GameError('your orders were just revealed onchain; reveal them here instead of forfeiting');
+    let r: Awaited<ReturnType<typeof resolveOnce>>;
+    try {
+      r = await resolveOnce();
+    } catch (e) {
+      if (!/forfeited realm must have sealed and not revealed/.test(String((e as Error)?.message ?? e))) throw e;
+      r = await resolveOnce();
     }
-
-    const rollSeed = seasonRollSeed(h.rollSecret, before.season);
-    // treaties and deals were already applied to the state as they were made
-    const { state, events } = replaySeason(before, { season: before.season, treaties: [], deals: [], orders: reveals.map((x) => x.orders), rollSeed, events: [] });
-    const hash = stateHash(state);
-    const deltas = state.realms.map((r, i) => r.purse.crowns - before.realms[i]!.purse.crowns);
-    const fallen = state.realms.filter((r, i) => !r.alive && before.realms[i]!.alive).map((r) => r.id);
-    const broken = events.flatMap((e) =>
-      e.kind === 'treaty-broken' ? [[h.treatyIds[treatyKey({ kind: e.treaty, realms: [e.realm, e.against], since: 0 })], e.realm] as const] : [],
-    );
-    await call(config.referee, 'settle_season', {
-      campaign: h.id,
-      state_hash: hash,
-      treasury_deltas: deltas,
-      fallen,
-      broken_treaties: broken.filter(([t]) => t !== undefined),
-    }, { waitUntil: 'FINAL', done: async () => ((await view<{ season: number }>('get_campaign', { campaign: h.id }))?.season ?? 0) > before.season });
+    const { reveals, forfeited, rollSeed, hash, state, events } = r;
     crashPoint('after-settle');
 
     h.bundle.seasons.push({

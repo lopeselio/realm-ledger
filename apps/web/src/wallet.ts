@@ -1,11 +1,11 @@
 // Signing in with a NEAR wallet (testnet), via NEAR Connect. At sign-in the wallet adds a
-// function-call key limited to the realm contract and the four moves a ruler makes; the
-// key stays in this browser, so every later seal, reveal, treaty proposal and Chancellor
-// cap is signed here without a wallet popup. Gas comes from your own testnet account.
+// function-call key limited to the realm contract and the five moves a ruler makes; the
+// key stays in this browser, so every later seal, reveal, forfeit, treaty proposal and
+// Chancellor cap is signed here without a wallet popup. Gas comes from your own testnet account.
 import { CONTRACT } from './chain.ts';
 
 /** The ruler's moves this browser may sign without asking the wallet again. */
-export const RULER_METHODS = ['seal', 'reveal', 'propose_treaty', 'set_policy'];
+export const RULER_METHODS = ['seal', 'reveal', 'forfeit', 'propose_treaty', 'set_policy'];
 
 export interface Signer {
   accountId: string;
