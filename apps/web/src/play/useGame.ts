@@ -166,7 +166,9 @@ export function useGame(id: number | null, signer: Signer | null) {
       freshDraft();
       say(
         r.view.lastForfeited
-          ? 'This season had already been settled without your orders, so your realm did nothing in it. Plan the next one.'
+          ? forfeited
+            ? 'Your wallet forfeited these orders from another browser, so the season settled without them. Plan the next one.'
+            : 'This season had already been settled without your orders, so your realm did nothing in it. Plan the next one.'
           : r.view.phase === 'over'
             ? 'The campaign is over. Everything is revealed.'
             : `The season turned. ${r.view.envoysLeft} envoys available.`,
@@ -182,29 +184,35 @@ export function useGame(id: number | null, signer: Signer | null) {
       setBefore(v.state);
       let revealedElsewhere = false;
       if (v.player) {
-        // only your wallet can give up your orders; the contract then blocks their reveal
-        const [declared, c] = await Promise.all([
-          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }).catch(() => false),
-          chainView<{ season: number }>('get_campaign', { campaign: v.id }),
-        ]);
-        // past this season onchain already: the server settles it as it stands
-        if (!declared && (c?.season ?? v.season) === v.season) {
+        // only your wallet can give up your orders; the contract then blocks their reveal.
+        // Every decision here comes from the chain, not from error wording.
+        const where = { campaign: v.id, season: v.season, realm: v.human };
+        const read = () =>
+          Promise.all([
+            chainView<boolean>('get_forfeit', where).catch(() => false),
+            chainView<{ revealed: boolean }>('get_seal', where).catch(() => null),
+            chainView<{ season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
+          ]);
+        // nothing to sign if it's forfeited or revealed already, or the season moved on
+        const settled = ([declared, rec, c]: Awaited<ReturnType<typeof read>>) => !!declared || !!rec?.revealed || (c?.season ?? v.season) !== v.season;
+        let state = await read();
+        if (!settled(state)) {
           say('Giving up your sealed orders onchain from your account…');
           try {
             await walletFor(v).call('forfeit', { campaign: v.id, realm: v.human, season: v.season });
           } catch (e) {
-            const msg = (e as Error).message;
-            // revealed from another browser meanwhile: those orders count, so settle with them
-            if (/already revealed/.test(msg)) {
-              revealedElsewhere = true;
-            } else if (/already forfeited|not the current one|this season is over/.test(msg)) {
-              // another tab got there first, or the season settled meanwhile: the server settles
-              // it as it stands
-            } else if (/MethodNameMismatch|MethodNotAllowed|method name is not allowed|not allowed to call/i.test(msg)) {
-              throw new Error(`${msg} Your wallet key predates this action: sign out and sign in again.`);
-            } else throw e;
+            state = await read();
+            if (!settled(state)) {
+              const msg = (e as Error).message;
+              if (/MethodNameMismatch|MethodNotAllowed|method name is not allowed|not allowed to call/i.test(msg)) {
+                throw new Error(`${msg} Your wallet key predates this action: sign out and sign in again.`);
+              }
+              throw e;
+            }
           }
         }
+        // revealed from another browser meanwhile: those orders count, so settle with them
+        revealedElsewhere = !!state[1]?.revealed;
       }
       const r = await settle(v, revealedElsewhere ? {} : { forfeit: true });
       if (!adopt(r.view)) return;

@@ -430,3 +430,29 @@ fn a_forfeited_realm_is_listed_once() {
     as_(referee(), 1_000 + SEASON_MS * 3);
     c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 0, 1, 2]));
 }
+
+#[test]
+#[should_panic(expected = "orders must be canonical JSON")]
+fn a_reveal_must_be_canonical_json() {
+    let (mut c, id) = setup();
+    let loose = r#"{"realm":1,"season":0,"orders":[]}"#; // keys out of order
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(loose, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, loose.into(), "s".into());
+}
+
+#[test]
+#[should_panic(expected = "orders must be this realm's for this season")]
+fn a_reveal_must_be_for_its_realm_and_season() {
+    let (mut c, id) = setup();
+    let other = r#"{"orders":[],"realm":2,"season":0}"#;
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(other, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, other.into(), "s".into());
+}

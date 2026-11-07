@@ -563,30 +563,32 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       const where = { campaign: h.id, season: before.season, realm: HUMAN };
       // null: couldn't read (an RPC error, or an older contract without this view)
       const readForfeit = () => view<boolean>('get_forfeit', where).catch(() => null);
-      const [c, rec] = await Promise.all([
+      const [c, rec, firstRead] = await Promise.all([
         view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }),
         view<{ revealed: boolean }>('get_seal', where),
+        readForfeit(),
       ]);
-      let declared = await readForfeit();
+      let declared = firstRead;
       if (!c) throw new GameError('campaign not found onchain', 502);
       const check = (o: OrderSet, s: string) => {
         if (o.realm !== HUMAN || o.season !== before.season) throw new GameError('those orders are for another realm or season');
         if (sealOrders(o, s) !== seal) throw new GameError('those orders do not match your seal');
         return { reveal: { realm: HUMAN, orders: o, salt: s, seal }, forfeited: [] };
       };
+      // settled onchain without your reveal (a forfeit that crashed before we saved): it stands,
+      // whatever orders were saved or arrive now
+      const settledWithout = c.season > before.season && !rec?.revealed;
+      if (settledWithout) return { forfeited: [HUMAN] };
       // a wallet's forfeit was just sent: an RPC node may not have seen it yet
       for (let i = 0; forfeit && h.player && !declared && !rec?.revealed && i < 3; i++) {
         await new Promise((r) => setTimeout(r, 2_000));
         declared = await readForfeit();
       }
-      // settled onchain without your reveal (a forfeit that crashed before we saved): it stands,
-      // whatever orders were saved or arrive now
-      const settledWithout = c.season > before.season && !rec?.revealed;
-      if (settledWithout) return { forfeited: [HUMAN] };
-      // orders an earlier attempt saved (it may have revealed or even settled, then crashed);
-      // an explicit forfeit wins while they aren't onchain, in case their reveal can't land
+      // orders an earlier attempt saved (it may have revealed, then crashed): we hold them, so
+      // they count even if a browser that lost them asks to forfeit (the contract accepts any
+      // reveal that matches the seal and is canonical, so they can always land)
       const saved = h.pending.humanReveal;
-      if (saved && (!orders || salt === null) && (rec?.revealed || !forfeit)) return check(saved.orders, saved.salt);
+      if (saved && (!orders || salt === null) && !declared) return check(saved.orders, saved.salt);
       if (rec?.revealed) {
         // revealed onchain, from whichever browser: those orders count, and the contract keeps
         // them until the season settles, so a browser that lost them doesn't matter
@@ -594,7 +596,13 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         const kept = await view<{ orders: string; salt: string }>('get_reveal', where).catch(() => null);
         // kept only for wallet rulers, and only until the season settles
         if (!kept) throw new GameError('your revealed orders are not kept onchain; open the campaign in the browser that holds them', 409);
-        return check(JSON.parse(kept.orders) as OrderSet, kept.salt);
+        let parsed: OrderSet;
+        try {
+          parsed = JSON.parse(kept.orders) as OrderSet;
+        } catch {
+          throw new GameError('the orders revealed onchain are not valid JSON', 409);
+        }
+        return check(parsed, kept.salt);
       }
       if (forfeit || declared) {
         if (!declared) {

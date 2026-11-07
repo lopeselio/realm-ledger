@@ -243,6 +243,16 @@ pub struct RealmLedger {
     earnings: LookupMap<(u64, AccountId), u64>,
 }
 
+/// Every object's keys in sorted order, as packages/rules' canonical JSON writes them
+/// (serde_json keeps insertion order here, so re-serializing alone doesn't prove it).
+fn sorted_keys(v: &near_sdk::serde_json::Value) -> bool {
+    match v {
+        near_sdk::serde_json::Value::Object(m) => m.keys().zip(m.keys().skip(1)).all(|(a, b)| a < b) && m.values().all(sorted_keys),
+        near_sdk::serde_json::Value::Array(a) => a.iter().all(sorted_keys),
+        _ => true,
+    }
+}
+
 fn is_hex64(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
@@ -399,6 +409,14 @@ impl RealmLedger {
         c.revealed[realm as usize] = true;
         let season = c.season;
         require!(!env::storage_has_key(&season_key(FORFEIT_PREFIX, campaign, season, realm)), "this realm forfeited its orders this season");
+        // a reveal is canonical order JSON for this realm and season, so the referee can always
+        // resolve the season with it (a revealed realm can't be settled without its orders)
+        let parsed: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(&orders).unwrap_or_else(|_| env::panic_str("orders must be JSON"));
+        require!(sorted_keys(&parsed) && near_sdk::serde_json::to_string(&parsed).unwrap() == orders, "orders must be canonical JSON");
+        require!(
+            parsed["realm"] == realm && parsed["season"] == season && parsed["orders"].is_array(),
+            "orders must be this realm's for this season"
+        );
         let key = (campaign, season, realm);
         let record = self.seals.get_mut(&key).unwrap_or_else(|| env::panic_str("this realm did not seal"));
         require!(commitment(&orders, &salt) == record.seal, "orders do not match the seal");
@@ -522,6 +540,11 @@ impl RealmLedger {
             require!(commitment(agenda, salt) == c.agenda_commits[i], "an agenda does not match its commitment");
         }
         c.phase = Phase::Finished;
+        // a reveal kept for a season that was never settled
+        let season = c.season;
+        for i in 0..c.realms.len() as u8 {
+            env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
+        }
         c.winner = Some(winner);
         c.roll_secret = Some(roll_secret.clone());
         Event::CampaignFinished { campaign, winner, roll_secret, agendas: agendas.into_iter().map(|(a, _)| a).collect() }.emit();
