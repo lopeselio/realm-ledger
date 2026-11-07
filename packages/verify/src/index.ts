@@ -224,6 +224,7 @@ export async function checkAgainstChain(
     agenda_commits: string[];
     state_hashes: string[];
     map_seed: string;
+    realms: unknown[];
   } | null;
   if (!c) return [{ name: `campaign ${b.campaign} exists on ${b.contract}`, ok: false }];
   // once a campaign is over every job is settled, so each onchain treasury must equal the
@@ -260,6 +261,18 @@ export async function checkAgainstChain(
       const rec = (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })) as { revealed: boolean } | null;
       checks.push({ name: `season ${sp.season}: realm ${r} sealed but never revealed onchain`, ok: !!rec && !rec.revealed });
     }
+    // every seal onchain is accounted for: revealed in the bundle, or listed as forfeited
+    const accounted = new Set([...sp.seals.map((x) => x.realm), ...(sp.forfeited ?? [])]);
+    const missing: number[] = [];
+    for (let r = 0; r < c.realms.length; r++) {
+      if (accounted.has(r)) continue;
+      if (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })) missing.push(r);
+    }
+    checks.push({
+      name: `season ${sp.season}: every seal onchain is revealed or forfeited in the bundle`,
+      ok: missing.length === 0,
+      ...(missing.length > 0 ? { detail: `realms ${missing.join(', ')} sealed but are missing` } : {}),
+    });
   }
   return checks;
 }

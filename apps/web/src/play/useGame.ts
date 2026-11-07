@@ -132,7 +132,15 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     await withBusy('Settling the season without your orders; every AI ruler reveals…', async () => {
       setBefore(v.state);
-      const r = await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, { forfeit: true });
+      let r: { events: GameEvent[]; view: View };
+      try {
+        r = await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, { forfeit: true });
+      } catch (e) {
+        // the connection may drop after the server settled; check before giving up
+        const now = await api<View>(`/campaigns/${v.id}`);
+        if (now.season === v.season) throw e;
+        r = { events: now.lastEvents, view: now };
+      }
       if (!adopt(r.view)) return;
       setForfeitAt(null);
       freshDraft();
@@ -201,14 +209,16 @@ export function useGame(id: number | null, signer: Signer | null) {
       const wallet = v.player ? walletFor(v) : null;
       // an earlier attempt's seal may already be onchain (the contract takes one per season):
       // then that seal stands and the server is told about it, not a new one
-      const posted = wallet ? (await chainView<{ seal: string }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }))?.seal : undefined;
+      const posted = wallet
+        ? ((await chainView<{ seal: string }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }).catch(() => null))?.seal ?? undefined)
+        : undefined;
       const salt = newSalt();
       const hash = posted ?? sealOrders(set, salt);
       if (!posted) keepSecret(v.id, { orders: set, salt });
       // sealing here makes it yours to come back to (opening a link alone doesn't); remembered
       // before the network calls, since the seal may land onchain even if they error
       rememberCampaign(v.id);
-      if (posted) say('Your seal from an earlier attempt is already onchain; using it…');
+      if (posted) say('Your seal from an earlier attempt is already onchain, so the orders you sealed then stand, not the ones on screen. Using it…');
       else if (wallet) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');
