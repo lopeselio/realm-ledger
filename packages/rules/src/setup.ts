@@ -14,7 +14,14 @@ export interface CampaignOptions {
   human?: number | null;
   maxSeasons?: number;
   map?: MapOptions;
+  /**
+   * Which rules the campaign plays by: 1 = before the agent market (2026-11-06),
+   * 2 = with it. Defaults to the current version.
+   */
+  rulesVersion?: number;
 }
+
+export const RULES_VERSION = 2;
 
 /** Breadth-first distances (in moves) from one province to all others. */
 export function distancesFrom(map: GameMap, start: number): number[] {
@@ -129,6 +136,7 @@ export function newCampaign(opts: CampaignOptions): GameState {
   const n = opts.realms ?? 5;
   if (n < 2 || n > REALM_NAMES.length) throw new Error(`realms must be 2..${REALM_NAMES.length}`);
   const human = opts.human ?? null;
+  const rulesVersion = opts.rulesVersion ?? RULES_VERSION;
   const map = generateMap(opts.seed, opts.map);
   const r = rng(opts.seed, 'setup');
   const capitals = placeCapitals(map, n, r);
@@ -190,8 +198,8 @@ export function newCampaign(opts: CampaignOptions): GameState {
     market: newMarket(),
     treaties: [],
     betrayals: [],
-    companies: makeCompanies(opts.seed),
-    lastBattles: 0,
+    // rules version 1 predates the agent market; leaving these out keeps its state hashes
+    ...(rulesVersion >= 2 ? { companies: makeCompanies(opts.seed), lastBattles: 0 } : {}),
     winner: null,
   };
 }

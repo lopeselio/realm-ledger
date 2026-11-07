@@ -202,4 +202,7 @@ h3.sub { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem;
 .receipts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.86rem; }
 .receipts li { border-top: 1px solid var(--line); padding-top: 5px; }
 .tag.wait { color: #8a6f1d; }
+.table3d { position: relative; }
+.table3d canvas { cursor: pointer; }
+.view-toggle { white-space: nowrap; }
 .cta { display: inline-block; margin-top: 10px; background: var(--brass); color: var(--table); padding: 8px 14px; border-radius: 6px; font-weight: 700; text-decoration: none; }

@@ -33,13 +33,14 @@
         <div class="board-head">
           <h2 id="season-title">Spring, year 1</h2>
           <div class="timeline">
+            <button id="view-toggle" type="button" class="view-toggle">3D table</button>
             <button id="prev" type="button" aria-label="Previous season">◀</button>
             <button id="play" type="button" aria-label="Play">▶</button>
             <button id="next" type="button" aria-label="Next season">▶|</button>
             <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Season" />
           </div>
         </div>
-        <div class="map-wrap"><svg id="map" role="img" aria-label="Hex map of the campaign"></svg><div id="tip" class="tip" hidden></div></div>
+        <div class="map-wrap"><svg id="map" role="img" aria-label="Hex map of the campaign"></svg><div id="table3d" class="table3d" hidden></div><div id="tip" class="tip" hidden></div></div>
         <p class="legend">
           <span><i class="sw town"></i>town</span><span><i class="sw fort"></i>fort</span><span>♛ capital</span>
           <span><i class="sw army"></i>army (troops)</span><span><i class="sw river"></i>river</span>

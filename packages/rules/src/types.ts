@@ -165,10 +165,13 @@ export interface GameState {
   treaties: Treaty[];
   /** every broken treaty, remembered by every ruler */
   betrayals: { by: number; against: number; season: number }[];
-  /** mercenary companies and spy rings: agents that sell their services */
-  companies: Company[];
-  /** battles fought last season; mercenaries charge more in wartime */
-  lastBattles: number;
+  /**
+   * Mercenary companies and spy rings: agents that sell their services. Absent in
+   * rules version 1 (campaigns from before the agent market).
+   */
+  companies?: Company[];
+  /** battles fought last season; mercenaries charge more in wartime. Absent in rules version 1. */
+  lastBattles?: number;
   /** set when the campaign is over */
   winner: number | null;
 }

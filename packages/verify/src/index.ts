@@ -69,7 +69,8 @@ export interface ProofBundle {
   version: 1;
   contract: string;
   campaign: number;
-  options: { seed: string; realms: number; human: number | null; maxSeasons: number };
+  /** rulesVersion is absent in bundles from before the agent market, which play by version 1 */
+  options: { seed: string; realms: number; human: number | null; maxSeasons: number; rulesVersion?: number };
   rollCommit: string;
   agendaCommits: string[];
   /** revealed when the campaign ends */
@@ -128,7 +129,7 @@ export function verifyBundle(b: ProofBundle): Check[] {
     checks.push({ name, ok, ...(detail ? { detail } : {}) });
   };
 
-  let state: GameState = newCampaign({ ...b.options });
+  let state: GameState = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   const after = new Map<number, GameState>();
   push('campaign rebuilt from its seed', true, `${state.map.provinces.length} provinces, ${state.realms.length} realms`);
 
@@ -189,6 +190,23 @@ export function verifyBundle(b: ProofBundle): Check[] {
   return checks;
 }
 
+/**
+ * Which rules a bundle plays by. Bundles from before the agent market carry no version
+ * and no market deals (version 1); bundles from the first market servers carry deals but
+ * no version (version 2); newer ones say so.
+ */
+export function rulesVersionOf(b: ProofBundle): number {
+  return b.options.rulesVersion ?? (b.seasons.some((s) => 'deals' in s) ? 2 : 1);
+}
+
+/** Replays a bundle's seasons and returns the final state (no checks). */
+export function replayBundle(b: ProofBundle): GameState {
+  let state = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
+  for (const sp of b.seasons)
+    state = replaySeason(state, { season: sp.season, treaties: sp.treaties, deals: sp.deals ?? [], orders: sp.seals.map((x) => x.orders), rollSeed: sp.rollSeed, events: [] }).state;
+  return state;
+}
+
 /** Compares a bundle with what the contract recorded. `view` performs a contract view call. */
 export async function checkAgainstChain(
   b: ProofBundle,
@@ -202,6 +220,18 @@ export async function checkAgainstChain(
     map_seed: string;
   } | null;
   if (!c) return [{ name: `campaign ${b.campaign} exists on ${b.contract}`, ok: false }];
+  // once a campaign is over every job is settled, so each onchain treasury must equal the
+  // replayed crowns: a hire or refund the bundle missed would show up here
+  if (b.rollSecret !== undefined) {
+    const end = replayBundle(b);
+    const onchain = (c as unknown as { realms: { treasury: number }[] }).realms.map((r) => r.treasury);
+    const replayed = end.realms.map((r) => r.purse.crowns);
+    checks.push({
+      name: 'every onchain treasury equals the replayed crowns',
+      ok: canonicalJson(onchain) === canonicalJson(replayed),
+      ...(canonicalJson(onchain) === canonicalJson(replayed) ? {} : { detail: `onchain ${onchain.join(',')} vs replayed ${replayed.join(',')}` }),
+    });
+  }
   checks.push({ name: 'onchain map seed matches', ok: c.map_seed === b.options.seed });
   checks.push({ name: 'onchain roll commitment matches', ok: c.roll_commit === b.rollCommit });
   checks.push({ name: 'onchain agenda commitments match', ok: canonicalJson(c.agenda_commits) === canonicalJson(b.agendaCommits) });

@@ -14,9 +14,11 @@ import {
   type Order,
   type OrderSet,
   type Treaty,
+  visibleProvinces,
 } from '@realm-ledger/rules';
 import { chronicle } from './chronicle.ts';
-import { provinceTip, REALM_COLORS, renderMap } from './map.ts';
+import { createBoard } from './board.ts';
+import { provinceTip, REALM_COLORS } from './map.ts';
 
 const API = (import.meta.env.VITE_API_URL as string | undefined) ?? 'https://realm-ledger-api.azurewebsites.net';
 
@@ -49,6 +51,7 @@ interface View {
   receipts: { job: number; season: number; deal: Extract<Deal, { kind: 'mercs' | 'spy' }>; buyer: string; worker: string; passed: boolean }[];
   openJobs: number[];
   tasksLeft: number;
+  yourSeal: string | null;
 }
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -60,6 +63,14 @@ let before: GameState | null = null;
 let orders: Order[] = [];
 let selected: number | undefined;
 let busy = false;
+const board = createBoard({
+  svg,
+  container: $('table3d'),
+  toggle: $<HTMLButtonElement>('view-toggle'),
+  tip: $<HTMLDivElement>('tip'),
+  tipHtml: (id) => (view ? provinceTip(view.state, id) : ''),
+  onPick: (id) => clickProvince(id),
+});
 
 // ---------- api ----------
 
@@ -98,23 +109,32 @@ async function withBusy(label: string, fn: () => Promise<void>): Promise<void> {
 
 // ---------- local secrets: orders and salt stay in this browser until reveal ----------
 
+// Every seal attempt for a season is kept: if a retry finds an earlier seal already
+// onchain, the reveal uses whichever secret matches the seal the server reports.
+type Secret = { orders: OrderSet; salt: string };
 const secretKey = (id: number, season: number): string => `realm-ledger:${id}:${season}`;
-function keepSecret(id: number, set: OrderSet, salt: string): void {
+const memorySecrets: Secret[] = [];
+function readSecrets(id: number, season: number): Secret[] {
   try {
-    localStorage.setItem(secretKey(id, set.season), JSON.stringify({ orders: set, salt }));
+    const v = localStorage.getItem(secretKey(id, season));
+    const stored = v ? (JSON.parse(v) as Secret | Secret[]) : [];
+    return Array.isArray(stored) ? stored : [stored];
+  } catch {
+    return [];
+  }
+}
+function keepSecret(id: number, set: OrderSet, salt: string): void {
+  memorySecrets.push({ orders: set, salt });
+  try {
+    localStorage.setItem(secretKey(id, set.season), JSON.stringify([...readSecrets(id, set.season), { orders: set, salt }]));
   } catch {
     // private mode: the reveal still works in this tab
   }
 }
-function readSecret(id: number, season: number): { orders: OrderSet; salt: string } | null {
-  try {
-    const v = localStorage.getItem(secretKey(id, season));
-    return v ? (JSON.parse(v) as { orders: OrderSet; salt: string }) : null;
-  } catch {
-    return null;
-  }
+function findSecret(id: number, season: number, seal: string | null): Secret | null {
+  const all = [...readSecrets(id, season), ...memorySecrets.filter((x) => x.orders.season === season)];
+  return all.find((x) => sealOrders(x.orders, x.salt) === seal) ?? null;
 }
-let memorySecret: { orders: OrderSet; salt: string } | null = null;
 
 // ---------- game flow ----------
 
@@ -152,7 +172,6 @@ async function seal(): Promise<void> {
     const salt = newSalt();
     const hash = sealOrders(set, salt);
     keepSecret(v.id, set, salt);
-    memorySecret = { orders: set, salt };
     try {
       view = await api<View>(`/campaigns/${v.id}/seal`, { seal: hash });
     } catch (e) {
@@ -169,7 +188,7 @@ async function seal(): Promise<void> {
 async function reveal(): Promise<void> {
   if (!view || view.phase !== 'sealed') return;
   const v = view;
-  const secret = readSecret(v.id, v.season) ?? memorySecret;
+  const secret = findSecret(v.id, v.season, v.yourSeal);
   if (!secret) {
     status('Your sealed orders are not stored in this browser, so they cannot be revealed here. The season will pass without them.', 'error');
     return;
@@ -187,7 +206,6 @@ async function reveal(): Promise<void> {
     view = r.view;
     orders = [];
     selected = undefined;
-    memorySecret = null;
     render();
     status(view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : `The season turned. ${view.envoysLeft} envoys available.`);
   });
@@ -304,7 +322,9 @@ function render(): void {
       : `${seasonName(s.season)[0]!.toUpperCase()}${seasonName(s.season).slice(1)}, year ${year} · campaign #${v.id}`;
 
   const targets = selected !== undefined && armyAt(selected) && !marchedFrom(selected) ? new Set(s.map.provinces[selected]!.neighbors) : new Set<number>();
-  renderMap(svg, s, {
+  board.render(s, {
+    ...(v.phase !== 'over' ? { visible: visibleProvinces(s, v.human) } : {}),
+    focus: s.realms[v.human]!.capital,
     selected,
     targets,
     arrows: orders.flatMap((o) => (o.kind === 'march' ? [[o.from, o.to] as [number, number]] : [])),

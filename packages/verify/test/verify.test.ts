@@ -50,7 +50,7 @@ describe('TEE reply signatures', () => {
 
 /** Plays a short AI campaign the way the server does and builds its bundle. */
 function bundleFor(seed: string, seasons: number): ProofBundle {
-  const options = { seed, realms: 3, human: null, maxSeasons: seasons };
+  const options = { seed, realms: 3, human: null, maxSeasons: seasons, rulesVersion: 2 };
   let s: GameState = newCampaign(options);
   const rollSecret = 'roll-secret';
   const rollSalt = 'rs';
@@ -78,6 +78,22 @@ function bundleFor(seed: string, seasons: number): ProofBundle {
   }
   return b;
 }
+
+describe('campaigns from before the agent market (rules version 1)', () => {
+  it('a real finished campaign recorded on testnet still verifies', () => {
+    const old = JSON.parse(fx('campaign-11-v1.json')) as ProofBundle;
+    expect(old.options.rulesVersion).toBeUndefined();
+    const checks = verifyBundle(old);
+    expect(checks.filter((c) => !c.ok)).toEqual([]);
+    expect(checks.filter((c) => c.name.includes('replay reaches the recorded state'))).toHaveLength(4);
+  });
+
+  it('would not verify if replayed under the current rules', () => {
+    const old = JSON.parse(fx('campaign-11-v1.json')) as ProofBundle;
+    const checks = verifyBundle({ ...old, options: { ...old.options, rulesVersion: 2 } });
+    expect(checks.some((c) => !c.ok && c.name.includes('replay'))).toBe(true);
+  });
+});
 
 describe('verifyBundle', () => {
   it('passes an honest campaign', () => {

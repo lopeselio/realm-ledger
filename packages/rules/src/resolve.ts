@@ -88,7 +88,7 @@ export function resolveSeason(prev: GameState, orderSets: OrderSet[], opts: Reso
   upkeep(s, events);
   for (const change of settleMarket(s.market)) events.push({ kind: 'price', ...change });
 
-  s.lastBattles = events.filter((e) => e.kind === 'battle').length;
+  if (s.lastBattles !== undefined) s.lastBattles = events.filter((e) => e.kind === 'battle').length;
   s.season += 1;
   const standing = s.realms.filter((r) => r.alive);
   if (standing.length === 1) {

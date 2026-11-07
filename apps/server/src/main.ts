@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { OrderSet, Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
-import { createCampaign, GameError, list, loadAll, proof, publicView, revealSeason, runChancellor, sealSeason, sendEnvoy } from './host.ts';
+import { createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 
 // Small JSON API for the game. No framework: a handful of routes.
@@ -112,6 +112,7 @@ const server = createServer((req, res) => {
 });
 
 const n = await loadAll();
+reconcileAll();
 server.listen(config.port, () => {
   console.log(`realm-ledger server on :${config.port} (${n} campaigns loaded, contract ${config.contract}, NEAR AI ${nearAiEnabled() ? config.nearAi.model : 'off'})`);
 });

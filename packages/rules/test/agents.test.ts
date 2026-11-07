@@ -23,7 +23,7 @@ const world = (): GameState => {
   s.companies = makeCompanies('agents-test');
   return s;
 };
-const merc = (s: GameState): Company => s.companies.find((c) => c.kind === 'mercs')!;
+const merc = (s: GameState): Company => s.companies!.find((c) => c.kind === 'mercs')!;
 
 describe('the agent market', () => {
   it('has mercenary companies and spy rings, one reliable and one not', () => {
@@ -66,7 +66,7 @@ describe('the agent market', () => {
     let lies = 0;
     let caught = 0;
     for (let season = 0; season < 60; season++) {
-      for (const c of s.companies.filter((x) => x.kind === 'spy')) {
+      for (const c of s.companies!.filter((x) => x.kind === 'spy')) {
         const r = spyReport(s, c.id, 2, season);
         if (!reportHolds(s, r)) {
           lies++;

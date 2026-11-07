@@ -13,7 +13,8 @@ import {
 } from '@realm-ledger/rules';
 import { campaigns, CONTRACT } from './chain.ts';
 import { chronicle } from './chronicle.ts';
-import { provinceTip, REALM_COLORS, renderMap } from './map.ts';
+import { createBoard } from './board.ts';
+import { provinceTip, REALM_COLORS } from './map.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const svg = document.getElementById('map') as unknown as SVGSVGElement;
@@ -22,6 +23,13 @@ const scrub = $<HTMLInputElement>('scrub');
 const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 let states: GameState[] = [];
+const board = createBoard({
+  svg,
+  container: $('table3d'),
+  toggle: $<HTMLButtonElement>('view-toggle'),
+  tip,
+  tipHtml: (id) => provinceTip(states[index]!, id),
+});
 let history: SeasonRecord[] = [];
 let index = 0;
 let timer: number | undefined;
@@ -49,7 +57,7 @@ function show(i: number): void {
   index = Math.max(0, Math.min(states.length - 1, i));
   scrub.value = String(index);
   const s = states[index]!;
-  renderMap(svg, s);
+  board.render(s);
   const year = Math.floor(s.season / 4) + 1;
   const name = seasonName(s.season);
   $('season-title').textContent = s.winner !== null ? `The campaign is over` : `${name[0]!.toUpperCase()}${name.slice(1)}, year ${year}`;
@@ -174,15 +182,14 @@ function stop(): void {
 
 svg.addEventListener('mousemove', (e) => {
   const g = (e.target as Element).closest('.province');
+  const wrap = svg.parentElement!.getBoundingClientRect();
   if (!g) {
     tip.hidden = true;
     return;
   }
-  const wrap = svg.parentElement!.getBoundingClientRect();
   tip.innerHTML = provinceTip(states[index]!, Number(g.getAttribute('data-id')));
   tip.hidden = false;
-  const x = e.clientX - wrap.left + 14;
-  tip.style.left = `${Math.min(x, wrap.width - 250)}px`;
+  tip.style.left = `${Math.min(e.clientX - wrap.left + 14, wrap.width - 250)}px`;
   tip.style.top = `${e.clientY - wrap.top + 14}px`;
 });
 svg.addEventListener('mouseleave', () => (tip.hidden = true));

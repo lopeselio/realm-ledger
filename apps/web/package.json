@@ -12,10 +12,12 @@
     "test": "echo 'no web tests yet'"
   },
   "dependencies": {
-    "@realm-ledger/rules": "workspace:*"
+    "@realm-ledger/rules": "workspace:*",
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
+    "@types/three": "0.186.0",
     "typescript": "7.0.2",
     "vite": "8.3.5"
   }

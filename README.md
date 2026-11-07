@@ -39,9 +39,16 @@ Built so far:
   - the battle-roll secret and every agenda match the commitments made at campaign start,
   - every model reply's signature recovers the TEE signing address named in the model's attestation report,
   - every market job: its delivery hashes to what was posted on chain, it was paid exactly when the work passed (a spy is paid only for a true report), and on chain it shows that status, price and delivery.
-- **The web app** (`apps/web`, hosted on Vercel): the play page and the AI-campaign viewer, both drawn as a 2D hex map.
+- **The web app** (`apps/web`, hosted on Vercel): the play page and the AI-campaign viewer.
+- **The 3D war table** (`apps/web/src/table3d.ts`), the default view wherever the browser supports it. It's built with three.js on WebGPU, falling back to WebGL2, and includes:
+  - a painted terrain board on a candle-lit wooden table, with a sea shaded in TSL,
+  - pewter miniatures enamelled in each realm's colour,
+  - fog of war as mist over ground you can't see, and winter frost on the land.
 
-The 3D war table and login come next.
+  Click to order, drag to turn the table, scroll to zoom. "Flat map" switches to the 2D view.
+- **The miniatures** (soldier, keep, town, fort, tree) are modelled in code by [`tools/blender/build_assets.py`](./tools/blender/build_assets.py), with no imported meshes or asset packs. Rebuild them with `/Applications/Blender.app/Contents/MacOS/Blender -b -P tools/blender/build_assets.py`; it renders a preview PNG of each to `tools/blender/previews/`.
+
+Login comes next.
 
 ## How a season works
 
@@ -63,11 +70,12 @@ pnpm install
 | Open [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html), choose rivals and length, press **New campaign** | Within a few seconds: "Campaign N is onchain. Plan your first season." Click your army (the red circle), then a highlighted province, to march. Send an envoy with a treaty proposal: the reply appears with a "TEE-signed ✓" badge, and the treaty is marked signed or refused. Press **Seal orders**: about 10 seconds later the season turns and the chronicle lists what everyone did. |
 | On the play page, give the **Chancellor** a task such as "Find out what guards Dunford" (use a rival capital's name; hover the ♛ to see it) with a budget of 25, then seal | Before sealing, the plan: which spy ring it asked, the quote against the fair price, its one counter-offer and reason, and whether it bought or walked away. The hire shows as "in escrow". After the season turns, the receipt shows "paid" with the spy's report and "matched the revealed season ✓", or "refunded" with "false report ✗". |
 | `pnpm verify:campaign https://realm-ledger-api.azurewebsites.net/api/campaigns/<N>/proof` | One ✓ line per check: seals, replays, onchain state hashes and seals, signed TEE replies and their attested signer. Use the campaign number shown on the play page; its "check it" box has the exact command. After the last season it also checks the revealed roll secret and agendas. It needs no API key. |
-| `pnpm test` | 84 tests pass. They check map connectivity, battles, treaties and betrayals, diplomacy decisions, market prices, haggling, spy honesty, the Chancellor's budget limits, seals, whole-campaign replays with hires, and verification of real TEE-signed replies and market jobs, including that tampering is caught. |
+| `pnpm test` | 86 tests pass. They check map connectivity, battles, treaties and betrayals, diplomacy decisions, market prices, haggling, spy honesty, the Chancellor's budget limits, seals, whole-campaign replays with hires, and verification of real TEE-signed replies and market jobs, including that tampering is caught. |
 | `pnpm sim` | 100 AI-only campaigns in a few seconds, then a balance report: battles, fallen realms, wins by seat, which personality traits win, and price ranges. |
 | Open [realm-ledger.vercel.app](https://realm-ledger.vercel.app) | An AI-only campaign: press ▶ to watch the seasons turn. Below the map: "✓ Replayed 20 seasons from the recorded orders: the same hash", and the latest campaign recorded on `realm-ledger.testnet`. |
 | `pnpm contract:test` (needs Rust) | 20 contract tests pass. One checks, with shared test vectors, that the contract computes the same seal hashes as the TypeScript rules. |
 | `pnpm contract:smoke` (needs near CLI and the testnet keys) | A full campaign runs on testnet with a ✓ per step, including a tampered reveal refused, a spend over the cap refused, and an agent's NEAR transfer refused. |
+| `pnpm --filter @realm-ledger/server crashtest` (local server, testnet) | The server is killed in the middle of each risky step: after a hire, after a treaty, after the seals, and after the settlement. It restarts, reconciles with the chain ("reconciled hire … job N"), and the campaign is played to the end. It ends with "all crash points recovered: every proof check passes", including that every onchain treasury equals the replayed crowns. |
 | `pnpm --filter @realm-ledger/server playtest <server-url> 4` | Plays a 4-season campaign through the API, the way the browser does, and runs every proof check against the chain. |
 
 ### Running it yourself
@@ -87,8 +95,8 @@ Every rule number (costs, yields, battle modifiers, market drift) is in [`packag
   - every envoy reply came from a key that NEAR AI's attestation report binds to the TEE.
 - **Not checked by our verifier:** the Intel TDX and NVIDIA quotes inside the attestation report. That needs Intel's DCAP collateral; NEAR AI documents how to check them.
 - **What the server can see:** the game server sees all orders once they are revealed, and it holds the seat keys, within what the contract allows each seat. Human players currently sign through one shared `player` seat account held by the server. Wallet or social login (open question 1 in DESIGN.md) comes later.
-- **Retries:** seals, reveals and settlements are skipped when the chain already has them, so they're retried safely after network errors, and RPC calls fail over across three providers. Market hires are saved one by one, but a server restart between an onchain hire and saving it could still leave the server's copy one step behind the chain.
-- **Older campaigns:** campaigns created before the agent market (before 2026-11-07) won't verify with the current verifier, because the game state gained the companies.
+- **Crashes and retries:** before any onchain action that can't safely be repeated (hires and treaties), the server writes it to an intent log. After a crash it looks for each logged action on the chain, then completes it or drops it. Seals, reveals, settlements and job settlements are skipped when the chain already has them, so they're retried safely after network errors. RPC calls fail over across three providers. `crashtest` exercises all of this against testnet.
+- **Rules versions:** campaigns from before the agent market play by rules version 1, and the verifier replays them that way. A real finished campaign from that time (#11) is kept as a test fixture and still verifies.
 
 ## Our other hackathon project
 

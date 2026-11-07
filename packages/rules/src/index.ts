@@ -3,7 +3,7 @@ export * from './constants.ts';
 export { rng, hash32, type Rng } from './rng.ts';
 export * from './hex.ts';
 export { generateMap, type MapOptions } from './map.ts';
-export { newCampaign, distancesFrom, type CampaignOptions } from './setup.ts';
+export { newCampaign, distancesFrom, RULES_VERSION, type CampaignOptions } from './setup.ts';
 export { priceFor, sellPrice, newMarket } from './market.ts';
 export { fight, defenceBonus, type BattleSide, type BattleResult } from './battle.ts';
 export * from './state.ts';

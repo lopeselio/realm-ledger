@@ -45,7 +45,7 @@ export function makeCompanies(seed: string): Company[] {
 }
 
 /** Extra crowns per sword while wars rage. */
-export const warPremium = (s: GameState): number => Math.min(6, s.lastBattles);
+export const warPremium = (s: GameState): number => Math.min(6, s.lastBattles ?? 0);
 
 export function quoteMercs(s: GameState, c: Company, count: number): number {
   // a greed of 2 asks the base price; each point of greed adds a twelfth
@@ -71,7 +71,7 @@ export function applyDeal(s: GameState, d: Deal): GameState {
     realm.purse.crowns += d.amount;
     return next;
   }
-  const c = next.companies[d.company];
+  const c = next.companies?.[d.company];
   if (!c || c.kind !== d.kind) throw new Error(`no ${d.kind} company ${d.company}`);
   if (d.price <= 0 || realm.purse.crowns < d.price) throw new Error(`realm ${d.realm} cannot pay ${d.price}`);
   realm.purse.crowns -= d.price;
@@ -97,7 +97,7 @@ function truth(s: GameState, province: number): SpyReport['armies'] {
  * truth; a dishonest one, as often as its honesty allows, sells a convenient fiction.
  */
 export function spyReport(after: GameState, company: number, province: number, season: number): SpyReport {
-  const c = after.companies[company]!;
+  const c = after.companies![company]!;
   const real = truth(after, province);
   const honest = rng(after.seed, 'spy', company, province, season).int(10) < c.honesty;
   if (honest) return { company, province, season, armies: real };
@@ -139,7 +139,7 @@ export function aiHires(view: GameState, me: number): Deal[] {
   if (fielded >= MAX_AI_MERCS) return [];
   const wages = mine.reduce((n, a) => n + a.regulars * UPKEEP.regulars + a.mercs * UPKEEP.mercs, 0);
   const reserve = 20 + realm.personality.caution * 2;
-  const companies = view.companies.filter((c) => c.kind === 'mercs');
+  const companies = (view.companies ?? []).filter((c) => c.kind === 'mercs');
   let best: Deal | null = null;
   for (const c of companies) {
     let count = Math.min(c.size, Math.ceil(gap / 3), MAX_AI_MERCS - fielded);
@@ -224,7 +224,7 @@ export function planTask(view: GameState, me: number, task: Task): Plan {
   const spyTarget =
     task.goal === 'scout' ? task.province : hidden.sort((a, b) => Number(view.owner[b]! >= 0 && hostile(view.owner[b]!)) - Number(view.owner[a]! >= 0 && hostile(view.owner[a]!)) || a - b)[0];
   if (spyTarget !== undefined) {
-    const rings = view.companies.filter((c) => c.kind === 'spy');
+    const rings = (view.companies ?? []).filter((c) => c.kind === 'spy');
     // the cheapest ring; the honest one wins ties
     const ring = [...rings].sort((a, b) => quoteSpy(view, a, spyTarget) - quoteSpy(view, b, spyTarget) || b.honesty - a.honesty)[0];
     if (ring) {
@@ -256,7 +256,7 @@ export function planTask(view: GameState, me: number, task: Task): Plan {
       advice.push({ kind: 'march', from, to: task.province });
     }
     if (need > 0 && muster !== undefined) {
-      const companies = view.companies.filter((c) => c.kind === 'mercs');
+      const companies = (view.companies ?? []).filter((c) => c.kind === 'mercs');
       const wanted = Math.ceil(need / 3);
       const options = companies
         .map((c) => {

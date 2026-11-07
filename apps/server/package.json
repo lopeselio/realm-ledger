@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "setup:agents": "tsx --env-file-if-exists=../../.env src/setup-agents.ts",
-    "playtest": "tsx src/playtest.ts"
+    "playtest": "tsx src/playtest.ts",
+    "crashtest": "tsx src/crashtest.ts"
   },
   "dependencies": {
     "@realm-ledger/rules": "workspace:*",
