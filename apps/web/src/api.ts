@@ -70,6 +70,17 @@ export interface View {
   proposeTreaty: { from: number; to: number; kind: Treaty['kind']; amount: number } | null;
 }
 
+/** One line of GET /api/campaigns. */
+export interface CampaignSummary {
+  id: number;
+  season: number;
+  maxSeasons: number;
+  phase: View['phase'];
+  createdAt: number;
+  player: string | null;
+  winner: number | null;
+}
+
 export async function api<T>(path: string, body?: object): Promise<T> {
   const res = await fetch(`${API}/api${path}`, {
     method: body ? 'POST' : 'GET',

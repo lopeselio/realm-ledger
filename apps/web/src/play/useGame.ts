@@ -5,6 +5,7 @@ import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, typ
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { capitalize } from '../format.ts';
+import { rememberCampaign } from '../recent.ts';
 import { findSecret, keepSecret } from '../secrets.ts';
 import type { Signer } from '../wallet.ts';
 
@@ -158,6 +159,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       setBefore(null);
       freshDraft();
       created = v.id;
+      rememberCampaign(v.id);
       say(`Campaign ${v.id} is onchain. Plan your first season.`);
     });
     return created;
@@ -171,6 +173,8 @@ export function useGame(id: number | null, signer: Signer | null) {
       const salt = newSalt();
       const hash = sealOrders(set, salt);
       keepSecret(v.id, { orders: set, salt });
+      // you played it: offer it on /play next time (opening a link alone doesn't count)
+      rememberCampaign(v.id);
       if (v.player) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');

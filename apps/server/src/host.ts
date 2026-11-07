@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   aiDiplomacy,
@@ -179,8 +179,27 @@ export class GameError extends Error {
 
 async function save(h: Hosted): Promise<void> {
   await mkdir(config.dataDir, { recursive: true });
-  await writeFile(join(config.dataDir, `campaign-${h.id}.json`), JSON.stringify(h));
+  // write a temp file and rename it over the old one: a crash mid-write leaves the previous
+  // save intact rather than a truncated file (loadAll skips the .tmp names)
+  const file = join(config.dataDir, `campaign-${h.id}.json`);
+  const tmp = `${file}.${process.pid}.${saveSeq++}.tmp`;
+  const fh = await open(tmp, 'w');
+  try {
+    await fh.writeFile(JSON.stringify(h));
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+  try {
+    await rename(tmp, file);
+  } catch (e) {
+    // a filesystem that refuses to rename over a file: save in place rather than not at all
+    console.error(`save ${h.id}: rename failed (${(e as Error).message}); writing in place`);
+    await writeFile(file, JSON.stringify(h));
+    await unlink(tmp).catch(() => undefined);
+  }
 }
+let saveSeq = 0;
 
 /** Settles interrupted onchain actions left by a crash, in the background. */
 export function reconcileAll(): void {
@@ -192,6 +211,8 @@ export function reconcileAll(): void {
 export async function loadAll(): Promise<number> {
   try {
     for (const f of await readdir(config.dataDir)) {
+      // a save that died before its rename; the previous save is still in place
+      if (/^campaign-\d+\.json\..*\.tmp$/.test(f)) await unlink(join(config.dataDir, f)).catch(() => undefined);
       if (!/^campaign-\d+\.json$/.test(f)) continue;
       const h = JSON.parse(await readFile(join(config.dataDir, f), 'utf8')) as Hosted;
       // campaigns from before the agent market
@@ -769,9 +790,14 @@ export async function runChancellor(
   });
 }
 
-async function finish(h: Hosted): Promise<void> {
+/** The realm that wins: a conqueror, else the highest score when the seasons run out. */
+function winnerOf(h: Hosted): number {
   const sc = scores(h.state);
-  const winner = h.state.winner ?? sc.indexOf(Math.max(...sc));
+  return h.state.winner ?? sc.indexOf(Math.max(...sc));
+}
+
+async function finish(h: Hosted): Promise<void> {
+  const winner = winnerOf(h);
   await call(config.referee, 'finish_campaign', {
     campaign: h.id,
     winner,
@@ -806,7 +832,7 @@ export function publicView(id: number) {
     })),
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
-    winner: over ? (h.state.winner ?? scores(h.state).indexOf(Math.max(...scores(h.state)))) : null,
+    winner: over ? winnerOf(h) : null,
     companies: (h.state.companies ?? []).map((c) => ({ id: c.id, name: c.name, kind: c.kind, greed: c.greed, base: c.base, size: c.size })),
     plans: h.plans,
     reports: h.reports,
@@ -826,8 +852,34 @@ export function proof(id: number): ProofBundle {
   return get(id).bundle;
 }
 
-export function list(): { id: number; season: number; phase: string; createdAt: number }[] {
+export interface CampaignSummary {
+  id: number;
+  season: number;
+  maxSeasons: number;
+  phase: Hosted['phase'];
+  createdAt: number;
+  /** the wallet account that rules realm 0, if any (public: it signs onchain) */
+  player: string | null;
+  winner: number | null;
+}
+
+/**
+ * Recent campaigns, newest first; `ids` and `player` narrow the list (either matches) to the
+ * campaigns someone could resume, and then unfinished ones come first.
+ */
+export function list(filter: { ids?: number[]; player?: string } = {}): CampaignSummary[] {
+  const narrowed = filter.ids !== undefined || filter.player !== undefined;
+  const ids = new Set(filter.ids ?? []);
   return [...campaigns.values()]
-    .map((h) => ({ id: h.id, season: h.state.season, phase: h.phase, createdAt: h.createdAt }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .filter((h) => !narrowed || ids.has(h.id) || (filter.player !== undefined && h.player === filter.player))
+    .map((h) => ({
+      id: h.id,
+      season: h.state.season,
+      maxSeasons: h.state.maxSeasons,
+      phase: h.phase,
+      createdAt: h.createdAt,
+      player: h.player ?? null,
+      winner: h.phase === 'over' ? winnerOf(h) : null,
+    }))
+    .sort((a, b) => (narrowed ? Number(a.phase === 'over') - Number(b.phase === 'over') : 0) || b.createdAt - a.createdAt);
 }
