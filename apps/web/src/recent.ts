@@ -21,12 +21,3 @@ export function rememberCampaign(id: number): void {
   }
 }
 
-/** Drops remembered ids the server no longer has (`known` is what it returned for them). */
-export function forgetMissing(asked: number[], known: Set<number>): void {
-  try {
-    const keep = recentCampaigns().filter((id) => !asked.includes(id) || known.has(id));
-    localStorage.setItem(KEY, JSON.stringify(keep));
-  } catch {
-    // nothing stored to tidy
-  }
-}

@@ -8,7 +8,8 @@ import { ChronicleLines } from '../components/ChronicleLines.tsx';
 import { Footer } from '../components/Footer.tsx';
 import { api, type CampaignSummary } from '../api.ts';
 import { seasonTitle } from '../format.ts';
-import { forgetMissing, recentCampaigns } from '../recent.ts';
+import { recentCampaigns } from '../recent.ts';
+import { hasSecret } from '../secrets.ts';
 import { restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
@@ -162,23 +163,15 @@ export function Play() {
 function Continue({ signer }: { signer: Signer | null }) {
   const account = signer?.accountId ?? null;
   const [list, setList] = useState<CampaignSummary[] | null>(null);
-  // campaigns this browser played: only these can hold your sealed orders
-  const [mine, setMine] = useState<Set<number>>(() => new Set());
   useEffect(() => {
     const ids = recentCampaigns();
-    setMine(new Set(ids));
     if (ids.length === 0 && !account) return setList([]);
     let live = true;
     const q = new URLSearchParams();
     if (ids.length > 0) q.set('ids', ids.join(','));
     if (account) q.set('player', account);
     api<CampaignSummary[]>(`/campaigns?${q}`)
-      .then((l) => {
-        // the server has every saved campaign, so an id it didn't return is gone
-        // (unless the reply hit the server's 20-campaign cap)
-        if (l.length < 20) forgetMissing(ids, new Set(l.map((c) => c.id)));
-        if (live) setList(l);
-      })
+      .then((l) => live && setList(l))
       .catch(() => live && setList([]));
     return () => {
       live = false;
@@ -199,7 +192,7 @@ function Continue({ signer }: { signer: Signer | null }) {
                   c.winner === 0 && (c.player === null || c.player === account)
                   ? 'over · you won'
                   : 'over'
-                : `season ${c.season + 1} of ${c.maxSeasons} (${seasonTitle(c.season)})${c.phase === 'sealed' ? (mine.has(c.id) ? ' · orders sealed, reveal pending' : ' · sealed in another browser; reveal from there') : ''}`}
+                : `season ${c.season + 1} of ${c.maxSeasons} (${seasonTitle(c.season)})${c.phase === 'sealed' ? (hasSecret(c.id, c.season) ? ' · orders sealed, reveal pending' : ' · sealed in another browser; reveal from there') : ''}`}
               {c.player ? ` · ruled by ${c.player}` : ' · guest seat'}
             </span>
           </li>

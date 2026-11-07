@@ -173,6 +173,9 @@ export function useGame(id: number | null, signer: Signer | null) {
       const salt = newSalt();
       const hash = sealOrders(set, salt);
       keepSecret(v.id, { orders: set, salt });
+      // sealing here makes it yours to come back to (opening a link alone doesn't); remembered
+      // before the network calls, since the seal may land onchain even if they error
+      rememberCampaign(v.id);
       if (v.player) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');
@@ -186,8 +189,6 @@ export function useGame(id: number | null, signer: Signer | null) {
         if (now.phase !== 'sealed') throw e;
         adopt(now);
       }
-      // you played it: offer it on /play next time (opening a link alone doesn't count)
-      rememberCampaign(v.id);
       say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
     // reveals only if the season is sealed, even when the seal call itself errored

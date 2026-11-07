@@ -33,3 +33,8 @@ export function findSecret(id: number, season: number, seal: string | null): Sec
   const all = [...stored(id, season), ...memory.filter((m) => m.id === id && m.secret.orders.season === season).map((m) => m.secret)];
   return all.find((x) => sealOrders(x.orders, x.salt) === seal) ?? null;
 }
+
+/** Whether this browser sealed orders for that season (and can reveal them). */
+export function hasSecret(id: number, season: number): boolean {
+  return stored(id, season).length > 0 || memory.some((m) => m.id === id && m.secret.orders.season === season);
+}
