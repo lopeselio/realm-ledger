@@ -267,7 +267,7 @@ export async function checkAgainstChain(
       checks.push({
         name: `season ${sp.season}: realm ${r} sealed but never revealed onchain`,
         ok: !!rec && !rec.revealed,
-        detail: declared ? 'forfeited by its ruler onchain' : 'settled without it after the reveal window',
+        detail: declared ? 'forfeited by its ruler onchain' : 'not forfeited by its ruler: the contract allows that only after the reveal window',
       });
     }
     // every seal onchain is accounted for: revealed in the bundle, or listed as forfeited

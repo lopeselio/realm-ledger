@@ -27,6 +27,8 @@ pub const AGENT_METHODS: &str = "seal,reveal,propose_treaty,accept_treaty,set_po
 /// Gas allowance on each agent key. When it runs out the agent can't sign; a new key is needed.
 pub const AGENT_GAS_ALLOWANCE: NearToken = NearToken::from_millinear(500);
 const MAX_ORDERS_JSON: usize = 8_000;
+/// Largest reveal (orders and salt) the contract keeps until the season settles.
+const MAX_KEPT_REVEAL: usize = 2_000;
 const MAX_TEXT: usize = 1_000;
 const MAX_REALMS: usize = 8;
 
@@ -391,6 +393,10 @@ impl RealmLedger {
         require!(c.phase == Phase::Revealing, "seals are not closed yet");
         let r = c.realms.get(realm as usize).unwrap_or_else(|| env::panic_str("no such realm"));
         require!(r.ruler == caller || c.referee == caller, "only the ruler or the referee reveals");
+        // kept only for rulers outside this contract (players' own wallets), and only small
+        // order sets: the referee already holds every agent seat's orders, and the contract
+        // pays for this storage
+        let keep = !r.ruler.is_sub_account_of(&env::current_account_id()) && orders.len() + salt.len() <= MAX_KEPT_REVEAL;
         require!(!c.revealed[realm as usize], "already revealed");
         c.revealed[realm as usize] = true;
         let season = c.season;
@@ -399,10 +405,7 @@ impl RealmLedger {
         let record = self.seals.get_mut(&key).unwrap_or_else(|| env::panic_str("this realm did not seal"));
         require!(commitment(&orders, &salt) == record.seal, "orders do not match the seal");
         record.revealed = true;
-        // kept only for rulers outside this contract (players' own wallets): the referee
-        // already holds every agent seat's orders, and the contract pays for this storage
-        let ruler = &self.campaign(campaign).realms[realm as usize].ruler;
-        if !ruler.is_sub_account_of(&env::current_account_id()) {
+        if keep {
             env::storage_write(&season_key(REVEAL_PREFIX, campaign, season, realm), &near_sdk::serde_json::to_vec(&RevealedOrders { orders: orders.clone(), salt: salt.clone() }).unwrap());
         }
         Event::Revealed { campaign, season, realm, orders, salt }.emit();

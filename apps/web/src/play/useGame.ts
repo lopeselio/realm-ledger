@@ -180,6 +180,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     await withBusy('Settling the season without your orders; every AI ruler reveals…', async () => {
       setBefore(v.state);
+      let revealedElsewhere = false;
       if (v.player) {
         // only your wallet can give up your orders; the contract then blocks their reveal
         const [declared, c] = await Promise.all([
@@ -192,11 +193,17 @@ export function useGame(id: number | null, signer: Signer | null) {
           try {
             await walletFor(v).call('forfeit', { campaign: v.id, realm: v.human, season: v.season });
           } catch (e) {
-            throw new Error(`${(e as Error).message} If your wallet key predates this action, sign out and sign in again.`);
+            const msg = (e as Error).message;
+            // revealed from another browser meanwhile: those orders count, so settle with them
+            if (/already revealed/.test(msg)) {
+              revealedElsewhere = true;
+            } else if (/method|permission|not allowed|access key/i.test(msg)) {
+              throw new Error(`${msg} Your wallet key predates this action: sign out and sign in again.`);
+            } else throw e;
           }
         }
       }
-      const r = await settle(v, { forfeit: true });
+      const r = await settle(v, revealedElsewhere ? {} : { forfeit: true });
       if (!adopt(r.view)) return;
       setForfeitAt(null);
       freshDraft();
