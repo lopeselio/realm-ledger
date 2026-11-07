@@ -4,12 +4,15 @@ import { resolveSeason } from './resolve.ts';
 import { sha256Hex } from './seal.ts';
 import { newCampaign, type CampaignOptions } from './setup.ts';
 import { viewFor } from './state.ts';
-import type { GameEvent, GameState, OrderSet, Treaty } from './types.ts';
+import { aiHires, applyDeal } from './agents.ts';
+import type { Deal, GameEvent, GameState, OrderSet, Treaty } from './types.ts';
 
 export interface SeasonRecord {
   season: number;
   /** treaties signed during this season's planning, applied before it resolves */
   treaties: Treaty[];
+  /** purchases from the agent market, applied before the season resolves */
+  deals: Deal[];
   orders: OrderSet[];
   rollSeed: string;
   events: GameEvent[];
@@ -44,7 +47,13 @@ export function aiDiplomacy(s: GameState): Treaty[] {
 export function replaySeason(s: GameState, h: SeasonRecord): ReturnType<typeof resolveSeason> {
   let state = s;
   for (const t of h.treaties) state = signTreaty(state, t);
+  for (const d of h.deals ?? []) state = applyDeal(state, d);
   return resolveSeason(state, h.orders, { rollSeed: h.rollSeed });
+}
+
+/** AI rulers buy swords when threatened. */
+export function aiMarket(s: GameState): Deal[] {
+  return s.realms.filter((r) => r.alive && !r.human).flatMap((r) => aiHires(viewFor(s, r.id), r.id));
 }
 
 /** Every AI realm decides from its own view. */
@@ -62,10 +71,12 @@ export function runCampaign(opts: CampaignOptions & { rollSecret?: string }): { 
   while (state.winner === null) {
     const treaties = aiDiplomacy(state);
     for (const t of treaties) state = signTreaty(state, t);
+    const deals = aiMarket(state);
+    for (const d of deals) state = applyDeal(state, d);
     const orders = aiOrders(state);
     const rollSeed = seasonRollSeed(rollSecret, state.season);
     const { state: next, events } = resolveSeason(state, orders, { rollSeed });
-    history.push({ season: state.season, treaties, orders, rollSeed, events });
+    history.push({ season: state.season, treaties, deals, orders, rollSeed, events });
     state = next;
   }
   return { state, history };

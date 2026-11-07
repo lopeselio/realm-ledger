@@ -13,8 +13,11 @@ import {
   seasonRollSeed,
   sha256Hex,
   stateHash,
+  reportHolds,
   type Agenda,
+  type Deal,
   type GameState,
+  type SpyReport,
   type OrderSet,
   type Treaty,
 } from '@realm-ledger/rules';
@@ -35,9 +38,26 @@ export interface SignedReply {
   signatureKind: string;
 }
 
+/** A hire through the contract's escrow, with what was delivered and the buyer's verdict. */
+export interface MarketJob {
+  /** onchain job id */
+  job: number;
+  season: number;
+  deal: Extract<Deal, { kind: 'mercs' | 'spy' }>;
+  buyer: string;
+  worker: string;
+  /** what the worker delivered: a spy's report, or the muster of swords */
+  payload: SpyReport | { province: number; count: number; season: number };
+  /** sha256(canonical payload), posted onchain by the worker */
+  delivery: string;
+  passed: boolean;
+}
+
 export interface SeasonProof {
   season: number;
   treaties: Treaty[];
+  /** market purchases applied before the season resolved */
+  deals?: Deal[];
   /** one per realm that sealed */
   seals: { realm: number; seal: string; salt: string; orders: OrderSet }[];
   rollSeed: string;
@@ -58,6 +78,7 @@ export interface ProofBundle {
   agendaSalts?: string[];
   seasons: SeasonProof[];
   replies: SignedReply[];
+  jobs?: MarketJob[];
   /** the model attestation report fetched at campaign start, with the nonce we sent */
   attestation?: { nonce: string; model: string; report: { model_attestations?: { signing_address?: string }[] } };
 }
@@ -108,6 +129,7 @@ export function verifyBundle(b: ProofBundle): Check[] {
   };
 
   let state: GameState = newCampaign({ ...b.options });
+  const after = new Map<number, GameState>();
   push('campaign rebuilt from its seed', true, `${state.map.provinces.length} provinces, ${state.realms.length} realms`);
 
   // commitments made at campaign start
@@ -126,13 +148,32 @@ export function verifyBundle(b: ProofBundle): Check[] {
     const result = replaySeason(state, {
       season: sp.season,
       treaties: sp.treaties,
+      deals: sp.deals ?? [],
       orders: sp.seals.map((x) => x.orders),
       rollSeed: sp.rollSeed,
       events: [],
     });
     state = result.state;
+    after.set(sp.season, state);
     const h = stateHash(state);
     push(`season ${sp.season}: replay reaches the recorded state`, h === sp.stateHash, h === sp.stateHash ? undefined : `got ${h}`);
+  }
+
+  for (const j of b.jobs ?? []) {
+    const name = `job ${j.job} (${j.deal.kind}, season ${j.season})`;
+    push(`${name}: delivery hash matches what was delivered`, sha256Hex(canonicalJson(j.payload)) === j.delivery);
+    const end = after.get(j.season);
+    if (!end) {
+      push(`${name}: season replayed`, false, 'season not in the bundle');
+      continue;
+    }
+    if (j.deal.kind === 'spy') {
+      const holds = reportHolds(end, j.payload as SpyReport);
+      push(`${name}: paid only if the report matched the truth`, holds === j.passed, holds ? 'report true' : 'report false');
+    } else {
+      const ok = j.passed && (j.payload as { count: number }).count === j.deal.count;
+      push(`${name}: swords mustered as hired`, ok);
+    }
   }
 
   const attested = new Set(
@@ -164,6 +205,14 @@ export async function checkAgainstChain(
   checks.push({ name: 'onchain map seed matches', ok: c.map_seed === b.options.seed });
   checks.push({ name: 'onchain roll commitment matches', ok: c.roll_commit === b.rollCommit });
   checks.push({ name: 'onchain agenda commitments match', ok: canonicalJson(c.agenda_commits) === canonicalJson(b.agendaCommits) });
+  for (const j of b.jobs ?? []) {
+    const rec = (await view('get_job', { job: j.job })) as { status: string; price: number; delivery: string | null; worker: string } | null;
+    const status = j.passed ? 'Paid' : 'Refunded';
+    checks.push({
+      name: `job ${j.job}: onchain it is ${status}, at the price and delivery in the bundle`,
+      ok: !!rec && rec.status === status && rec.price === j.deal.price && rec.delivery === j.delivery && rec.worker === j.worker,
+    });
+  }
   for (const sp of b.seasons) {
     checks.push({ name: `season ${sp.season}: onchain state hash matches`, ok: c.state_hashes[sp.season] === sp.stateHash });
     for (const x of sp.seals) {

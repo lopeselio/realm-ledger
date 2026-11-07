@@ -54,6 +54,21 @@
         </section>
 
         <section class="panel">
+          <h2>Chancellor</h2>
+          <form id="chancellor" class="envoy">
+            <textarea id="task" rows="2" maxlength="300" placeholder="e.g. Hold Woldfell through winter, or find out what guards the Vey capital." required></textarea>
+            <div class="row">
+              <label class="inline">Budget <input id="budget" type="number" min="1" value="25" aria-label="Budget in crowns" /> crowns</label>
+              <button type="submit">Give the task</button>
+            </div>
+          </form>
+          <p class="fine">The Chancellor plans with the rules engine, haggles once, and hires through the contract’s escrow within the cap you set. It pays only for work that passes its check.</p>
+          <ul id="plans" class="envoys"></ul>
+          <h3 class="sub">Receipts</h3>
+          <ul id="receipts" class="receipts"></ul>
+        </section>
+
+        <section class="panel">
           <h2>Envoys</h2>
           <form id="envoy" class="envoy">
             <select id="envoy-to" aria-label="Send to"></select>

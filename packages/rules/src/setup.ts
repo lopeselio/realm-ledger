@@ -1,4 +1,5 @@
 import { NEUTRAL, NEUTRAL_TOWN_MILITIA, START_ARMY, START_PURSE } from './constants.ts';
+import { makeCompanies } from './agents.ts';
 import { generateMap, type MapOptions } from './map.ts';
 import { newMarket } from './market.ts';
 import { REALM_NAMES } from './names.ts';
@@ -189,6 +190,8 @@ export function newCampaign(opts: CampaignOptions): GameState {
     market: newMarket(),
     treaties: [],
     betrayals: [],
+    companies: makeCompanies(opts.seed),
+    lastBattles: 0,
     winner: null,
   };
 }

@@ -166,6 +166,6 @@ For the hackathon deadline (2026-11-14 23:59 UTC), steps 1–4 must be solid and
    - **Login:** docs.near.org lists NEAR Auth (Google, Apple, email or passkeys via MPC, no seed phrase), Privy, and the NEAR Connect wallet connector.
    - **Gas:** gas-free play uses NEP-366 meta-transactions, and the docs name no hosted testnet relayer, so we run our own.
    - **Still open:** which login provider to use.
-2. Can jobs be posted and paid on the NEAR AI Agent Market programmatically? If not, the agent market stays inside the game, and the README says so. *Checked 2026-11-06:* docs.near.ai documents no Agent Market API, so the agent market lives in the `realm` contract (hire, deliver, settle, receipts).
+2. Can jobs be posted and paid on the NEAR AI Agent Market programmatically? If not, the agent market stays inside the game, and the README says so. *Checked 2026-11-06:* docs.near.ai documents no Agent Market API, so the agent market lives in the `realm` contract (hire, deliver, settle, receipts). Built 2026-11-07: mercenary companies and spy rings as agent accounts, the Chancellor, and AI rulers hiring.
 3. Should the terminal offer Claude as an opt-in alternative to the NEAR AI model for modding? (Default: NEAR AI only.)
 4. How long is a season turn in a live multiplayer game? Single-player against AI comes first.

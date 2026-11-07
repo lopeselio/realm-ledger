@@ -34,6 +34,14 @@ const { envoy } = await api<{ envoy: { reply: string; accepted?: boolean; signed
 });
 console.log(`envoy to ${rival.name}: ${envoy.accepted ? 'ACCEPTED' : 'refused'} (${lap()})\n  "${envoy.reply}"`);
 
+// a Chancellor task in plain words; the model reads it, the rules engine plans and prices it
+const target = v.state.map.provinces[rival.capital]!.name;
+type TaskReply = { task: { plan: { steps: { kind: string; quote: number; fair: number; price?: number; note: string; counter?: { offer: number; accepted: boolean } }[]; spent: number; summary: string[] }; jobs: number[] } };
+const t = await api<TaskReply>(`/campaigns/${v.id}/chancellor`, { task: `Find out what guards ${target}, the capital of ${rival.name}.`, budget: 25 });
+console.log(`chancellor: spent ${t.task.plan.spent} of 25 on ${t.task.jobs.length} hires (${lap()})`);
+for (const st of t.task.plan.steps) console.log(`  ${st.kind}: quote ${st.quote}, fair ${st.fair}${st.counter ? `, countered ${st.counter.offer} (${st.counter.accepted ? 'taken' : 'refused'})` : ''} — ${st.note}`);
+for (const line of t.task.plan.summary) console.log(`  ${line}`);
+
 for (let i = 0; i < seasons; i++) {
   // the "player" here is the AI engine playing realm 0 from its own view
   const orders: OrderSet = { realm: 0, season: v.season, orders: decideOrders(v.state, 0) };

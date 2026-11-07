@@ -32,6 +32,12 @@ export const config = {
 /** Seat accounts: AI rulers sit in ruler0..ruler7; human players sign through `player`. */
 export const rulerAccount = (seat: number): string => `ruler${seat}.${config.contract}`;
 export const playerAccount = (): string => `player.${config.contract}`;
+/** The player's Chancellor: spends the player's treasury within a cap the player sets onchain. */
+export const chancellorAccount = (): string => `chancellor.${config.contract}`;
+/** Agent-market companies: merc0, merc1 (mercenaries) and spy0, spy1 (spy rings), by company id. */
+export const companyAccount = (c: { id: number; kind: 'mercs' | 'spy' }): string =>
+  c.kind === 'mercs' ? `merc${c.id}.${config.contract}` : `spy${c.id - 2}.${config.contract}`;
+export const COMPANY_ACCOUNTS = ['merc0', 'merc1', 'spy0', 'spy1'];
 
 /**
  * Private keys. Hosted: AGENT_KEYS is a JSON map of account to "ed25519:..." key.

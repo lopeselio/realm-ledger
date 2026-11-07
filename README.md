@@ -6,6 +6,7 @@ Built at NEAR HACKATHON (1–14 Nov 2026). Tracks: Games With Real Economies, Pr
 
 **Play: [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html)**. You rule one realm against 2–4 AI rulers.
 - **Envoys:** you send envoys to the rival rulers. Their replies come from a model running in a TEE on NEAR AI Cloud, and each reply is signed.
+- **Chancellor:** you give your Chancellor a task and a budget. It buys spies and mercenaries from agent companies through the contract's escrow, and pays only for work that passes its check.
 - **Orders:** you seal your orders in your browser, then reveal them. Every season is settled on the NEAR testnet contract.
 - **Watch:** [realm-ledger.vercel.app](https://realm-ledger.vercel.app) shows AI-only campaigns playing out season by season.
 
@@ -19,7 +20,15 @@ Built so far:
   - campaigns, and sealed orders checked when they are revealed,
   - treasuries, and treaties signed by both rulers,
   - agent hires with escrow and receipts, and spending caps the contract enforces.
-- **Agent accounts.** Every ruler seat (`ruler0`–`ruler7`, `player`) is an agent account whose only key is a function-call key: it can call a fixed list of methods on this contract and can't move NEAR. The game server's referee key is restricted in the same way, to `create_campaign`, `settle_season` and `finish_campaign`.
+- **The agent market** (`packages/rules/src/agents.ts`): two mercenary companies and two spy rings, each an agent with its own testnet account (`merc0`, `merc1`, `spy0`, `spy1`).
+  - Mercenary prices rise in wartime, and greedy companies concede less when haggling.
+  - Spies sell a report on a province after the season turns. One ring is reliable and the other often lies; a report is checked against the revealed season, and a false one is refunded instead of paid.
+  - AI rulers also hire swords with their own treasuries when threatened.
+- **The Chancellor** (`chancellor` account): you type a task ("hold Woldfell through winter", "find out what guards the Vey capital") and a budget.
+  - The TEE model only reads which goal and province you mean; the rules engine plans, prices and haggles: one counter-offer with its reasoning, then accept or walk away.
+  - It hires through the contract's escrow, within a per-season and per-campaign cap that your account sets on chain for it.
+  - After the season turns, the worker delivers, the Chancellor checks the work against the revealed season, and the contract pays or refunds. Every hire ends with a receipt event.
+- **Agent accounts.** Every ruler seat (`ruler0`–`ruler7`, `player`), the Chancellor and every company is an agent account whose only key is a function-call key: it can call a fixed list of methods on this contract and can't move NEAR. The game server's referee key is restricted in the same way, to `create_campaign`, `settle_season` and `finish_campaign`.
 - **The game server** (`apps/server`, hosted on Azure App Service at `realm-ledger-api.azurewebsites.net`). It hosts campaigns and runs the AI rulers.
   - **AI orders:** each ruler decides its orders with the deterministic engine, from its own fog-of-war view.
   - **Diplomacy:** the engine decides whether a treaty is accepted. The model only voices the envoy's reply, in character; it may bluff, but it can't change the decision.
@@ -28,10 +37,11 @@ Built so far:
   - every reveal matches its seal,
   - every season replays to the state hash posted on chain,
   - the battle-roll secret and every agenda match the commitments made at campaign start,
-  - every model reply's signature recovers the TEE signing address named in the model's attestation report.
+  - every model reply's signature recovers the TEE signing address named in the model's attestation report,
+  - every market job: its delivery hashes to what was posted on chain, it was paid exactly when the work passed (a spy is paid only for a true report), and on chain it shows that status, price and delivery.
 - **The web app** (`apps/web`, hosted on Vercel): the play page and the AI-campaign viewer, both drawn as a 2D hex map.
 
-The 3D war table, the Chancellor agent and mercenary/spy hiring in play come next.
+The 3D war table and login come next.
 
 ## How a season works
 
@@ -51,8 +61,9 @@ pnpm install
 | Do | See |
 |---|---|
 | Open [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html), choose rivals and length, press **New campaign** | Within a few seconds: "Campaign N is onchain. Plan your first season." Click your army (the red circle), then a highlighted province, to march. Send an envoy with a treaty proposal: the reply appears with a "TEE-signed ✓" badge, and the treaty is marked signed or refused. Press **Seal orders**: about 10 seconds later the season turns and the chronicle lists what everyone did. |
+| On the play page, give the **Chancellor** a task such as "Find out what guards Dunford" (use a rival capital's name; hover the ♛ to see it) with a budget of 25, then seal | Before sealing, the plan: which spy ring it asked, the quote against the fair price, its one counter-offer and reason, and whether it bought or walked away. The hire shows as "in escrow". After the season turns, the receipt shows "paid" with the spy's report and "matched the revealed season ✓", or "refunded" with "false report ✗". |
 | `pnpm verify:campaign https://realm-ledger-api.azurewebsites.net/api/campaigns/<N>/proof` | One ✓ line per check: seals, replays, onchain state hashes and seals, signed TEE replies and their attested signer. Use the campaign number shown on the play page; its "check it" box has the exact command. After the last season it also checks the revealed roll secret and agendas. It needs no API key. |
-| `pnpm test` | 74 tests pass. They check map connectivity, battles, treaties and betrayals, diplomacy decisions, seals, whole-campaign replays, and verification of real TEE-signed replies, including that tampering is caught. |
+| `pnpm test` | 84 tests pass. They check map connectivity, battles, treaties and betrayals, diplomacy decisions, market prices, haggling, spy honesty, the Chancellor's budget limits, seals, whole-campaign replays with hires, and verification of real TEE-signed replies and market jobs, including that tampering is caught. |
 | `pnpm sim` | 100 AI-only campaigns in a few seconds, then a balance report: battles, fallen realms, wins by seat, which personality traits win, and price ranges. |
 | Open [realm-ledger.vercel.app](https://realm-ledger.vercel.app) | An AI-only campaign: press ▶ to watch the seasons turn. Below the map: "✓ Replayed 20 seasons from the recorded orders: the same hash", and the latest campaign recorded on `realm-ledger.testnet`. |
 | `pnpm contract:test` (needs Rust) | 20 contract tests pass. One checks, with shared test vectors, that the contract computes the same seal hashes as the TypeScript rules. |
@@ -76,7 +87,8 @@ Every rule number (costs, yields, battle modifiers, market drift) is in [`packag
   - every envoy reply came from a key that NEAR AI's attestation report binds to the TEE.
 - **Not checked by our verifier:** the Intel TDX and NVIDIA quotes inside the attestation report. That needs Intel's DCAP collateral; NEAR AI documents how to check them.
 - **What the server can see:** the game server sees all orders once they are revealed, and it holds the seat keys, within what the contract allows each seat. Human players currently sign through one shared `player` seat account held by the server. Wallet or social login (open question 1 in DESIGN.md) comes later.
-- **A known gap:** if the server restarts in the middle of a request, its saved state can fall one step behind the chain.
+- **Retries:** seals, reveals and settlements are skipped when the chain already has them, so they're retried safely after network errors, and RPC calls fail over across three providers. Market hires are saved one by one, but a server restart between an onchain hire and saving it could still leave the server's copy one step behind the chain.
+- **Older campaigns:** campaigns created before the agent market (before 2026-11-07) won't verify with the current verifier, because the game state gained the companies.
 
 ## Our other hackathon project
 

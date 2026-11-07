@@ -51,6 +51,8 @@ export function lineWorld(n = 5, terrain: Partial<Record<number, Terrain>> = {})
     market: newMarket(),
     treaties: [],
     betrayals: [],
+    companies: [],
+    lastBattles: 0,
     winner: null,
   };
 }

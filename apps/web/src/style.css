@@ -194,4 +194,12 @@ body.busy .status::after { content: ' ⏳'; }
 #proof dt { color: var(--ink-soft); }
 #proof dd { margin: 0; overflow-wrap: anywhere; }
 #proof code { font-family: var(--font-mono); font-size: 0.78rem; }
+.inline { display: inline-flex; gap: 6px; align-items: center; font-size: 0.9rem; }
+.inline input { width: 5em; }
+h3.sub { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem; margin: 12px 0 4px; }
+.steps { margin: 6px 0 0; padding-left: 18px; font-size: 0.86rem; display: grid; gap: 3px; }
+.advice { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.receipts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.86rem; }
+.receipts li { border-top: 1px solid var(--line); padding-top: 5px; }
+.tag.wait { color: #8a6f1d; }
 .cta { display: inline-block; margin-top: 10px; background: var(--brass); color: var(--table); padding: 8px 14px; border-radius: 6px; font-weight: 700; text-decoration: none; }

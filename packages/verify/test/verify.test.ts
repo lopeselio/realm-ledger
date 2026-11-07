@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   aiOrders,
+  canonicalJson,
   commit,
   newCampaign,
   replaySeason,
   sealOrders,
   seasonRollSeed,
+  sha256Hex,
   stateHash,
   type GameState,
 } from '@realm-ledger/rules';
@@ -71,7 +73,7 @@ function bundleFor(seed: string, seasons: number): ProofBundle {
     const orders = aiOrders(s);
     const rollSeed = seasonRollSeed(rollSecret, s.season);
     const seals = orders.map((o) => ({ realm: o.realm, salt: `salt-${i}-${o.realm}`, orders: o, seal: sealOrders(o, `salt-${i}-${o.realm}`) }));
-    s = replaySeason(s, { season: s.season, treaties: [], orders, rollSeed, events: [] }).state;
+    s = replaySeason(s, { season: s.season, treaties: [], deals: [], orders, rollSeed, events: [] }).state;
     b.seasons.push({ season: i, treaties: [], seals, rollSeed, stateHash: stateHash(s) });
   }
   return b;
@@ -102,6 +104,26 @@ describe('verifyBundle', () => {
     const b = bundleFor('verify', 1);
     b.agendaSalts![0] = 'wrong';
     expect(verifyBundle(b).some((c) => !c.ok && c.name.includes('agenda'))).toBe(true);
+  });
+
+  it('catches a Chancellor that paid a spy for a false report', () => {
+    const b = bundleFor('verify', 2);
+    const province = 0;
+    const lie = { company: 2, province, season: 0, armies: [{ realm: 1, troops: 99 }] };
+    const job = {
+      job: 0,
+      season: 0,
+      deal: { kind: 'spy' as const, realm: 0, company: 2, province, price: 10 },
+      buyer: 'chancellor',
+      worker: 'spy0',
+      payload: lie,
+      delivery: sha256Hex(canonicalJson(lie)),
+      passed: true,
+    };
+    b.jobs = [job];
+    expect(verifyBundle(b).some((c) => !c.ok && c.name.includes('paid only if the report matched'))).toBe(true);
+    b.jobs = [{ ...job, passed: false }];
+    expect(verifyBundle(b).filter((c) => !c.ok)).toEqual([]);
   });
 
   it('catches a reply signed by a key the attestation does not vouch for', () => {

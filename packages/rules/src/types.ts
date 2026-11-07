@@ -106,6 +106,38 @@ export interface PriceReason {
   text: string;
 }
 
+/** An agent that sells its services to realms: a mercenary company or a spy ring. */
+export interface Company {
+  id: number;
+  name: string;
+  kind: 'mercs' | 'spy';
+  /** each 1..9: greed raises prices and stiffens haggling; honesty is how often a spy tells the truth */
+  greed: number;
+  honesty: number;
+  /** crowns per sword (mercs) or per report (spy) in peacetime */
+  base: number;
+  /** most swords a company can field at once */
+  size: number;
+}
+
+/**
+ * A purchase from the agent market, applied to the state before the season resolves.
+ * Paid from the realm's treasury; the contract holds the price in escrow until the
+ * buyer checks the work.
+ */
+export type Deal =
+  | { kind: 'mercs'; realm: number; company: number; province: number; count: number; price: number }
+  | { kind: 'spy'; realm: number; company: number; province: number; price: number }
+  | { kind: 'refund'; realm: number; amount: number };
+
+/** What a spy says is in a province after the season turned. */
+export interface SpyReport {
+  company: number;
+  province: number;
+  season: number;
+  armies: { realm: number; troops: number }[];
+}
+
 export interface Treaty {
   kind: 'peace' | 'passage' | 'trade' | 'alliance' | 'tribute';
   realms: [number, number];
@@ -133,6 +165,10 @@ export interface GameState {
   treaties: Treaty[];
   /** every broken treaty, remembered by every ruler */
   betrayals: { by: number; against: number; season: number }[];
+  /** mercenary companies and spy rings: agents that sell their services */
+  companies: Company[];
+  /** battles fought last season; mercenaries charge more in wartime */
+  lastBattles: number;
   /** set when the campaign is over */
   winner: number | null;
 }

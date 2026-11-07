@@ -5,8 +5,11 @@ import {
   newSalt,
   sealOrders,
   seasonName,
+  type Deal,
   type GameEvent,
   type GameState,
+  type Plan,
+  type SpyReport,
   type Good,
   type Order,
   type OrderSet,
@@ -40,6 +43,12 @@ interface View {
   attested: { model: string; nonce: string } | null;
   winner: number | null;
   scores: number[];
+  companies: { id: number; name: string; kind: 'mercs' | 'spy'; greed: number; base: number; size: number }[];
+  plans: { season: number; text: string; plan: Plan; jobs: number[] }[];
+  reports: { season: number; job: number; report: SpyReport; passed: boolean }[];
+  receipts: { job: number; season: number; deal: Extract<Deal, { kind: 'mercs' | 'spy' }>; buyer: string; worker: string; passed: boolean }[];
+  openJobs: number[];
+  tasksLeft: number;
 }
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -184,6 +193,20 @@ async function reveal(): Promise<void> {
   });
 }
 
+async function giveTask(e: SubmitEvent): Promise<void> {
+  e.preventDefault();
+  if (!view) return;
+  const v = view;
+  const body = { task: $<HTMLTextAreaElement>('task').value, budget: Number($<HTMLInputElement>('budget').value) };
+  await withBusy('The Chancellor reads your task, asks for quotes and haggles…', async () => {
+    const r = await api<{ task: View['plans'][number]; view: View }>(`/campaigns/${v.id}/chancellor`, body);
+    view = r.view;
+    $<HTMLTextAreaElement>('task').value = '';
+    render();
+    status(r.task.jobs.length ? `Hired ${r.task.jobs.length}; ${r.task.plan.spent} crowns in escrow until the season turns.` : 'The Chancellor bought nothing this time.');
+  });
+}
+
 async function sendEnvoy(e: SubmitEvent): Promise<void> {
   e.preventDefault();
   if (!view) return;
@@ -311,6 +334,44 @@ function render(): void {
     )
     .join('');
 
+  // chancellor
+  const company = (id: number): string => v.companies.find((c) => c.id === id)?.name ?? `company ${id}`;
+  const pname = (id: number): string => s.map.provinces[id]?.name ?? '?';
+  $('plans').innerHTML = [...v.plans]
+    .reverse()
+    .map((p, i) => {
+      const steps = p.plan.steps
+        .map((st) => {
+          const what = st.kind === 'spy' ? `a report on ${pname(st.province)}` : `${st.count} swords at ${pname(st.province)}`;
+          const haggle = st.counter ? ` · countered ${st.counter.offer} (${st.counter.reason}) → ${st.counter.accepted ? 'taken' : 'refused'}` : '';
+          const end = st.price !== undefined ? `<strong>bought for ${st.price}</strong>` : '<strong>walked away</strong>';
+          return `<li>${esc(company(st.company))} asked ${st.quote} for ${esc(what)} (fair ${st.fair})${esc(haggle)} · ${end}</li>`;
+        })
+        .join('');
+      const advice = p.season === s.season && v.phase === 'planning'
+        ? p.plan.advice.map((o, k) => `<button type="button" data-advice="${v.plans.length - 1 - i}:${k}">Add: ${esc(describe(o))}</button>`).join('')
+        : '';
+      return `<li><span class="who">“${esc(p.text)}”</span> <span class="tag">${p.plan.spent} crowns</span>
+        <ul class="steps">${steps}${p.plan.summary.map((x) => `<li class="quiet">${esc(x)}</li>`).join('')}</ul>
+        ${advice ? `<div class="advice">${advice}</div>` : ''}</li>`;
+    })
+    .join('');
+  const open = v.plans.flatMap((p) => p.plan.steps.length ? p.jobs.filter((j) => v.openJobs.includes(j)) : []);
+  const reportFor = (job: number) => v.reports.find((r) => r.job === job);
+  $('receipts').innerHTML =
+    [
+      ...open.map((j) => `<li><span class="tag wait">job ${j} in escrow</span> paid only if the work passes when the season turns</li>`),
+      ...[...v.receipts].reverse().map((r) => {
+        const rep = reportFor(r.job);
+        const what = r.deal.kind === 'spy' ? `report on ${pname(r.deal.province)}` : `${r.deal.count} swords at ${pname(r.deal.province)}`;
+        const said = rep ? `<br>Report: ${rep.report.armies.length ? rep.report.armies.map((a) => `${esc(a.realm >= 0 ? s.realms[a.realm]!.name : 'militia')} ${a.troops}`).join(', ') : 'no troops'}` : '';
+        return `<li><span class="tag ${r.passed ? 'yes' : 'no'}">job ${r.job} ${r.passed ? 'paid' : 'refunded'}</span> ${esc(company(r.deal.company))}, ${esc(what)}, ${r.deal.price} crowns${said}${
+          r.deal.kind === 'spy' ? ` · ${r.passed ? 'matched the revealed season ✓' : 'did not match: false report ✗'}` : ''
+        }</li>`;
+      }),
+    ].join('') || '<li class="fine">No hires yet.</li>';
+  $<HTMLInputElement>('budget').max = String(me.purse.crowns);
+
   // chronicle
   // names never change, so the current state can label last season's events after a reload
   const lines = chronicle(before ?? s, v.lastEvents);
@@ -347,6 +408,7 @@ function refreshControls(): void {
   $<HTMLButtonElement>('seal').disabled = !planning;
   $<HTMLButtonElement>('trade-add').disabled = !planning;
   for (const b of document.querySelectorAll<HTMLButtonElement>('#envoy button')) b.disabled = !planning || (view?.envoysLeft ?? 0) === 0;
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#chancellor button')) b.disabled = !planning || (view?.tasksLeft ?? 0) === 0;
   $<HTMLButtonElement>('new').disabled = busy;
 }
 
@@ -355,6 +417,14 @@ function refreshControls(): void {
 $('new').addEventListener('click', () => void newCampaign());
 $('seal').addEventListener('click', () => void seal());
 $<HTMLFormElement>('envoy').addEventListener('submit', (e) => void sendEnvoy(e));
+$<HTMLFormElement>('chancellor').addEventListener('submit', (e) => void giveTask(e));
+$('plans').addEventListener('click', (e) => {
+  const a = (e.target as HTMLElement).getAttribute('data-advice');
+  if (!a || !view) return;
+  const [pi, k] = a.split(':').map(Number);
+  const o = view.plans[pi!]?.plan.advice[k!];
+  if (o && !orders.some((x) => JSON.stringify(x) === JSON.stringify(o))) addOrder(o);
+});
 $('envoy-treaty').addEventListener('change', () => {
   $('envoy-amount').hidden = $<HTMLSelectElement>('envoy-treaty').value !== 'tribute';
 });

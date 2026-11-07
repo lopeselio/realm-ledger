@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { OrderSet, Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
-import { createCampaign, GameError, list, loadAll, proof, publicView, revealSeason, sealSeason, sendEnvoy } from './host.ts';
+import type { Goal } from '@realm-ledger/rules';
+import { createCampaign, GameError, list, loadAll, proof, publicView, revealSeason, runChancellor, sealSeason, sendEnvoy } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 
 // Small JSON API for the game. No framework: a handful of routes.
@@ -10,6 +11,7 @@ import { nearAiEnabled } from './nearai.ts';
 //   POST /api/campaigns        {realms, seasons}  start a campaign (you play realm 0)
 //   GET  /api/campaigns/:id                  your view of it (fog of war applied)
 //   POST /api/campaigns/:id/envoy {to, message, proposal?}
+//   POST /api/campaigns/:id/chancellor {task, budget} or {goal, province, budget}
 //   POST /api/campaigns/:id/seal  {seal}     sha256(canonical orders | salt), computed in your browser
 //   POST /api/campaigns/:id/reveal {orders, salt}
 //   GET  /api/campaigns/:id/proof            the proof bundle (pnpm verify:campaign <url>)
@@ -83,6 +85,12 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const proposal = b.proposal as { kind: Treaty['kind']; amount?: number } | undefined;
     const envoy = await sendEnvoy(id, Number(b.to), String(b.message ?? ''), proposal);
     return send(res, 200, { envoy, view: publicView(id) });
+  }
+  if (action === 'chancellor') {
+    const goal = b.goal as Goal | undefined;
+    const explicit = goal && Number.isInteger(b.province) ? { goal, province: Number(b.province) } : undefined;
+    const entry = await runChancellor(id, String(b.task ?? ''), Number(b.budget), explicit);
+    return send(res, 200, { task: entry, view: publicView(id) });
   }
   if (action === 'seal') {
     await sealSeason(id, String(b.seal ?? ''));

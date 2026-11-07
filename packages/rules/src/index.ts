@@ -12,3 +12,4 @@ export { decideOrders } from './ai.ts';
 export { considerTreaty, proposeTreaties, signTreaty, visibleStrength, type Verdict } from './diplomacy.ts';
 export * from './seal.ts';
 export * from './campaign.ts';
+export * from './agents.ts';

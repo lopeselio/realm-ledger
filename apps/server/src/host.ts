@@ -3,7 +3,18 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   aiDiplomacy,
+  aiMarket,
   aiOrders,
+  applyDeal,
+  planDeals,
+  planTask,
+  reportHolds,
+  sha256Hex,
+  spyReport,
+  type Deal,
+  type Goal,
+  type Plan,
+  type SpyReport,
   canonicalJson,
   commit,
   considerTreaty,
@@ -22,9 +33,9 @@ import {
   type OrderSet,
   type Treaty,
 } from '@realm-ledger/rules';
-import { checkReply, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
-import { call } from './chain.ts';
-import { config, playerAccount, rulerAccount } from './config.ts';
+import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
+import { call, view } from './chain.ts';
+import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
 import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
 
 // Hosts campaigns between a human player (always realm 0) and AI rulers. Each season:
@@ -36,8 +47,11 @@ import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
 // Everything needed to check the campaign goes into its proof bundle.
 
 const HUMAN = 0;
-const AI_SEASON_CAP = 60;
-const AI_CAMPAIGN_CAP = 400;
+/** every ruler's own spending caps, enforced by the contract */
+const SEASON_CAP = 150;
+const CAMPAIGN_CAP = 1500;
+/** Chancellor tasks a player may give per season */
+const TASKS_PER_SEASON = 2;
 const TREATY_KINDS: Treaty['kind'][] = ['peace', 'passage', 'alliance', 'trade', 'tribute'];
 
 export interface Envoy {
@@ -51,8 +65,20 @@ export interface Envoy {
   signed?: number;
 }
 
+/** A hire held in escrow until the season turns and the buyer checks the work. */
+interface OpenJob {
+  job: number;
+  deal: Extract<Deal, { kind: 'mercs' | 'spy' }>;
+  buyer: string;
+}
+
 interface Pending {
   treaties: Treaty[];
+  /** market deals (and refunds) applied this season, in order */
+  deals: Deal[];
+  jobs: OpenJob[];
+  /** AI rulers have done their shopping this season */
+  aiHired?: boolean;
   ai: { realm: number; orders: OrderSet; salt: string; seal: string }[];
   humanSeal?: string;
 }
@@ -70,6 +96,12 @@ export interface Hosted {
   pending: Pending;
   envoys: Envoy[];
   lastEvents: GameEvent[];
+  /** Chancellor tasks and their plans */
+  plans: { season: number; text: string; plan: Plan; jobs: number[] }[];
+  /** spy reports delivered to the player, with the Chancellor's verdict */
+  reports: { season: number; job: number; report: SpyReport; passed: boolean }[];
+  /** total the Chancellor has been allowed to spend, for its onchain campaign cap */
+  chancellorBudget: number;
   bundle: ProofBundle;
   createdAt: number;
 }
@@ -105,6 +137,14 @@ export async function loadAll(): Promise<number> {
     for (const f of await readdir(config.dataDir)) {
       if (!/^campaign-\d+\.json$/.test(f)) continue;
       const h = JSON.parse(await readFile(join(config.dataDir, f), 'utf8')) as Hosted;
+      // campaigns from before the agent market
+      h.plans ??= [];
+      h.reports ??= [];
+      h.chancellorBudget ??= 0;
+      h.pending.deals ??= [];
+      h.pending.jobs ??= [];
+      h.state.companies ??= [];
+      h.state.lastBattles ??= 0;
       campaigns.set(h.id, h);
     }
   } catch {
@@ -137,10 +177,10 @@ export async function createCampaign(realms: number, seasons = 20): Promise<Host
     call<number>(config.referee, 'create_campaign', {
       realms: state.realms.map((r) => ({
         ruler: seatAccount(state, r.id),
-        chancellor: null,
+        chancellor: r.id === HUMAN ? chancellorAccount() : null,
         treasury: START_PURSE.crowns,
-        season_cap: AI_SEASON_CAP,
-        campaign_cap: AI_CAMPAIGN_CAP,
+        season_cap: SEASON_CAP,
+        campaign_cap: CAMPAIGN_CAP,
       })),
       map_seed: seed,
       roll_commit: rollCommit,
@@ -160,9 +200,12 @@ export async function createCampaign(realms: number, seasons = 20): Promise<Host
     agendaSalts,
     treatyIds: {},
     nextTreatyId: 0,
-    pending: { treaties: [], ai: [] },
+    pending: { treaties: [], deals: [], jobs: [], ai: [] },
     envoys: [],
     lastEvents: [],
+    plans: [],
+    reports: [],
+    chancellorBudget: 0,
     bundle: {
       version: 1,
       contract: config.contract,
@@ -185,9 +228,9 @@ export async function createCampaign(realms: number, seasons = 20): Promise<Host
 
 /** Signs a treaty onchain: the proposer's seat proposes, the other's accepts. */
 async function signOnchain(h: Hosted, t: Treaty): Promise<void> {
-  const id = h.nextTreatyId++;
-  h.treatyIds[treatyKey(t)] = id;
-  await call(seatAccount(h.state, t.realms[0]), 'propose_treaty', {
+  // the contract numbers treaties; use the id it returns, since proposals sent in
+  // parallel can land in any order
+  const id = await call<number>(seatAccount(h.state, t.realms[0]), 'propose_treaty', {
     campaign: h.id,
     from: t.realms[0],
     to: t.realms[1],
@@ -195,6 +238,7 @@ async function signOnchain(h: Hosted, t: Treaty): Promise<void> {
     amount: t.amount ?? 0,
   });
   await call(seatAccount(h.state, t.realms[1]), 'accept_treaty', { campaign: h.id, treaty: id });
+  h.treatyIds[treatyKey(t)] = id;
 }
 
 function envoyPrompt(h: Hosted, to: number, proposal: Envoy['proposal'], verdict?: { accept: boolean; reasons: string[] }): string {
@@ -291,20 +335,36 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
     const human = s.realms[HUMAN]!;
 
     // AI rulers settle their own treaties first, then decide from their own view
-    for (const t of aiDiplomacy(s)) {
+    for (const t of h.pending.aiHired ? [] : aiDiplomacy(s)) {
       h.state = signTreaty(h.state, t);
       h.pending.treaties.push(t);
     }
     const aiTreaties = h.pending.treaties.filter((t) => !t.realms.includes(HUMAN));
+    // AI rulers buy swords with their own treasuries, through the contract's escrow;
+    // each hire is saved at once, and a retried seal does not hire again
+    for (const d of h.pending.aiHired ? [] : aiMarket(h.state)) {
+      if (d.kind !== 'mercs' || d.price > SEASON_CAP) continue;
+      try {
+        const job = await hireOnchain(h, rulerAccount(d.realm), d, `${d.count} swords to ${h.state.map.provinces[d.province]!.name}`);
+        h.state = applyDeal(h.state, d);
+        h.pending.deals.push(d);
+        h.pending.jobs.push({ job, deal: d, buyer: rulerAccount(d.realm) });
+        await save(h);
+      } catch (e) {
+        console.warn(`AI hire skipped: ${(e as Error).message}`);
+      }
+    }
+    h.pending.aiHired = true;
     h.pending.ai = aiOrders(h.state).map((orders) => {
       const salt = hex();
       return { realm: orders.realm, orders, salt, seal: sealOrders(orders, salt) };
     });
 
-    await Promise.all(aiTreaties.map((t) => signOnchain(h, t)));
+    await Promise.all(aiTreaties.filter((t) => h.treatyIds[treatyKey(t)] === undefined).map((t) => signOnchain(h, t)));
+    const sealed = (realm: number) => async (): Promise<boolean> => !!(await view('get_seal', { campaign: h.id, season: s.season, realm }));
     await Promise.all([
-      human.alive ? call(playerAccount(), 'seal', { campaign: h.id, realm: HUMAN, seal }) : Promise.resolve(),
-      ...h.pending.ai.map((x) => call(rulerAccount(x.realm), 'seal', { campaign: h.id, realm: x.realm, seal: x.seal })),
+      human.alive ? call(playerAccount(), 'seal', { campaign: h.id, realm: HUMAN, seal }, { done: sealed(HUMAN) }) : Promise.resolve(),
+      ...h.pending.ai.map((x) => call(rulerAccount(x.realm), 'seal', { campaign: h.id, realm: x.realm, seal: x.seal }, { done: sealed(x.realm) })),
     ]);
     if (human.alive) h.pending.humanSeal = seal;
     h.phase = 'sealed';
@@ -331,13 +391,18 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     // every reveal is checked against its seal by the contract too
     await Promise.all(
       reveals.map((x) =>
-        call(seatAccount(before, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }),
+        call(
+          seatAccount(before, x.realm),
+          'reveal',
+          { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt },
+          { done: async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: x.realm }))?.revealed },
+        ),
       ),
     );
 
     const rollSeed = seasonRollSeed(h.rollSecret, before.season);
-    // treaties were already applied to the state as they were signed
-    const { state, events } = replaySeason(before, { season: before.season, treaties: [], orders: reveals.map((x) => x.orders), rollSeed, events: [] });
+    // treaties and deals were already applied to the state as they were made
+    const { state, events } = replaySeason(before, { season: before.season, treaties: [], deals: [], orders: reveals.map((x) => x.orders), rollSeed, events: [] });
     const hash = stateHash(state);
     const deltas = state.realms.map((r, i) => r.purse.crowns - before.realms[i]!.purse.crowns);
     const fallen = state.realms.filter((r, i) => !r.alive && before.realms[i]!.alive).map((r) => r.id);
@@ -350,24 +415,152 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       treasury_deltas: deltas,
       fallen,
       broken_treaties: broken.filter(([t]) => t !== undefined),
-    }, { waitUntil: 'FINAL' });
+    }, { waitUntil: 'FINAL', done: async () => ((await view<{ season: number }>('get_campaign', { campaign: h.id }))?.season ?? 0) > before.season });
 
     h.bundle.seasons.push({
       season: before.season,
       treaties: h.pending.treaties,
+      deals: h.pending.deals,
       seals: reveals,
       rollSeed,
       stateHash: hash,
     });
     h.state = state;
     h.lastEvents = events;
-    h.pending = { treaties: [], ai: [] };
+    // workers deliver; buyers check the work against the resolved season and pay or refund
+    const refunds = await closeJobs(h, state, before.season);
+    for (const d of refunds) h.state = applyDeal(h.state, d);
+    h.pending = { treaties: [], deals: refunds, jobs: [], ai: [] };
     h.phase = 'planning';
 
     const over = state.winner !== null || !state.realms[HUMAN]!.alive;
     if (over) await finish(h);
     await save(h);
     return events;
+  });
+}
+
+// ---------- the agent market ----------
+
+const JOB_KIND = { mercs: 'Mercenary', spy: 'Spy' } as const;
+
+async function hireOnchain(h: Hosted, buyer: string, d: Extract<Deal, { kind: 'mercs' | 'spy' }>, spec: string): Promise<number> {
+  const company = h.state.companies[d.company]!;
+  return call<number>(buyer, 'hire', {
+    campaign: h.id,
+    realm: d.realm,
+    worker: companyAccount(company),
+    kind: JOB_KIND[d.kind],
+    price: d.price,
+    spec,
+  });
+}
+
+/** Delivers and settles every open job of the season; returns refunds for failed work. */
+async function closeJobs(h: Hosted, after: GameState, season: number): Promise<Deal[]> {
+  const refunds: Deal[] = [];
+  await Promise.all(
+    h.pending.jobs.map(async (j) => {
+      const company = after.companies[j.deal.company]!;
+      const payload =
+        j.deal.kind === 'spy'
+          ? spyReport(after, j.deal.company, j.deal.province, season)
+          : { province: j.deal.province, count: j.deal.count, season };
+      const delivery = sha256Hex(canonicalJson(payload));
+      const passed = j.deal.kind === 'spy' ? reportHolds(after, payload as SpyReport) : true;
+      const where = after.map.provinces[j.deal.province]!.name;
+      const note =
+        j.deal.kind === 'spy'
+          ? passed
+            ? `report on ${where} matched the revealed season`
+            : `report on ${where} did not match the revealed season; refunded`
+          : `${j.deal.count} swords mustered at ${where}`;
+      await call(companyAccount(company), 'deliver', { job: j.job, delivery });
+      await call(j.buyer, 'settle_job', { job: j.job, passed, note });
+      const record: MarketJob = { job: j.job, season, deal: j.deal, buyer: j.buyer, worker: companyAccount(company), payload, delivery, passed };
+      h.bundle.jobs = [...(h.bundle.jobs ?? []), record];
+      if (j.deal.realm === HUMAN && j.deal.kind === 'spy') h.reports.push({ season, job: j.job, report: payload as SpyReport, passed });
+      if (!passed) refunds.push({ kind: 'refund', realm: j.deal.realm, amount: j.deal.price });
+    }),
+  );
+  return refunds;
+}
+
+/** Reads a free-text task with the TEE model: which goal and which province. */
+async function parseTask(h: Hosted, text: string): Promise<{ goal: Goal; province: number } | null> {
+  if (!nearAiEnabled()) return null;
+  const names = h.state.map.provinces.map((p) => p.name);
+  const system = [
+    'You read orders given to a royal chancellor in a strategy game and extract the task.',
+    'Reply with one line of JSON and nothing else: {"goal":"hold"|"take"|"scout","province":"<name>"}.',
+    'hold = defend one of our provinces; take = capture a province; scout = learn what stands in a province.',
+    `The province must be one of these names, spelled exactly: ${names.join(', ')}.`,
+    'If no province is named, use "province":null.',
+  ].join('\n');
+  const { text: out, reply } = await signedChat([{ role: 'system', content: system }, { role: 'user', content: text }], { realm: HUMAN, season: h.state.season }, 60);
+  h.bundle.replies.push(reply);
+  try {
+    const j = JSON.parse(out.replace(/^[^{]*/, '').replace(/[^}]*$/, '')) as { goal?: string; province?: string | null };
+    const goal = (['hold', 'take', 'scout'] as const).find((g) => g === j.goal);
+    const province = names.findIndex((n) => n.toLowerCase() === String(j.province ?? '').toLowerCase());
+    return goal && province >= 0 ? { goal, province } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Chancellor: takes a task and a budget, plans with the rules engine, haggles once
+ * per purchase, and hires through the contract within the cap the player sets onchain.
+ */
+export async function runChancellor(
+  id: number,
+  text: string,
+  budget: number,
+  explicit?: { goal: Goal; province: number },
+): Promise<Hosted['plans'][number]> {
+  return locked(id, async () => {
+    const h = get(id);
+    if (h.phase !== 'planning') throw new GameError('the Chancellor works while you plan');
+    if (h.plans.filter((p) => p.season === h.state.season).length >= TASKS_PER_SEASON)
+      throw new GameError(`at most ${TASKS_PER_SEASON} tasks a season`, 429);
+    const crowns = h.state.realms[HUMAN]!.purse.crowns;
+    budget = Math.floor(budget);
+    if (!(budget >= 1 && budget <= crowns)) throw new GameError(`budget must be 1 to ${crowns} crowns (your treasury)`);
+    const words = text.trim().slice(0, 300);
+    const task = explicit && h.state.map.provinces[explicit.province] ? explicit : await parseTask(h, words);
+    if (!task) throw new GameError('the Chancellor could not tell which province you mean; name it as it is on the map');
+
+    const plan = planTask(viewFor(h.state, HUMAN), HUMAN, { ...task, budget });
+    const deals = planDeals(plan, HUMAN);
+    const jobs: number[] = [];
+    if (deals.length > 0) {
+      // the player raises the Chancellor's onchain cap by this task's budget
+      const spentThisSeason = h.pending.jobs.filter((j) => j.buyer === chancellorAccount()).reduce((n, j) => n + j.deal.price, 0);
+      h.chancellorBudget += budget;
+      await call(playerAccount(), 'set_policy', {
+        campaign: h.id,
+        realm: HUMAN,
+        spender: chancellorAccount(),
+        season_cap: spentThisSeason + budget,
+        campaign_cap: h.chancellorBudget,
+      });
+      for (const d of deals) {
+        if (d.kind === 'refund') continue;
+        const where = h.state.map.provinces[d.province]!.name;
+        const spec = d.kind === 'mercs' ? `${d.count} swords to ${where}` : `a report on ${where} after the season turns`;
+        const job = await hireOnchain(h, chancellorAccount(), d, spec);
+        h.state = applyDeal(h.state, d);
+        h.pending.deals.push(d);
+        h.pending.jobs.push({ job, deal: d, buyer: chancellorAccount() });
+        jobs.push(job);
+        await save(h);
+      }
+    }
+    const entry = { season: h.state.season, text: words || `${task.goal} ${h.state.map.provinces[task.province]!.name}`, plan, jobs };
+    h.plans.push(entry);
+    await save(h);
+    return entry;
   });
 }
 
@@ -380,7 +573,7 @@ async function finish(h: Hosted): Promise<void> {
     roll_secret: canonicalJson(h.rollSecret),
     roll_salt: h.rollSalt,
     agendas: h.state.realms.map((r, i) => [canonicalJson(r.agenda), h.agendaSalts[i]!]),
-  }, { waitUntil: 'FINAL' });
+  }, { waitUntil: 'FINAL', done: async () => (await view<{ phase: string }>('get_campaign', { campaign: h.id }))?.phase === 'Finished' });
   h.bundle.rollSecret = h.rollSecret;
   h.bundle.rollSalt = h.rollSalt;
   h.bundle.agendaSalts = h.agendaSalts;
@@ -409,6 +602,12 @@ export function publicView(id: number) {
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
     winner: over ? (h.state.winner ?? scores(h.state).indexOf(Math.max(...scores(h.state)))) : null,
+    companies: h.state.companies.map((c) => ({ id: c.id, name: c.name, kind: c.kind, greed: c.greed, base: c.base, size: c.size })),
+    plans: h.plans,
+    reports: h.reports,
+    receipts: (h.bundle.jobs ?? []).filter((j) => j.deal.realm === HUMAN),
+    openJobs: h.pending.jobs.filter((j) => j.deal.realm === HUMAN).map((j) => j.job),
+    tasksLeft: Math.max(0, TASKS_PER_SEASON - h.plans.filter((p) => p.season === h.state.season).length),
     scores: scores(view),
   };
 }
