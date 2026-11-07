@@ -91,7 +91,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     const secret = findSecret(v.id, v.season, v.yourSeal);
     if (!secret) {
-      say('Your sealed orders are not stored in this browser, so they cannot be revealed here. Open this campaign in the browser you sealed from to finish the season.', 'error');
+      say('Your sealed orders are not stored in this browser, so they cannot be revealed here. Only a browser that still holds them (the one you sealed from, if its storage was kept) can finish this season.', 'error');
       return;
     }
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {

@@ -9,7 +9,7 @@ import { Footer } from '../components/Footer.tsx';
 import { api, type CampaignSummary } from '../api.ts';
 import { seasonTitle } from '../format.ts';
 import { recentCampaigns } from '../recent.ts';
-import { hasSecret } from '../secrets.ts';
+import { findSecret } from '../secrets.ts';
 import { restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
@@ -192,7 +192,7 @@ function Continue({ signer }: { signer: Signer | null }) {
                   c.winner === 0 && (c.player === null || c.player === account)
                   ? 'over · you won'
                   : 'over'
-                : `season ${c.season + 1} of ${c.maxSeasons} (${seasonTitle(c.season)})${c.phase === 'sealed' ? (hasSecret(c.id, c.season) ? ' · orders sealed, reveal pending' : ' · sealed in another browser; reveal from there') : ''}`}
+                : `season ${c.season + 1} of ${c.maxSeasons} (${seasonTitle(c.season)})${c.phase === 'sealed' ? (findSecret(c.id, c.season, c.yourSeal) ? ' · orders sealed, reveal pending' : ' · sealed, but this browser can’t reveal them') : ''}`}
               {c.player ? ` · ruled by ${c.player}` : ' · guest seat'}
             </span>
           </li>

@@ -30,6 +30,8 @@ describe('campaign list', () => {
     writeFileSync(join(dir, 'campaign-5.json.new.tmp'), '{"id":5,');
     // an unreadable file doesn't stop the ones after it from loading
     writeFileSync(join(dir, 'campaign-0.json'), '{"id":0,');
+    // nor does one that parses but has the wrong shape
+    writeFileSync(join(dir, 'campaign-00.json'), '{"id":0}');
     host = await import('./host.ts');
     expect(await host.loadAll()).toBe(3);
     expect(existsSync(join(dir, 'campaign-4.json.old.tmp'))).toBe(false);
@@ -51,6 +53,6 @@ describe('campaign list', () => {
   });
 
   it('reports progress and the ruling account', () => {
-    expect(host.list({ ids: [2] })[0]).toMatchObject({ season: 2, maxSeasons: 12, phase: 'planning', player: 'alice.testnet', winner: null });
+    expect(host.list({ ids: [2] })[0]).toMatchObject({ season: 2, maxSeasons: 12, phase: 'planning', player: 'alice.testnet', yourSeal: null, winner: null });
   });
 });

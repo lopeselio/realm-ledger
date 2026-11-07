@@ -203,7 +203,7 @@ async function save(h: Hosted): Promise<void> {
 }
 
 /** Temp files older than this are leftovers of a crashed save, not a write in progress. */
-const STALE_TMP_MS = 10 * 60_000;
+const STALE_TMP_MS = 60 * 60_000; // generous: the file server's clock may differ from ours
 
 /** Settles interrupted onchain actions left by a crash, in the background. */
 export function reconcileAll(): void {
@@ -228,23 +228,21 @@ export async function loadAll(): Promise<number> {
       continue;
     }
     if (!/^campaign-\d+\.json$/.test(f)) continue;
-    let h: Hosted;
     try {
-      h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
+      const h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
+      // campaigns from before the agent market
+      h.plans ??= [];
+      h.reports ??= [];
+      h.chancellorBudget ??= 0;
+      h.pending.deals ??= [];
+      h.pending.jobs ??= [];
+      h.intents ??= [];
+      for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
+      campaigns.set(h.id, h);
     } catch (e) {
-      // one unreadable file must not hide every campaign after it
+      // one unreadable or malformed file must not hide every campaign after it, or stop the server
       console.error(`load ${f}: ${(e as Error).message}; skipped`);
-      continue;
     }
-    // campaigns from before the agent market
-    h.plans ??= [];
-    h.reports ??= [];
-    h.chancellorBudget ??= 0;
-    h.pending.deals ??= [];
-    h.pending.jobs ??= [];
-    h.intents ??= [];
-    for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
-    campaigns.set(h.id, h);
   }
   return campaigns.size;
 }
@@ -878,6 +876,8 @@ export interface CampaignSummary {
   createdAt: number;
   /** the wallet account that rules realm 0, if any (public: it signs onchain) */
   player: string | null;
+  /** realm 0's seal this season while sealed (public: it is onchain) */
+  yourSeal: string | null;
   winner: number | null;
 }
 
@@ -897,6 +897,7 @@ export function list(filter: { ids?: number[]; player?: string } = {}): Campaign
       phase: h.phase,
       createdAt: h.createdAt,
       player: h.player ?? null,
+      yourSeal: h.phase === 'sealed' ? (h.pending.humanSeal ?? null) : null,
       winner: h.phase === 'over' ? winnerOf(h) : null,
     }))
     .sort((a, b) => (narrowed ? Number(a.phase === 'over') - Number(b.phase === 'over') : 0) || b.createdAt - a.createdAt);

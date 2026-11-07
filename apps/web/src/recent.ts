@@ -20,4 +20,3 @@ export function rememberCampaign(id: number): void {
     // private mode: nothing to continue from next time
   }
 }
-
