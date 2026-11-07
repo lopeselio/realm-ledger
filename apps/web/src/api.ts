@@ -5,6 +5,8 @@ import type { Deal, GameEvent, GameState, Plan, SpyReport, Treaty } from '@realm
 // Vite dev server (vite.config.ts), so no build needs the API on its CORS list.
 // VITE_API_URL points a build at another server directly.
 export const API = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
+/** The server's public address, for commands you paste into a terminal (previews are login-protected). */
+export const PUBLIC_API = API || 'https://realm-ledger-api.azurewebsites.net';
 
 export interface Envoy {
   season: number;
