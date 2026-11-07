@@ -49,6 +49,8 @@ export function useGame(id: number | null, signer: Signer | null) {
   const adopt = (v: View, route: number | null = v.id): boolean => {
     if (routeRef.current !== route) return false;
     setView(v);
+    // a forfeit offer belongs to one sealed season
+    if (v.phase !== 'sealed') setForfeitAt(null);
     return true;
   };
   // the URL a running flow started on: its messages are dropped once you navigate away
@@ -95,13 +97,14 @@ export function useGame(id: number | null, signer: Signer | null) {
     });
 
   /** POSTs /reveal and resolves to the settled season, also when the connection dropped after the server settled. */
-  const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View }> => {
+  const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View; recovered?: true }> => {
     try {
       return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
     } catch (e) {
       const now = await recheck(v, e);
       if (now.season === v.season) throw e;
-      return { events: now.lastEvents, view: now };
+      // settled, but maybe by another browser: we can't tell whose orders counted
+      return { events: now.lastEvents, view: now, recovered: true };
     }
   };
 
@@ -127,8 +130,12 @@ export function useGame(id: number | null, signer: Signer | null) {
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
       setBefore(v.state);
       if (v.player) {
-        const rec = await chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human });
-        if (!rec?.revealed) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
+        const [rec, c] = await Promise.all([
+          chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }),
+          chainView<{ season: number }>('get_campaign', { campaign: v.id }),
+        ]);
+        // past this season onchain already: the server settles it as it stands
+        if (!rec?.revealed && (c?.season ?? v.season) === v.season) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
       }
       const r = await settle(v, secret);
       if (!adopt(r.view)) return;
@@ -147,7 +154,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       if (!adopt(r.view)) return;
       setForfeitAt(null);
       freshDraft();
-      say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : 'The season turned without your orders. Plan the next one.');
+      say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : r.recovered ? 'The season turned. Plan the next one.' : 'The season turned without your orders. Plan the next one.');
     });
   };
 
