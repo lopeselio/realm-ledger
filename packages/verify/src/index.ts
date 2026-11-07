@@ -151,7 +151,8 @@ export function verifyBundle(b: ProofBundle): Check[] {
     if (b.rollSecret !== undefined) push(`season ${sp.season}: roll seed derives from the secret`, seasonRollSeed(b.rollSecret, sp.season) === sp.rollSeed);
     const sealsOk = sp.seals.every((x) => x.orders.realm === x.realm && x.orders.season === sp.season && sealOrders(x.orders, x.salt) === x.seal);
     push(`season ${sp.season}: ${sp.seals.length} reveals match their seals`, sealsOk);
-    for (const r of sp.forfeited ?? []) push(`season ${sp.season}: realm ${r} never revealed and forfeited its orders`, !sp.seals.some((x) => x.realm === r));
+    // the onchain check below confirms each forfeited realm sealed and never revealed
+    for (const r of sp.forfeited ?? []) push(`season ${sp.season}: realm ${r} is listed as forfeited and has no reveal`, !sp.seals.some((x) => x.realm === r));
     const result = replaySeason(state, {
       season: sp.season,
       treaties: sp.treaties,

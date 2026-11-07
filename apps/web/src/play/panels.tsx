@@ -400,14 +400,14 @@ export function Proof({ v }: { v: View }) {
 
 /** Settles without your lost orders; enables itself when the contract's reveal window closes. */
 function ForfeitButton({ game, at }: { game: Game; at: number }) {
-  const [open, setOpen] = useState(() => Date.now() >= at);
+  const [now, setNow] = useState(() => Date.now());
+  const open = now >= at;
   useEffect(() => {
-    if (Date.now() >= at) return setOpen(true);
-    setOpen(false);
-    // timers overflow past ~24.8 days: wait in steps and check again
-    const t = setTimeout(() => setOpen(Date.now() >= at), Math.min(at - Date.now(), 2 ** 31 - 1));
+    if (open) return;
+    // timers overflow past ~24.8 days: wait in steps; each step re-renders and schedules the next
+    const t = setTimeout(() => setNow(Date.now()), Math.min(at - now, 2 ** 31 - 1));
     return () => clearTimeout(t);
-  }, [at]);
+  }, [at, now, open]);
   return (
     <button type="button" className="wide" disabled={game.busy || !open} onClick={() => void game.forfeit()}>
       {open ? 'Settle without my orders' : `Settle without my orders (from ${new Date(at).toLocaleString()})`}

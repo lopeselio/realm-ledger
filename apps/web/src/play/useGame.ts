@@ -103,8 +103,9 @@ export function useGame(id: number | null, signer: Signer | null) {
     } catch (e) {
       const now = await recheck(v, e);
       if (now.season === v.season) throw e;
-      // settled, maybe by another browser: view.lastForfeited says whether your orders counted
-      return { events: now.lastEvents, view: now };
+      // settled, maybe by another browser: lastForfeited says whether your orders counted,
+      // but only if nothing settled since
+      return { events: now.lastEvents, view: now.season === v.season + 1 ? now : { ...now, lastForfeited: false } };
     }
   };
 
@@ -121,7 +122,9 @@ export function useGame(id: number | null, signer: Signer | null) {
       // revealed onchain from elsewhere: only that browser can finish; nothing to forfeit
       // past this season onchain already (the server crashed before saving): open now
       const at = !c || rec?.revealed ? null : c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
-      if (viewRef.current?.id !== v.id) return;
+      // still the same sealed season once the chain answered
+      const cur = viewRef.current;
+      if (cur?.id !== v.id || cur.season !== v.season || cur.phase !== 'sealed') return;
       setForfeitAt(at);
       say(
         `Your sealed orders are not stored in this browser, so they cannot be revealed here. Reveal from a browser that still holds them${
@@ -239,8 +242,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       // sealing here makes it yours to come back to (opening a link alone doesn't); remembered
       // before the network calls, since the seal may land onchain even if they error
       rememberCampaign(v.id);
-      if (posted) say('Your seal from an earlier attempt is already onchain, so the orders you sealed then stand, not the ones on screen. Using it…');
-      else if (wallet) {
+      if (wallet && !posted) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');
         await wallet.call('seal', { campaign: v.id, realm: v.human, seal: hash });
