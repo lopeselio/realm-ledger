@@ -210,3 +210,5 @@ h3.sub { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem;
 .who-am-i { font-family: var(--font-mono); font-size: 0.85rem; color: var(--brass); }
 .account .guest { color: #a8987a; margin: 0; }
 .cta { display: inline-block; margin-top: 10px; background: var(--brass); color: var(--table); padding: 8px 14px; border-radius: 6px; font-weight: 700; text-decoration: none; }
+.map-wrap.empty { min-height: 320px; display: grid; place-items: center; }
+.notfound { max-width: 40rem; margin: 15vh auto; padding: 0 16px; text-align: center; }

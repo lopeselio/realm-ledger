@@ -4,7 +4,7 @@ A turn-based conquest game on a living war table. Rival realms are ruled by AI a
 
 Built at NEAR HACKATHON (1–14 Nov 2026). Tracks: Games With Real Economies, Privacy & Private AI, Agent Economy.
 
-**Play: [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html)**. You rule one realm against 2–4 AI rulers.
+**Play: [realm-ledger.vercel.app/play](https://realm-ledger.vercel.app/play)**. You rule one realm against 2–4 AI rulers.
 - **Sign in or play as a guest:** sign in with any NEAR testnet wallet (NEAR Connect: Meteor, Intear, Nightly, Ledger and others) and your own account rules your realm on chain; your browser signs every seal and reveal. Or play as a guest with no wallet.
 - **Envoys:** you send envoys to the rival rulers. Their replies come from a model running in a TEE on NEAR AI Cloud, and each reply is signed.
 - **Chancellor:** you give your Chancellor a task and a budget. It buys spies and mercenaries from agent companies through the contract's escrow, and pays only for work that passes its check.
@@ -44,7 +44,7 @@ Built so far:
   - the battle-roll secret and every agenda match the commitments made at campaign start,
   - every model reply's signature recovers the TEE signing address named in the model's attestation report,
   - every market job: its delivery hashes to what was posted on chain, it was paid exactly when the work passed (a spy is paid only for a true report), and on chain it shows that status, price and delivery.
-- **The web app** (`apps/web`, hosted on Vercel): the play page and the AI-campaign viewer.
+- **The web app** (`apps/web`, hosted on Vercel): React 19 + React Router on Vite. `/` plays out an AI-only campaign in the browser, `/play` starts a campaign against the AI rulers, and `/play/:id` opens one (old `/play.html?c=N` links redirect there).
 - **The 3D war table** (`apps/web/src/table3d.ts`), the default view wherever the browser supports it. It's built with three.js on WebGPU, falling back to WebGL2, and includes:
   - a painted terrain board on a candle-lit wooden table, with a sea shaded in TSL,
   - pewter miniatures enamelled in each realm's colour,
@@ -72,7 +72,7 @@ pnpm install
 
 | Do | See |
 |---|---|
-| Open [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html), choose rivals and length, press **New campaign** | Within a few seconds: "Campaign N is onchain. Plan your first season." Click your army (the red circle), then a highlighted province, to march. Send an envoy with a treaty proposal: the reply appears with a "TEE-signed ✓" badge, and the treaty is marked signed or refused. Press **Seal orders**: about 10 seconds later the season turns and the chronicle lists what everyone did. |
+| Open [realm-ledger.vercel.app/play](https://realm-ledger.vercel.app/play), choose rivals and length, press **New campaign** | Within a few seconds: "Campaign N is onchain. Plan your first season." Click your army (the red circle), then a highlighted province, to march. Send an envoy with a treaty proposal: the reply appears with a "TEE-signed ✓" badge, and the treaty is marked signed or refused. Press **Seal orders**: about 10 seconds later the season turns and the chronicle lists what everyone did. |
 | On the play page, press **Sign in with a NEAR wallet** (a testnet account with a little NEAR for gas), approve the key limited to `realm-ledger.testnet`, then start a campaign | Your account appears at the top. The Proof panel says "ruled by your account …". Sealing posts your seal from your own account (on nearblocks, the `seal` call's signer is you), and an accepted treaty is proposed from your account. No wallet popup appears after the first approval. |
 | On the play page, give the **Chancellor** a task such as "Find out what guards Dunford" (use a rival capital's name; hover the ♛ to see it) with a budget of 25, then seal | Before sealing, the plan: which spy ring it asked, the quote against the fair price, its one counter-offer and reason, and whether it bought or walked away. The hire shows as "in escrow". After the season turns, the receipt shows "paid" with the spy's report and "matched the revealed season ✓", or "refunded" with "false report ✗". |
 | `pnpm verify:campaign https://realm-ledger-api.azurewebsites.net/api/campaigns/<N>/proof` | One ✓ line per check: seals, replays, onchain state hashes and seals, signed TEE replies and their attested signer. Use the campaign number shown on the play page; its "check it" box has the exact command. After the last season it also checks the revealed roll secret and agendas. It needs no API key. |
