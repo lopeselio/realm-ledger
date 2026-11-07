@@ -342,7 +342,8 @@ export function RealmList({ v }: { v: View }) {
 }
 
 export function Proof({ v }: { v: View }) {
-  const bundle = `${API}/api/campaigns/${v.id}/proof`;
+  // absolute, so the verify command works when pasted into a terminal
+  const bundle = new URL(`${API}/api/campaigns/${v.id}/proof`, location.origin).href;
   return (
     <div id="proof">
       <dl>

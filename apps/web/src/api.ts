@@ -1,7 +1,10 @@
 // The game server's HTTP API (apps/server) and the campaign view it returns.
 import type { Deal, GameEvent, GameState, Plan, SpyReport, Treaty } from '@realm-ledger/rules';
 
-export const API = (import.meta.env.VITE_API_URL as string | undefined) ?? 'https://realm-ledger-api.azurewebsites.net';
+// Same origin by default: Vercel proxies /api/* to the server (vercel.json) and so does the
+// Vite dev server (vite.config.ts), so no build needs the API on its CORS list.
+// VITE_API_URL points a build at another server directly.
+export const API = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
 
 export interface Envoy {
   season: number;
