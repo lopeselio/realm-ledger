@@ -149,15 +149,19 @@ export function useGame(id: number | null, signer: Signer | null) {
     }
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
       setBefore(v.state);
+      let forfeited = false;
       if (v.player) {
-        const [rec, c] = await Promise.all([
+        const [rec, c, declared] = await Promise.all([
           chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }),
           chainView<{ season: number }>('get_campaign', { campaign: v.id }),
+          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }),
         ]);
+        // forfeited from another browser: the contract refuses a reveal, so settle as forfeited
+        forfeited = !!declared && !rec?.revealed;
         // past this season onchain already: the server settles it as it stands
-        if (!rec?.revealed && (c?.season ?? v.season) === v.season) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
+        if (!rec?.revealed && !forfeited && (c?.season ?? v.season) === v.season) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
       }
-      const r = await settle(v, secret);
+      const r = await settle(v, forfeited ? { forfeit: true } : secret);
       if (!adopt(r.view)) return;
       freshDraft();
       say(
@@ -178,11 +182,15 @@ export function useGame(id: number | null, signer: Signer | null) {
       setBefore(v.state);
       if (v.player) {
         // only your wallet can give up your orders; the contract then blocks their reveal
-        const declared = await chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human });
-        if (!declared) {
+        const [declared, c] = await Promise.all([
+          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }),
+          chainView<{ season: number }>('get_campaign', { campaign: v.id }),
+        ]);
+        // past this season onchain already: the server settles it as it stands
+        if (!declared && (c?.season ?? v.season) === v.season) {
           say('Giving up your sealed orders onchain from your account…');
           try {
-            await walletFor(v).call('forfeit', { campaign: v.id, realm: v.human });
+            await walletFor(v).call('forfeit', { campaign: v.id, realm: v.human, season: v.season });
           } catch (e) {
             throw new Error(`${(e as Error).message} If your wallet key predates this action, sign out and sign in again.`);
           }

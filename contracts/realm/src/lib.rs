@@ -110,8 +110,8 @@ pub struct SealRecord {
     pub revealed: bool,
 }
 
-/// A season's revealed orders, kept until the season settles so the referee can resolve it
-/// even if the browser that revealed them never told the game server.
+/// A wallet ruler's revealed orders, kept until the season settles so the referee can
+/// resolve it even if the browser that revealed them never told the game server.
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RevealedOrders {
@@ -120,7 +120,9 @@ pub struct RevealedOrders {
 }
 
 // Per-season records kept under their own storage prefixes (outside the contract state
-// struct, so adding them needed no state migration) and removed when the season settles.
+// struct, so adding them needed no state migration). Kept reveals are removed when the
+// season settles; forfeit marks (one byte) stay, so anyone can later tell a ruler's own
+// forfeit from one the referee settled after the reveal window.
 const REVEAL_PREFIX: u8 = b'o';
 const FORFEIT_PREFIX: u8 = b'f';
 
@@ -397,21 +399,27 @@ impl RealmLedger {
         let record = self.seals.get_mut(&key).unwrap_or_else(|| env::panic_str("this realm did not seal"));
         require!(commitment(&orders, &salt) == record.seal, "orders do not match the seal");
         record.revealed = true;
-        env::storage_write(&season_key(REVEAL_PREFIX, campaign, season, realm), &near_sdk::serde_json::to_vec(&RevealedOrders { orders: orders.clone(), salt: salt.clone() }).unwrap());
+        // kept only for rulers outside this contract (players' own wallets): the referee
+        // already holds every agent seat's orders, and the contract pays for this storage
+        let ruler = &self.campaign(campaign).realms[realm as usize].ruler;
+        if !ruler.is_sub_account_of(&env::current_account_id()) {
+            env::storage_write(&season_key(REVEAL_PREFIX, campaign, season, realm), &near_sdk::serde_json::to_vec(&RevealedOrders { orders: orders.clone(), salt: salt.clone() }).unwrap());
+        }
         Event::Revealed { campaign, season, realm, orders, salt }.emit();
     }
 
-    /// The ruler gives up this season's sealed orders, so the season can settle without
-    /// them: for when the orders are lost. After this the realm can't reveal this season.
-    pub fn forfeit(&mut self, campaign: u64, realm: u8) {
+    /// The ruler gives up its sealed orders for `season`, so the season can settle without
+    /// them: for when the orders are lost. After this the realm can't reveal that season.
+    /// `season` must be the current one, so a delayed call can't hit a later season.
+    pub fn forfeit(&mut self, campaign: u64, realm: u8, season: u32) {
         let caller = env::predecessor_account_id();
         let c = self.campaign(campaign);
         require!(c.phase == Phase::Sealing || c.phase == Phase::Revealing, "this season is over");
+        require!(c.season == season, "that season is not the current one");
         let r = c.realms.get(realm as usize).unwrap_or_else(|| env::panic_str("no such realm"));
         require!(r.ruler == caller, "only the ruler forfeits its orders");
         require!(c.sealed[realm as usize], "this realm did not seal");
         require!(!c.revealed[realm as usize], "already revealed");
-        let season = c.season;
         let key = season_key(FORFEIT_PREFIX, campaign, season, realm);
         require!(!env::storage_has_key(&key), "already forfeited");
         env::storage_write(&key, &[1]);
@@ -484,10 +492,9 @@ impl RealmLedger {
             Event::TreatyBroken { campaign, treaty: id, by, season }.emit();
         }
         c.state_hashes.push(state_hash.clone());
-        // this season's kept reveals and forfeits are no longer needed
+        // this season's kept reveals are no longer needed
         for i in 0..n as u8 {
             env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
-            env::storage_remove(&season_key(FORFEIT_PREFIX, campaign, season, i));
         }
         c.season += 1;
         c.sealed = vec![false; n];
@@ -720,7 +727,7 @@ impl RealmLedger {
         env::storage_read(&season_key(REVEAL_PREFIX, campaign, season, realm)).map(|v| near_sdk::serde_json::from_slice(&v).unwrap())
     }
 
-    /// Whether a realm's ruler forfeited its orders for a season that hasn't settled yet.
+    /// Whether a realm's ruler forfeited its orders for a season.
     pub fn get_forfeit(&self, campaign: u64, season: u32, realm: u8) -> bool {
         env::storage_has_key(&season_key(FORFEIT_PREFIX, campaign, season, realm))
     }

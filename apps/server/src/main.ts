@@ -15,7 +15,7 @@ import { nearAiEnabled } from './nearai.ts';
 //   POST /api/campaigns/:id/envoy {to, message, proposal?}
 //   POST /api/campaigns/:id/chancellor {task, budget} or {goal, province, budget}
 //   POST /api/campaigns/:id/seal  {seal}     sha256(canonical orders | salt), computed in your browser
-//   POST /api/campaigns/:id/reveal {orders, salt} or {forfeit: true} a season after the seal deadline
+//   POST /api/campaigns/:id/reveal {orders, salt} or {forfeit: true} (a wallet's after its onchain forfeit, a guest's after the reveal window)
 //   GET  /api/campaigns/:id/proof            the proof bundle (pnpm verify:campaign <url>)
 
 const MAX_BODY = 32 * 1024;

@@ -313,7 +313,7 @@ fn all_sealed() -> (RealmLedger, u64) {
 fn a_ruler_forfeit_settles_without_waiting() {
     let (mut c, id) = all_sealed();
     as_(ruler(0), 3_000);
-    c.forfeit(id, 0);
+    c.forfeit(id, 0, 0);
     assert!(c.get_forfeit(id, 0, 0));
     assert!(get_logs().iter().any(|l| l.contains("\"event\":\"forfeited\"")));
     as_(ruler(1), 3_000);
@@ -321,14 +321,14 @@ fn a_ruler_forfeit_settles_without_waiting() {
     // the revealed orders are kept for the referee until the season settles
     assert_eq!(c.get_reveal(id, 0, 1), Some(RevealedOrders { orders: ORDERS.into(), salt: ORDERS_SALT.into() }));
     as_(ruler(2), 3_000);
-    c.forfeit(id, 2);
+    c.forfeit(id, 2, 0);
     as_(referee(), 4_000);
     c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 2]));
     assert_eq!(c.get_campaign(id).unwrap().season, 1);
     assert!(get_logs().iter().any(|l| l.contains("\"forfeited\":[0,2]")));
-    // cleaned up once settled
+    // kept reveals are removed once settled; the forfeit mark stays as a record
     assert_eq!(c.get_reveal(id, 0, 1), None);
-    assert!(!c.get_forfeit(id, 0, 0));
+    assert!(c.get_forfeit(id, 0, 0));
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn a_ruler_forfeit_settles_without_waiting() {
 fn a_forfeit_blocks_a_later_reveal() {
     let (mut c, id) = all_sealed();
     as_(ruler(1), 3_000);
-    c.forfeit(id, 1);
+    c.forfeit(id, 1, 0);
     c.reveal(id, 1, ORDERS.into(), ORDERS_SALT.into());
 }
 
@@ -372,7 +372,7 @@ fn the_referee_may_forfeit_after_the_reveal_window() {
 fn every_sealed_realm_is_revealed_or_forfeited() {
     let (mut c, id) = all_sealed();
     as_(ruler(0), 3_000);
-    c.forfeit(id, 0);
+    c.forfeit(id, 0, 0);
     as_(referee(), 3_000);
     c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0]));
 }
@@ -382,5 +382,35 @@ fn every_sealed_realm_is_revealed_or_forfeited() {
 fn only_the_ruler_forfeits() {
     let (mut c, id) = all_sealed();
     as_(referee(), 3_000);
-    c.forfeit(id, 0);
+    c.forfeit(id, 0, 0);
+}
+
+#[test]
+#[should_panic(expected = "that season is not the current one")]
+fn a_forfeit_names_its_season() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(0), 3_000);
+    c.forfeit(id, 0, 1);
+}
+
+#[test]
+fn agent_seat_reveals_are_not_kept() {
+    // rulers that are sub-accounts of the contract are agent seats: the referee holds their orders
+    let (mut c, _) = setup();
+    let seat: AccountId = "ruler1.contract.testnet".parse().unwrap();
+    let mut ctx = VMContextBuilder::new();
+    ctx.current_account_id("contract.testnet".parse().unwrap());
+    testing_env!(ctx.predecessor_account_id(referee()).block_timestamp(1_000 * 1_000_000).build());
+    let realms = (0..2)
+        .map(|i| RealmInit { ruler: if i == 1 { seat.clone() } else { ruler(i) }, chancellor: None, treasury: 0, season_cap: 0, campaign_cap: 0 })
+        .collect();
+    let commits = (0..2).map(|i| { let (a, s) = agenda(i); commitment(&a, &s) }).collect();
+    let id2 = c.create_campaign(realms, "seed-2".into(), ROLL_COMMIT.into(), commits, 2, SEASON_MS);
+    for (i, who) in [(0u8, ruler(0)), (1u8, seat.clone())] {
+        testing_env!(VMContextBuilder::new().current_account_id("contract.testnet".parse().unwrap()).predecessor_account_id(who).block_timestamp(2_000 * 1_000_000).build());
+        c.seal(id2, i, ORDERS_SEAL.into());
+    }
+    testing_env!(VMContextBuilder::new().current_account_id("contract.testnet".parse().unwrap()).predecessor_account_id(seat).block_timestamp(3_000 * 1_000_000).build());
+    c.reveal(id2, 1, ORDERS.into(), ORDERS_SALT.into());
+    assert_eq!(c.get_reveal(id2, 0, 1), None);
 }

@@ -544,8 +544,9 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 
 /**
  * Reveals every seal and resolves the season. With `forfeit`, your sealed orders are given up
- * (your realm does nothing this season): for when the browser holding them is gone. The
- * contract only allows that once the reveal window has closed.
+ * (your realm does nothing this season), for when the browser holding them is gone: a
+ * wallet's only after that wallet's own onchain `forfeit`, a guest seat's once the reveal
+ * window has closed. Orders revealed onchain always count instead.
  */
 export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false): Promise<GameEvent[]> {
   return locked(id, async () => {
@@ -574,7 +575,8 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         // them until the season settles, so a browser that lost them doesn't matter
         if (orders && salt !== null) return check(orders, salt);
         const kept = await view<{ orders: string; salt: string }>('get_reveal', where);
-        if (!kept) throw new GameError('your orders were revealed onchain but are no longer kept there; reveal from a browser that holds them', 409);
+        // kept only for wallet rulers, and only until the season settles
+        if (!kept) throw new GameError('your revealed orders are not kept onchain; open the campaign in the browser that holds them', 409);
         return check(JSON.parse(kept.orders) as OrderSet, kept.salt);
       }
       // settled onchain without your reveal (a forfeit that crashed before we saved): it stands
@@ -582,7 +584,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (forfeit || settledWithout || declared) {
         if (!settledWithout && !declared) {
           // a wallet's orders are given up only by that wallet; a guest seat's after the window
-          if (h.player) throw new GameError('forfeit your orders from your wallet first', 403);
+          if (h.player) throw new GameError(`only ${h.player} can forfeit these orders: sign in with that wallet (on any device) and forfeit`, 403);
           // the contract allows it a full season after the seal deadline; a minute of margin for its clock
           const opens = c.seal_deadline_ms + c.season_ms + 60_000;
           if (Date.now() < opens) throw new GameError(`your orders can be forfeited from ${new Date(opens).toISOString()}`, 409);
@@ -618,8 +620,8 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       const broken = events.flatMap((e) =>
         e.kind === 'treaty-broken' ? [[h.treatyIds[treatyKey({ kind: e.treaty, realms: [e.realm, e.against], since: 0 })], e.realm] as const] : [],
       );
-      // the contract refuses a forfeit of orders that were revealed, so a reveal racing this
-      // settle can't be dropped: it fails, and the retry below uses the revealed orders
+      // the contract refuses to settle a forfeited realm that revealed, so a reveal can never
+      // be dropped (a wallet's own forfeit also blocks its later reveal)
       await call(config.referee, 'settle_season', {
         campaign: h.id,
         state_hash: hash,
@@ -631,14 +633,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       return { reveals, forfeited: human.forfeited, rollSeed, hash, state, events };
     };
 
-    let r: Awaited<ReturnType<typeof resolveOnce>>;
-    try {
-      r = await resolveOnce();
-    } catch (e) {
-      if (!/forfeited realm must have sealed and not revealed/.test(String((e as Error)?.message ?? e))) throw e;
-      r = await resolveOnce();
-    }
-    const { reveals, forfeited, rollSeed, hash, state, events } = r;
+    const { reveals, forfeited, rollSeed, hash, state, events } = await resolveOnce();
     crashPoint('after-settle');
 
     h.bundle.seasons.push({
