@@ -29,7 +29,7 @@ Every realm, yours included, keeps its treasury, its armies and its secrets on t
 **Every 5 minutes: one season**
 1. **Plan.** Orders go on the war table as ghost pieces. Diplomacy happens now: propose a treaty, threaten, bribe, ask for passage. Rivals answer in character and may be lying.
 2. **Seal.** All rulers commit their orders at once. Each commitment is a hash posted onchain; the orders themselves stay secret.
-3. **Turn.** Orders are revealed and checked against their seals, then resolved together: armies move, battles are fought, harvests come in, prices move. The table animates the season.
+3. **Turn.** Orders are revealed and checked against their seals, then resolved together: armies move, battles are fought, harvests come in, prices move. The table animates the season. A ruler who sealed but never reveals (say the browser holding the orders is gone) forfeits them: once a full season has passed after the season's seal deadline, the contract lets the referee settle without that reveal, and that realm does nothing that season. The proof bundle lists it as forfeited.
 4. **Report.** A chronicle of what happened, including which promises were broken. Every line links to its proof.
 
 **Every session: one campaign**

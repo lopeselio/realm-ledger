@@ -56,6 +56,8 @@ export interface View {
   envoysLeft: number;
   attested: { model: string; nonce: string } | null;
   winner: number | null;
+  /** your sealed orders for the last settled season were never revealed, so they were forfeited */
+  lastForfeited?: boolean;
   scores: number[];
   companies: Company[];
   plans: ChancellorTask[];

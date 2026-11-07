@@ -26,6 +26,8 @@ export function useGame(id: number | null, signer: Signer | null) {
   const [selected, setSelected] = useState<number | undefined>(undefined);
   const [busy, setBusyState] = useState(false);
   const [status, setStatusState] = useState<Status>({ text: INTRO, tone: 'info' });
+  // a sealed season this browser can't reveal: when the contract lets it settle without your orders
+  const [forfeitAt, setForfeitAt] = useState<number | null>(null);
 
   // flows await the server and the chain: they read the latest values through refs
   const viewRef = useRef<View | null>(null);
@@ -47,6 +49,8 @@ export function useGame(id: number | null, signer: Signer | null) {
   const adopt = (v: View, route: number | null = v.id): boolean => {
     if (routeRef.current !== route) return false;
     setView(v);
+    // a forfeit offer belongs to one sealed season
+    if (v.phase !== 'sealed') setForfeitAt(null);
     return true;
   };
   // the URL a running flow started on: its messages are dropped once you navigate away
@@ -86,31 +90,85 @@ export function useGame(id: number | null, signer: Signer | null) {
     return s;
   };
 
+  /** The fresh campaign, for checking what the server did after a call failed; keeps that call's error if this fails too. */
+  const recheck = (v: View, e: unknown): Promise<View> =>
+    api<View>(`/campaigns/${v.id}`).catch(() => {
+      throw e;
+    });
+
+  /** POSTs /reveal and resolves to the settled season, also when the connection dropped after the server settled. */
+  const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View }> => {
+    try {
+      return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
+    } catch (e) {
+      const now = await recheck(v, e);
+      if (now.season === v.season) throw e;
+      // settled, maybe by another browser: lastForfeited says whether your orders counted,
+      // but only if nothing settled since
+      return { events: now.lastEvents, view: now.season === v.season + 1 ? now : { ...now, lastForfeited: false } };
+    }
+  };
+
   const reveal = async (): Promise<void> => {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
     const secret = findSecret(v.id, v.season, v.yourSeal);
     if (!secret) {
-      say('Your sealed orders are not stored in this browser, so they cannot be revealed here. Only a browser that still holds them (the one you sealed from, if its storage was kept) can finish this season.', 'error');
+      // the season can still settle without them once the contract's reveal window closes
+      const [c, rec] = await Promise.all([
+        chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
+        chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }).catch(() => null),
+      ]);
+      // revealed onchain from elsewhere: only that browser can finish; nothing to forfeit
+      // past this season onchain already (the server crashed before saving): open now
+      const at = !c || rec?.revealed ? null : c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
+      // still the same sealed season once the chain answered
+      const cur = viewRef.current;
+      if (cur?.id !== v.id || cur.season !== v.season || cur.phase !== 'sealed') return;
+      setForfeitAt(at);
+      say(
+        `Your sealed orders are not stored in this browser, so they cannot be revealed here. Reveal from a browser that still holds them${
+          at ? `, or settle the season without them (your realm does nothing this season) ${at <= Date.now() ? 'now' : `from ${new Date(at).toLocaleString()}`}` : ''
+        }.`,
+        'error',
+      );
       return;
     }
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
       setBefore(v.state);
       if (v.player) {
-        const rec = await chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human });
-        if (!rec?.revealed) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
+        const [rec, c] = await Promise.all([
+          chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }),
+          chainView<{ season: number }>('get_campaign', { campaign: v.id }),
+        ]);
+        // past this season onchain already: the server settles it as it stands
+        if (!rec?.revealed && (c?.season ?? v.season) === v.season) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
       }
-      let r: { events: GameEvent[]; view: View };
-      try {
-        r = await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, secret);
-      } catch (e) {
-        const now = await api<View>(`/campaigns/${v.id}`);
-        if (now.season === v.season) throw e;
-        r = { events: now.lastEvents, view: now };
-      }
+      const r = await settle(v, secret);
       if (!adopt(r.view)) return;
       freshDraft();
-      say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : `The season turned. ${r.view.envoysLeft} envoys available.`);
+      say(
+        r.view.lastForfeited
+          ? 'This season had already been settled without your orders, so your realm did nothing in it. Plan the next one.'
+          : r.view.phase === 'over'
+            ? 'The campaign is over. Everything is revealed.'
+            : `The season turned. ${r.view.envoysLeft} envoys available.`,
+      );
+    });
+  };
+
+  /** Settles a sealed season without your orders, once the contract allows it. */
+  const forfeit = async (): Promise<void> => {
+    const v = viewRef.current;
+    if (!v || v.phase !== 'sealed') return;
+    await withBusy('Settling the season without your orders; every AI ruler reveals…', async () => {
+      setBefore(v.state);
+      const r = await settle(v, { forfeit: true });
+      if (!adopt(r.view)) return;
+      setForfeitAt(null);
+      freshDraft();
+      const outcome = r.view.lastForfeited ? 'The season turned without your orders.' : 'The season turned.';
+      say(r.view.phase === 'over' ? `${outcome} The campaign is over. Everything is revealed.` : `${outcome} Plan the next one.`);
     });
   };
 
@@ -123,6 +181,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       setBefore(null);
       freshDraft();
     }
+    setForfeitAt(null);
     if (id === null) setStatusState({ text: INTRO, tone: 'info' });
   }, [id]);
 
@@ -170,28 +229,36 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v) return;
     await withBusy('Sealing: posting your hash and every AI ruler’s onchain…', async () => {
       const set: OrderSet = { realm: v.human, season: v.season, orders };
-      const salt = newSalt();
-      const hash = sealOrders(set, salt);
       // the wallet that must sign, checked before anything is stored
       const wallet = v.player ? walletFor(v) : null;
-      keepSecret(v.id, { orders: set, salt });
+      // an earlier attempt's seal may already be onchain (the contract takes one per season):
+      // then that seal stands and the server is told about it, not a new one
+      const posted = wallet
+        ? ((await chainView<{ seal: string }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }).catch(() => null))?.seal ?? undefined)
+        : undefined;
+      const salt = newSalt();
+      const hash = posted ?? sealOrders(set, salt);
+      if (!posted) keepSecret(v.id, { orders: set, salt });
       // sealing here makes it yours to come back to (opening a link alone doesn't); remembered
       // before the network calls, since the seal may land onchain even if they error
       rememberCampaign(v.id);
-      if (wallet) {
+      if (wallet && !posted) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');
         await wallet.call('seal', { campaign: v.id, realm: v.human, seal: hash });
       }
+      let after: View;
       try {
-        adopt(await api<View>(`/campaigns/${v.id}/seal`, { seal: hash }));
+        after = await api<View>(`/campaigns/${v.id}/seal`, { seal: hash });
       } catch (e) {
         // the connection may drop after the server acted; check before giving up
-        const now = await api<View>(`/campaigns/${v.id}`);
-        if (now.phase !== 'sealed') throw e;
-        adopt(now);
+        after = await recheck(v, e);
+        if (after.phase !== 'sealed') throw e;
       }
-      say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
+      adopt(after);
+      // the server keeps a seal an earlier attempt already put onchain
+      if (posted || (after.yourSeal && after.yourSeal !== hash)) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
+      else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
     // reveals only if the season is sealed, even when the seal call itself errored
     await reveal();
@@ -262,7 +329,7 @@ export function useGame(id: number | null, signer: Signer | null) {
   const addAdvice = (o: Order): void => setOrders((os) => (os.some((x) => JSON.stringify(x) === JSON.stringify(o)) ? os : [...os, o]));
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));
 
-  return { view, before, orders, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
+  return { view, before, orders, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
 }
 
 export type Game = ReturnType<typeof useGame>;

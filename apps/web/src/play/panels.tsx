@@ -1,5 +1,5 @@
 // The side panels of the game page. Each reads the campaign view and calls the game's flows.
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { COST, GOODS, type GameState, type Good, type Treaty } from '@realm-ledger/rules';
 import { API, PUBLIC_API, type View } from '../api.ts';
 import { REALM_COLORS } from '../map.ts';
@@ -104,6 +104,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
         Seal orders
       </button>
       <p className="fine">Your browser hashes your orders with a secret salt. Only the hash goes onchain until every ruler has sealed.</p>
+      {v.phase === 'sealed' && game.forfeitAt !== null && <ForfeitButton game={game} at={game.forfeitAt} />}
     </section>
   );
 }
@@ -394,5 +395,22 @@ export function Proof({ v }: { v: View }) {
           : 'The battle-roll secret and the rulers’ agendas are revealed when the campaign ends.'}
       </p>
     </div>
+  );
+}
+
+/** Settles without your lost orders; enables itself when the contract's reveal window closes. */
+function ForfeitButton({ game, at }: { game: Game; at: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  const open = now >= at;
+  useEffect(() => {
+    if (open) return;
+    // timers overflow past ~24.8 days: wait in steps; each step re-renders and schedules the next
+    const t = setTimeout(() => setNow(Date.now()), Math.min(at - now, 2 ** 31 - 1));
+    return () => clearTimeout(t);
+  }, [at, now, open]);
+  return (
+    <button type="button" className="wide" disabled={game.busy || !open} onClick={() => void game.forfeit()}>
+      {open ? 'Settle without my orders' : `Settle without my orders (from ${new Date(at).toLocaleString()})`}
+    </button>
   );
 }

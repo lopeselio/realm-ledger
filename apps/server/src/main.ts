@@ -15,7 +15,7 @@ import { nearAiEnabled } from './nearai.ts';
 //   POST /api/campaigns/:id/envoy {to, message, proposal?}
 //   POST /api/campaigns/:id/chancellor {task, budget} or {goal, province, budget}
 //   POST /api/campaigns/:id/seal  {seal}     sha256(canonical orders | salt), computed in your browser
-//   POST /api/campaigns/:id/reveal {orders, salt}
+//   POST /api/campaigns/:id/reveal {orders, salt} or {forfeit: true} a season after the seal deadline
 //   GET  /api/campaigns/:id/proof            the proof bundle (pnpm verify:campaign <url>)
 
 const MAX_BODY = 32 * 1024;
@@ -112,7 +112,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return send(res, 200, publicView(id));
   }
   if (action === 'reveal') {
-    const events = await revealSeason(id, (b.orders as OrderSet | undefined) ?? null, typeof b.salt === 'string' ? b.salt : null);
+    const events = await revealSeason(id, (b.orders as OrderSet | undefined) ?? null, typeof b.salt === 'string' ? b.salt : null, b.forfeit === true);
     return send(res, 200, { events, view: publicView(id) });
   }
   return send(res, 404, { error: 'not found' });

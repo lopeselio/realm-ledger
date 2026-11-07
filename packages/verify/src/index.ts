@@ -58,8 +58,13 @@ export interface SeasonProof {
   treaties: Treaty[];
   /** market purchases applied before the season resolved */
   deals?: Deal[];
-  /** one per realm that sealed */
+  /** one per realm that sealed and revealed */
   seals: { realm: number; seal: string; salt: string; orders: OrderSet }[];
+  /**
+   * realms that sealed but never revealed: the referee settled without their orders once the
+   * contract allowed it (a full season after seals closed), so they did nothing that season
+   */
+  forfeited?: number[];
   rollSeed: string;
   /** stateHash after the season resolved */
   stateHash: string;
@@ -146,6 +151,8 @@ export function verifyBundle(b: ProofBundle): Check[] {
     if (b.rollSecret !== undefined) push(`season ${sp.season}: roll seed derives from the secret`, seasonRollSeed(b.rollSecret, sp.season) === sp.rollSeed);
     const sealsOk = sp.seals.every((x) => x.orders.realm === x.realm && x.orders.season === sp.season && sealOrders(x.orders, x.salt) === x.seal);
     push(`season ${sp.season}: ${sp.seals.length} reveals match their seals`, sealsOk);
+    // the onchain check below confirms each forfeited realm sealed and never revealed
+    for (const r of sp.forfeited ?? []) push(`season ${sp.season}: realm ${r} is listed as forfeited and has no reveal`, !sp.seals.some((x) => x.realm === r));
     const result = replaySeason(state, {
       season: sp.season,
       treaties: sp.treaties,
@@ -218,6 +225,7 @@ export async function checkAgainstChain(
     agenda_commits: string[];
     state_hashes: string[];
     map_seed: string;
+    realms: unknown[];
   } | null;
   if (!c) return [{ name: `campaign ${b.campaign} exists on ${b.contract}`, ok: false }];
   // once a campaign is over every job is settled, so each onchain treasury must equal the
@@ -249,6 +257,21 @@ export async function checkAgainstChain(
       const rec = (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: x.realm })) as { seal: string } | null;
       checks.push({ name: `season ${sp.season}: realm ${x.realm}'s seal is the one posted onchain`, ok: rec?.seal === x.seal });
     }
+    for (const r of sp.forfeited ?? []) {
+      // the contract only settles without a sealed realm's reveal after the reveal window closed
+      const rec = (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })) as { revealed: boolean } | null;
+      checks.push({ name: `season ${sp.season}: realm ${r} sealed but never revealed onchain`, ok: !!rec && !rec.revealed });
+    }
+    // every seal onchain is accounted for: revealed in the bundle, or listed as forfeited
+    const accounted = new Set([...sp.seals.map((x) => x.realm), ...(sp.forfeited ?? [])]);
+    const others = c.realms.map((_, r) => r).filter((r) => !accounted.has(r));
+    const posted = await Promise.all(others.map((r) => view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })));
+    const missing = others.filter((_, i) => posted[i]);
+    checks.push({
+      name: `season ${sp.season}: every seal onchain is revealed or forfeited in the bundle`,
+      ok: missing.length === 0,
+      ...(missing.length > 0 ? { detail: `realms ${missing.join(', ')} sealed but are missing` } : {}),
+    });
   }
   return checks;
 }
