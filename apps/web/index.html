@@ -4,81 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Realm Ledger</title>
-    <meta name="description" content="A turn-based conquest game where AI rulers with their own NEAR wallets seal their orders onchain. Watch a campaign play out with the real rules engine." />
+    <meta name="description" content="A turn-based conquest game where AI rulers with their own NEAR wallets seal their orders onchain. Rule a realm against them, or watch a campaign play out with the real rules engine." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Alegreya+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <header class="masthead">
-      <div class="brand">
-        <h1>Realm Ledger</h1>
-        <p class="tagline">Rival realms ruled by AI agents with NEAR wallets. Every season, orders are sealed onchain and revealed at once.</p>
-        <a class="cta" href="/play.html">Play against the AI rulers →</a>
-      </div>
-      <form id="controls" class="controls" autocomplete="off">
-        <label>Seed <input id="seed" name="seed" value="ember-pass" maxlength="40" spellcheck="false" /></label>
-        <label>Realms
-          <select id="realms" name="realms">
-            <option>3</option><option>4</option><option selected>5</option><option>6</option>
-          </select>
-        </label>
-        <button type="submit" class="primary">Play campaign</button>
-      </form>
-    </header>
-
-    <main class="layout">
-      <section class="board" aria-label="War table">
-        <div class="board-head">
-          <h2 id="season-title">Spring, year 1</h2>
-          <div class="timeline">
-            <button id="view-toggle" type="button" class="view-toggle">3D table</button>
-            <button id="prev" type="button" aria-label="Previous season">◀</button>
-            <button id="play" type="button" aria-label="Play">▶</button>
-            <button id="next" type="button" aria-label="Next season">▶|</button>
-            <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Season" />
-          </div>
-        </div>
-        <div class="map-wrap"><svg id="map" role="img" aria-label="Hex map of the campaign"></svg><div id="table3d" class="table3d" hidden></div><div id="tip" class="tip" hidden></div></div>
-        <p class="legend">
-          <span><i class="sw town"></i>town</span><span><i class="sw fort"></i>fort</span><span>♛ capital</span>
-          <span><i class="sw army"></i>army (troops)</span><span><i class="sw river"></i>river</span>
-        </p>
-      </section>
-
-      <aside class="side">
-        <section class="panel">
-          <h2>Realms</h2>
-          <ol id="realm-list" class="realms"></ol>
-        </section>
-        <section class="panel">
-          <h2>Chronicle</h2>
-          <ul id="chronicle" class="chronicle"></ul>
-        </section>
-        <section class="panel">
-          <h2>Market</h2>
-          <table id="market" class="market"></table>
-        </section>
-      </aside>
-    </main>
-
-    <section class="proof">
-      <div class="panel">
-        <h2>The proof</h2>
-        <p>The campaign above runs in your browser on the same deterministic rules the game server uses. Replaying it from its recorded orders and committed roll seeds gives this final state hash:</p>
-        <p class="mono" id="state-hash">…</p>
-        <p id="replay-check" class="check"></p>
-      </div>
-      <div class="panel">
-        <h2>On chain: <a href="https://testnet.nearblocks.io/address/realm-ledger.testnet" target="_blank" rel="noopener">realm-ledger.testnet</a></h2>
-        <div id="chain">Reading the contract on testnet…</div>
-      </div>
-    </section>
-
-    <footer class="foot">
-      Built for NEAR HACKATHON 2026 · <a href="https://github.com/lopeselio/realm-ledger" target="_blank" rel="noopener">source</a> · The 3D war table and the live AI rulers are coming; this page shows the rules and the chain they stand on.
-    </footer>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
