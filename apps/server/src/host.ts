@@ -564,10 +564,10 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // saved): it stands, whatever orders arrive now
       const settledWithout = c.season > before.season && !rec?.revealed;
       if (forfeit || settledWithout) {
+        if (rec?.revealed) throw new GameError('your orders are already revealed onchain; reveal them from a browser that holds them instead');
         // the contract allows it a full season after the seal deadline; a minute of margin for its clock
         const opens = c.seal_deadline_ms + c.season_ms + 60_000;
         if (!settledWithout && Date.now() < opens) throw new GameError(`your orders can be forfeited from ${new Date(opens).toISOString()}`, 409);
-        if (rec?.revealed) throw new GameError('your orders are already revealed onchain; reveal them from a browser that holds them instead');
         forfeited.push(HUMAN);
       } else {
         if (!orders || salt === null) throw new GameError('reveal needs your orders and salt');
@@ -878,6 +878,8 @@ export function publicView(id: number) {
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
     winner: over ? winnerOf(h) : null,
+    /** your sealed orders for the last settled season were never revealed, so they were forfeited */
+    lastForfeited: h.bundle.seasons.at(-1)?.forfeited?.includes(HUMAN) ?? false,
     companies: (h.state.companies ?? []).map((c) => ({ id: c.id, name: c.name, kind: c.kind, greed: c.greed, base: c.base, size: c.size })),
     plans: h.plans,
     reports: h.reports,

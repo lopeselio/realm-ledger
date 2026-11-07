@@ -404,8 +404,8 @@ function ForfeitButton({ game, at }: { game: Game; at: number }) {
   useEffect(() => {
     if (Date.now() >= at) return setOpen(true);
     setOpen(false);
-    // timers cap at ~24.8 days; the window is hours away at most
-    const t = setTimeout(() => setOpen(true), at - Date.now());
+    // timers overflow past ~24.8 days: wait in steps and check again
+    const t = setTimeout(() => setOpen(Date.now() >= at), Math.min(at - Date.now(), 2 ** 31 - 1));
     return () => clearTimeout(t);
   }, [at]);
   return (

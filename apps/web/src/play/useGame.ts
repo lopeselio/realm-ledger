@@ -97,14 +97,14 @@ export function useGame(id: number | null, signer: Signer | null) {
     });
 
   /** POSTs /reveal and resolves to the settled season, also when the connection dropped after the server settled. */
-  const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View; recovered?: true }> => {
+  const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View }> => {
     try {
       return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
     } catch (e) {
       const now = await recheck(v, e);
       if (now.season === v.season) throw e;
-      // settled, but maybe by another browser: we can't tell whose orders counted
-      return { events: now.lastEvents, view: now, recovered: true };
+      // settled, maybe by another browser: view.lastForfeited says whether your orders counted
+      return { events: now.lastEvents, view: now };
     }
   };
 
@@ -114,9 +114,13 @@ export function useGame(id: number | null, signer: Signer | null) {
     const secret = findSecret(v.id, v.season, v.yourSeal);
     if (!secret) {
       // the season can still settle without them once the contract's reveal window closes
-      const c = await chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null);
-      // the chain may be past this season already (the server crashed before saving): open now
-      const at = !c ? null : c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
+      const [c, rec] = await Promise.all([
+        chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
+        chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }).catch(() => null),
+      ]);
+      // revealed onchain from elsewhere: only that browser can finish; nothing to forfeit
+      // past this season onchain already (the server crashed before saving): open now
+      const at = !c || rec?.revealed ? null : c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
       if (viewRef.current?.id !== v.id) return;
       setForfeitAt(at);
       say(
@@ -140,7 +144,13 @@ export function useGame(id: number | null, signer: Signer | null) {
       const r = await settle(v, secret);
       if (!adopt(r.view)) return;
       freshDraft();
-      say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : `The season turned. ${r.view.envoysLeft} envoys available.`);
+      say(
+        r.view.lastForfeited
+          ? 'This season had already been settled without your orders, so your realm did nothing in it. Plan the next one.'
+          : r.view.phase === 'over'
+            ? 'The campaign is over. Everything is revealed.'
+            : `The season turned. ${r.view.envoysLeft} envoys available.`,
+      );
     });
   };
 
@@ -154,7 +164,8 @@ export function useGame(id: number | null, signer: Signer | null) {
       if (!adopt(r.view)) return;
       setForfeitAt(null);
       freshDraft();
-      say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : r.recovered ? 'The season turned. Plan the next one.' : 'The season turned without your orders. Plan the next one.');
+      const outcome = r.view.lastForfeited ? 'The season turned without your orders.' : 'The season turned.';
+      say(r.view.phase === 'over' ? `${outcome} The campaign is over. Everything is revealed.` : `${outcome} Plan the next one.`);
     });
   };
 
@@ -244,7 +255,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       }
       adopt(after);
       // the server keeps a seal an earlier attempt already put onchain
-      if (after.yourSeal && after.yourSeal !== hash) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
+      if (posted || (after.yourSeal && after.yourSeal !== hash)) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
       else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
     // reveals only if the season is sealed, even when the seal call itself errored
