@@ -243,12 +243,18 @@ pub struct RealmLedger {
     earnings: LookupMap<(u64, AccountId), u64>,
 }
 
-/// Every object's keys in sorted order, as packages/rules' canonical JSON writes them
-/// (serde_json keeps insertion order here, so re-serializing alone doesn't prove it).
-fn sorted_keys(v: &near_sdk::serde_json::Value) -> bool {
+/// Largest integer JavaScript represents exactly (2^53 - 1).
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+/// Written the same way by packages/rules' canonical JSON and by serde_json: every object's
+/// keys sorted (serde_json keeps insertion order here, so re-serializing alone doesn't prove
+/// it), and every number a safe integer (larger or fractional numbers print differently).
+fn canonical_shape(v: &near_sdk::serde_json::Value) -> bool {
+    use near_sdk::serde_json::Value;
     match v {
-        near_sdk::serde_json::Value::Object(m) => m.keys().zip(m.keys().skip(1)).all(|(a, b)| a < b) && m.values().all(sorted_keys),
-        near_sdk::serde_json::Value::Array(a) => a.iter().all(sorted_keys),
+        Value::Object(m) => m.keys().zip(m.keys().skip(1)).all(|(a, b)| a < b) && m.values().all(canonical_shape),
+        Value::Array(a) => a.iter().all(canonical_shape),
+        Value::Number(n) => n.as_u64().map(|x| x <= MAX_SAFE_INTEGER).or_else(|| n.as_i64().map(|x| x.unsigned_abs() <= MAX_SAFE_INTEGER)).unwrap_or(false),
         _ => true,
     }
 }
@@ -412,7 +418,7 @@ impl RealmLedger {
         // a reveal is canonical order JSON for this realm and season, so the referee can always
         // resolve the season with it (a revealed realm can't be settled without its orders)
         let parsed: near_sdk::serde_json::Value = near_sdk::serde_json::from_str(&orders).unwrap_or_else(|_| env::panic_str("orders must be JSON"));
-        require!(sorted_keys(&parsed) && near_sdk::serde_json::to_string(&parsed).unwrap() == orders, "orders must be canonical JSON");
+        require!(canonical_shape(&parsed) && near_sdk::serde_json::to_string(&parsed).unwrap() == orders, "orders must be canonical JSON");
         require!(
             parsed["realm"] == realm && parsed["season"] == season && parsed["orders"].is_array(),
             "orders must be this realm's for this season"

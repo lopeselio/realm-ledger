@@ -456,3 +456,16 @@ fn a_reveal_must_be_for_its_realm_and_season() {
     as_(ruler(1), 3_000);
     c.reveal(id, 1, other.into(), "s".into());
 }
+
+#[test]
+#[should_panic(expected = "orders must be canonical JSON")]
+fn a_reveal_uses_safe_integers_only() {
+    let (mut c, id) = setup();
+    let big = r#"{"orders":[{"count":9007199254740993,"kind":"recruit","province":1}],"realm":1,"season":0}"#;
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(big, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, big.into(), "s".into());
+}

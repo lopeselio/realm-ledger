@@ -544,6 +544,17 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 
 // ---------- reveal and resolve ----------
 
+/** Orders the contract accepts as a reveal: small enough, and only safe whole numbers. */
+function revealable(o: OrderSet): boolean {
+  const safe = (v: unknown): boolean =>
+    typeof v === 'number' ? Number.isSafeInteger(v) : Array.isArray(v) ? v.every(safe) : v !== null && typeof v === 'object' ? Object.values(v).every(safe) : true;
+  try {
+    return Array.isArray(o.orders) && safe(o) && canonicalJson(o).length <= 8_000;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Reveals every seal and resolves the season. With `forfeit`, your sealed orders are given up
  * (your realm does nothing this season), for when the browser holding them is gone: a
@@ -572,6 +583,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (!c) throw new GameError('campaign not found onchain', 502);
       const check = (o: OrderSet, s: string) => {
         if (o.realm !== HUMAN || o.season !== before.season) throw new GameError('those orders are for another realm or season');
+        // what the contract accepts as a reveal: refused here, before they're saved, so they
+        // can't block the season
+        if (!revealable(o)) throw new GameError('those orders are not something the contract can accept as a reveal');
         if (sealOrders(o, s) !== seal) throw new GameError('those orders do not match your seal');
         return { reveal: { realm: HUMAN, orders: o, salt: s, seal }, forfeited: [] };
       };

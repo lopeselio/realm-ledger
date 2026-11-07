@@ -109,19 +109,37 @@ export function useGame(id: number | null, signer: Signer | null) {
     }
   };
 
+  /** This season onchain for your realm; an unreadable view reads as unknown (null / false). */
+  const onChain = (v: View) => {
+    const where = { campaign: v.id, season: v.season, realm: v.human };
+    return Promise.all([
+      chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
+      chainView<{ revealed: boolean }>('get_seal', where).catch(() => null),
+      chainView<boolean>('get_forfeit', where).catch(() => false),
+    ]).then(([c, rec, declared]) => ({ c, revealed: !!rec?.revealed, declared: !!declared, moved: !!c && c.season !== v.season }));
+  };
+
   const reveal = async (): Promise<void> => {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
     const secret = findSecret(v.id, v.season, v.yourSeal);
     if (!secret) {
-      const [c, rec] = await Promise.all([
-        chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
-        chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }).catch(() => null),
-      ]);
+      const { c, revealed, declared } = await onChain(v);
       // still the same sealed season once the chain answered
       const cur = viewRef.current;
       if (cur?.id !== v.id || cur.season !== v.season || cur.phase !== 'sealed') return;
-      if (rec?.revealed) {
+      if (declared && !revealed) {
+        // your wallet already forfeited (from another browser): finish settling without them
+        await withBusy('Your wallet forfeited these orders; settling the season without them…', async () => {
+          setBefore(v.state);
+          const r = await settle(v, { forfeit: true });
+          if (!adopt(r.view)) return;
+          freshDraft();
+          say(r.view.phase === 'over' ? 'The season turned without your orders. The campaign is over.' : 'The season turned without your orders. Plan the next one.');
+        });
+        return;
+      }
+      if (revealed) {
         // revealed onchain from another browser: the contract keeps those orders until the
         // season settles, so the server can finish it without them being here
         await withBusy('Your orders are revealed onchain; settling the season with them…', async () => {
@@ -151,15 +169,19 @@ export function useGame(id: number | null, signer: Signer | null) {
       setBefore(v.state);
       let forfeited = false;
       if (v.player) {
-        const [rec, c, declared] = await Promise.all([
-          chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }),
-          chainView<{ season: number }>('get_campaign', { campaign: v.id }),
-          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }).catch(() => false),
-        ]);
-        // forfeited from another browser: the contract refuses a reveal, so settle as forfeited
-        forfeited = !!declared && !rec?.revealed;
+        let state = await onChain(v);
+        // forfeited from another browser: the contract refuses a reveal, so settle as forfeited;
         // past this season onchain already: the server settles it as it stands
-        if (!rec?.revealed && !forfeited && (c?.season ?? v.season) === v.season) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
+        if (!state.revealed && !state.declared && !state.moved) {
+          try {
+            await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
+          } catch (e) {
+            // a forfeit from another browser may have landed first: decide from the chain
+            state = await onChain(v);
+            if (!state.revealed && !state.declared && !state.moved) throw e;
+          }
+        }
+        forfeited = state.declared && !state.revealed;
       }
       const r = await settle(v, forfeited ? { forfeit: true } : secret);
       if (!adopt(r.view)) return;
@@ -186,22 +208,15 @@ export function useGame(id: number | null, signer: Signer | null) {
       if (v.player) {
         // only your wallet can give up your orders; the contract then blocks their reveal.
         // Every decision here comes from the chain, not from error wording.
-        const where = { campaign: v.id, season: v.season, realm: v.human };
-        const read = () =>
-          Promise.all([
-            chainView<boolean>('get_forfeit', where).catch(() => false),
-            chainView<{ revealed: boolean }>('get_seal', where).catch(() => null),
-            chainView<{ season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
-          ]);
         // nothing to sign if it's forfeited or revealed already, or the season moved on
-        const settled = ([declared, rec, c]: Awaited<ReturnType<typeof read>>) => !!declared || !!rec?.revealed || (c?.season ?? v.season) !== v.season;
-        let state = await read();
+        const settled = (x: Awaited<ReturnType<typeof onChain>>) => x.declared || x.revealed || x.moved;
+        let state = await onChain(v);
         if (!settled(state)) {
           say('Giving up your sealed orders onchain from your account…');
           try {
             await walletFor(v).call('forfeit', { campaign: v.id, realm: v.human, season: v.season });
           } catch (e) {
-            state = await read();
+            state = await onChain(v);
             if (!settled(state)) {
               const msg = (e as Error).message;
               if (/MethodNameMismatch|MethodNotAllowed|method name is not allowed|not allowed to call/i.test(msg)) {
@@ -212,7 +227,7 @@ export function useGame(id: number | null, signer: Signer | null) {
           }
         }
         // revealed from another browser meanwhile: those orders count, so settle with them
-        revealedElsewhere = !!state[1]?.revealed;
+        revealedElsewhere = state.revealed;
       }
       const r = await settle(v, revealedElsewhere ? {} : { forfeit: true });
       if (!adopt(r.view)) return;
