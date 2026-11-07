@@ -154,7 +154,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         const [rec, c, declared] = await Promise.all([
           chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human }),
           chainView<{ season: number }>('get_campaign', { campaign: v.id }),
-          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }),
+          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }).catch(() => false),
         ]);
         // forfeited from another browser: the contract refuses a reveal, so settle as forfeited
         forfeited = !!declared && !rec?.revealed;
@@ -184,7 +184,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       if (v.player) {
         // only your wallet can give up your orders; the contract then blocks their reveal
         const [declared, c] = await Promise.all([
-          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }),
+          chainView<boolean>('get_forfeit', { campaign: v.id, season: v.season, realm: v.human }).catch(() => false),
           chainView<{ season: number }>('get_campaign', { campaign: v.id }),
         ]);
         // past this season onchain already: the server settles it as it stands
@@ -197,8 +197,9 @@ export function useGame(id: number | null, signer: Signer | null) {
             // revealed from another browser meanwhile: those orders count, so settle with them
             if (/already revealed/.test(msg)) {
               revealedElsewhere = true;
-            } else if (/already forfeited/.test(msg)) {
-              // another tab got there first: settle as forfeited
+            } else if (/already forfeited|not the current one|this season is over/.test(msg)) {
+              // another tab got there first, or the season settled meanwhile: the server settles
+              // it as it stands
             } else if (/MethodNameMismatch|MethodNotAllowed|method name is not allowed|not allowed to call/i.test(msg)) {
               throw new Error(`${msg} Your wallet key predates this action: sign out and sign in again.`);
             } else throw e;
