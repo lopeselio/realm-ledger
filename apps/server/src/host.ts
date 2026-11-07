@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   aiDiplomacy,
@@ -182,10 +183,12 @@ async function save(h: Hosted): Promise<void> {
   // write a temp file and rename it over the old one: a crash mid-write leaves the previous
   // save intact rather than a truncated file (loadAll skips the .tmp names)
   const file = join(config.dataDir, `campaign-${h.id}.json`);
-  const tmp = `${file}.${process.pid}.${saveSeq++}.tmp`;
+  // unique per write: during a deploy the old and new containers share /home and may both have pid 1
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  const json = JSON.stringify(h);
   const fh = await open(tmp, 'w');
   try {
-    await fh.writeFile(JSON.stringify(h));
+    await fh.writeFile(json);
     await fh.sync();
   } finally {
     await fh.close();
@@ -195,11 +198,13 @@ async function save(h: Hosted): Promise<void> {
   } catch (e) {
     // a filesystem that refuses to rename over a file: save in place rather than not at all
     console.error(`save ${h.id}: rename failed (${(e as Error).message}); writing in place`);
-    await writeFile(file, JSON.stringify(h));
+    await writeFile(file, json);
     await unlink(tmp).catch(() => undefined);
   }
 }
-let saveSeq = 0;
+
+/** Temp files older than this are leftovers of a crashed save, not a write in progress. */
+const STALE_TMP_MS = 10 * 60_000;
 
 /** Settles interrupted onchain actions left by a crash, in the background. */
 export function reconcileAll(): void {
@@ -209,24 +214,38 @@ export function reconcileAll(): void {
 }
 
 export async function loadAll(): Promise<number> {
+  let files: string[];
   try {
-    for (const f of await readdir(config.dataDir)) {
-      // a save that died before its rename; the previous save is still in place
-      if (/^campaign-\d+\.json\..*\.tmp$/.test(f)) await unlink(join(config.dataDir, f)).catch(() => undefined);
-      if (!/^campaign-\d+\.json$/.test(f)) continue;
-      const h = JSON.parse(await readFile(join(config.dataDir, f), 'utf8')) as Hosted;
-      // campaigns from before the agent market
-      h.plans ??= [];
-      h.reports ??= [];
-      h.chancellorBudget ??= 0;
-      h.pending.deals ??= [];
-      h.pending.jobs ??= [];
-      h.intents ??= [];
-      for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
-      campaigns.set(h.id, h);
-    }
+    files = await readdir(config.dataDir);
   } catch {
-    // no data yet
+    return campaigns.size; // no data yet
+  }
+  for (const f of files) {
+    const path = join(config.dataDir, f);
+    // a save that died before its rename; the previous save is still in place
+    if (/^campaign-\d+\.json\..*\.tmp$/.test(f)) {
+      const age = await stat(path).then((st) => Date.now() - st.mtimeMs, () => 0);
+      if (age > STALE_TMP_MS) await unlink(path).catch(() => undefined);
+      continue;
+    }
+    if (!/^campaign-\d+\.json$/.test(f)) continue;
+    let h: Hosted;
+    try {
+      h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
+    } catch (e) {
+      // one unreadable file must not hide every campaign after it
+      console.error(`load ${f}: ${(e as Error).message}; skipped`);
+      continue;
+    }
+    // campaigns from before the agent market
+    h.plans ??= [];
+    h.reports ??= [];
+    h.chancellorBudget ??= 0;
+    h.pending.deals ??= [];
+    h.pending.jobs ??= [];
+    h.intents ??= [];
+    for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
+    campaigns.set(h.id, h);
   }
   return campaigns.size;
 }

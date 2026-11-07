@@ -91,7 +91,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     const secret = findSecret(v.id, v.season, v.yourSeal);
     if (!secret) {
-      say('Your sealed orders are not stored in this browser, so they cannot be revealed here. The season will pass without them.', 'error');
+      say('Your sealed orders are not stored in this browser, so they cannot be revealed here. Open this campaign in the browser you sealed from to finish the season.', 'error');
       return;
     }
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
@@ -173,8 +173,6 @@ export function useGame(id: number | null, signer: Signer | null) {
       const salt = newSalt();
       const hash = sealOrders(set, salt);
       keepSecret(v.id, { orders: set, salt });
-      // you played it: offer it on /play next time (opening a link alone doesn't count)
-      rememberCampaign(v.id);
       if (v.player) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');
@@ -188,6 +186,8 @@ export function useGame(id: number | null, signer: Signer | null) {
         if (now.phase !== 'sealed') throw e;
         adopt(now);
       }
+      // you played it: offer it on /play next time (opening a link alone doesn't count)
+      rememberCampaign(v.id);
       say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
     // reveals only if the season is sealed, even when the seal call itself errored
