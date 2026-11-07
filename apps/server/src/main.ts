@@ -7,7 +7,7 @@ import { nearAiEnabled } from './nearai.ts';
 
 // Small JSON API for the game. No framework: a handful of routes.
 //   GET  /api/health
-//   GET  /api/campaigns                      recent campaigns
+//   GET  /api/campaigns?ids=&player=         recent campaigns, or just these ids / this ruler's
 //   POST /api/campaigns        {realms, seasons, player?}  start a campaign (you play realm 0;
 //                              with `player`, your own NEAR account rules it and signs its moves)
 //   POST /api/campaigns/:id/treaty {treaty}  after proposing an accepted treaty from your wallet
@@ -67,7 +67,16 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 
   if (parts[1] !== 'campaigns') return send(res, 404, { error: 'not found' });
   if (parts.length === 2) {
-    if (req.method === 'GET') return send(res, 200, list().slice(0, 20));
+    if (req.method === 'GET') {
+      // ?ids=3,7 and ?player=alice.testnet: the campaigns a browser or a wallet can resume
+      const ids = url.searchParams.get('ids');
+      const player = url.searchParams.get('player');
+      const filter = {
+        ...(ids !== null ? { ids: ids.split(',').filter((x) => /^\d+$/.test(x)).slice(0, 50).map(Number) } : {}),
+        ...(player ? { player } : {}),
+      };
+      return send(res, 200, list(filter).slice(0, 20));
+    }
     if (req.method === 'POST') {
       const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.socket.remoteAddress ?? '?';
       if (!allowCreate(ip)) throw new GameError('too many new campaigns from here; try again later', 429);

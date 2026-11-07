@@ -6,7 +6,9 @@ import { provinceTip } from '../map.ts';
 import { Board, type BoardOverlay } from '../components/Board.tsx';
 import { ChronicleLines } from '../components/ChronicleLines.tsx';
 import { Footer } from '../components/Footer.tsx';
+import { api, type CampaignSummary } from '../api.ts';
 import { seasonTitle } from '../format.ts';
+import { recentCampaigns } from '../recent.ts';
 import { restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
@@ -116,7 +118,7 @@ export function Play() {
               <StatusLine game={game} />
             </div>
             <div className="map-wrap empty">
-              <p className="fine">The war table is set when your campaign starts.</p>
+              {id === null ? <Continue signer={signer} /> : <p className="fine">The war table is set when your campaign starts.</p>}
             </div>
           </section>
         )}
@@ -153,6 +155,51 @@ export function Play() {
         <Link to="/">Watch AI-only campaigns</Link>
       </Footer>
     </>
+  );
+}
+
+/** Campaigns to pick up again: the ones played in this browser, and the ones your wallet rules. */
+function Continue({ signer }: { signer: Signer | null }) {
+  const account = signer?.accountId ?? null;
+  const [list, setList] = useState<CampaignSummary[] | null>(null);
+  useEffect(() => {
+    const ids = recentCampaigns();
+    if (ids.length === 0 && !account) return setList([]);
+    let live = true;
+    const q = new URLSearchParams();
+    if (ids.length > 0) q.set('ids', ids.join(','));
+    if (account) q.set('player', account);
+    api<CampaignSummary[]>(`/campaigns?${q}`)
+      .then((l) => live && setList(l))
+      .catch(() => live && setList([]));
+    return () => {
+      live = false;
+    };
+  }, [account]);
+
+  if (list === null || list.length === 0) return <p className="fine">The war table is set when your campaign starts.</p>;
+  // unfinished first, then newest
+  const sorted = [...list].sort((a, b) => Number(a.phase === 'over') - Number(b.phase === 'over') || b.createdAt - a.createdAt);
+  return (
+    <div className="panel continue">
+      <h2>Continue a campaign</h2>
+      <ul>
+        {sorted.map((c) => (
+          <li key={c.id}>
+            <Link to={`/play/${c.id}`}>Campaign #{c.id}</Link>{' '}
+            <span className="meta">
+              {c.phase === 'over'
+                ? c.winner === 0
+                  ? 'over · you won'
+                  : 'over'
+                : `${seasonTitle(c.season)} of ${c.maxSeasons} seasons${c.phase === 'sealed' ? ' · orders sealed, reveal pending' : ''}`}
+              {c.player ? ` · ruled by ${c.player}` : ' · guest seat'}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="fine">Saved on the server; open one to pick up where you left off. Sealed orders can only be revealed from the browser that sealed them.</p>
+    </div>
   );
 }
 

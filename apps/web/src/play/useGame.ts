@@ -5,6 +5,7 @@ import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, typ
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { capitalize } from '../format.ts';
+import { rememberCampaign } from '../recent.ts';
 import { findSecret, keepSecret } from '../secrets.ts';
 import type { Signer } from '../wallet.ts';
 
@@ -46,6 +47,7 @@ export function useGame(id: number | null, signer: Signer | null) {
   const adopt = (v: View, route: number | null = v.id): boolean => {
     if (routeRef.current !== route) return false;
     setView(v);
+    rememberCampaign(v.id);
     return true;
   };
   // the URL a running flow started on: its messages are dropped once you navigate away
