@@ -87,7 +87,7 @@ pnpm install
 ### Running it yourself
 
 - **Server:** `.env` needs `NEARAI_API_KEY`. Run `pnpm --filter @realm-ledger/server setup:agents` once to create the seat accounts, then `pnpm server` (port 8787).
-- **Web app:** `VITE_API_URL=http://localhost:8787 pnpm web`.
+- **Web app:** `pnpm web`. The dev server proxies `/api` to the local game server on port 8787; set `API_TARGET=<url>` to use another one. On Vercel, `vercel.json` proxies `/api/*` to the Azure server, so the browser only talks to its own origin.
 - **Docker:** the `Dockerfile` builds the server image used on Azure.
 
 Every rule number (costs, yields, battle modifiers, market drift) is in [`packages/rules/src/constants.ts`](./packages/rules/src/constants.ts).

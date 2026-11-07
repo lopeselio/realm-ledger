@@ -1,7 +1,7 @@
 // The side panels of the game page. Each reads the campaign view and calls the game's flows.
 import { useState, type FormEvent } from 'react';
 import { COST, GOODS, type GameState, type Good, type Treaty } from '@realm-ledger/rules';
-import { API, type View } from '../api.ts';
+import { API, PUBLIC_API, type View } from '../api.ts';
 import { REALM_COLORS } from '../map.ts';
 import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
@@ -385,7 +385,7 @@ export function Proof({ v }: { v: View }) {
         </dd>
         <dt>check it</dt>
         <dd>
-          <code>pnpm verify:campaign {bundle}</code>
+          <code>pnpm verify:campaign {PUBLIC_API}/api/campaigns/{v.id}/proof</code>
         </dd>
       </dl>
       <p>
