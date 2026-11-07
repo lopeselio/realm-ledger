@@ -66,7 +66,14 @@ export function call<T = unknown>(signer: string, method: string, args: object, 
 
 /** Read-only contract call. */
 export async function view<T>(method: string, args: object): Promise<T | undefined> {
-  return provider.callFunction<T & object>({ contractId: config.contract, method, args: args as Record<string, unknown> }) as Promise<T | undefined>;
+  // optimistic: see a write as soon as it executes (a player's seal posted a moment ago),
+  // rather than a block or two later at finality
+  return provider.callFunction<T & object>({
+    contractId: config.contract,
+    method,
+    args: args as Record<string, unknown>,
+    blockQuery: { finality: 'optimistic' },
+  }) as Promise<T | undefined>;
 }
 
 export async function accountExists(id: string): Promise<boolean> {

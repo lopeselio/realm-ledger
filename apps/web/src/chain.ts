@@ -27,7 +27,8 @@ export async function view<T>(method: string, args: object): Promise<T | null> {
       method: 'query',
       params: {
         request_type: 'call_function',
-        finality: 'final',
+        // optimistic: our own writes show up as soon as they execute
+        finality: 'optimistic',
         account_id: CONTRACT,
         method_name: method,
         args_base64: btoa(JSON.stringify(args)),
