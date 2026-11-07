@@ -178,27 +178,26 @@ function Continue({ signer }: { signer: Signer | null }) {
   }, [account]);
 
   if (list === null || list.length === 0) return <p className="fine">The war table is set when your campaign starts.</p>;
-  // unfinished first, then newest
-  const sorted = [...list].sort((a, b) => Number(a.phase === 'over') - Number(b.phase === 'over') || b.createdAt - a.createdAt);
   return (
     <div className="panel continue">
       <h2>Continue a campaign</h2>
       <ul>
-        {sorted.map((c) => (
+        {list.map((c) => (
           <li key={c.id}>
             <Link to={`/play/${c.id}`}>Campaign #{c.id}</Link>{' '}
             <span className="meta">
               {c.phase === 'over'
-                ? c.winner === 0
+                ? // realm 0 is the player's; it's you unless another wallet rules it
+                  c.winner === 0 && (c.player === null || c.player === account)
                   ? 'over · you won'
                   : 'over'
-                : `${seasonTitle(c.season)} of ${c.maxSeasons} seasons${c.phase === 'sealed' ? ' · orders sealed, reveal pending' : ''}`}
+                : `season ${c.season + 1} of ${c.maxSeasons} (${seasonTitle(c.season)})${c.phase === 'sealed' ? ' · orders sealed, reveal pending' : ''}`}
               {c.player ? ` · ruled by ${c.player}` : ' · guest seat'}
             </span>
           </li>
         ))}
       </ul>
-      <p className="fine">Saved on the server; open one to pick up where you left off. Sealed orders can only be revealed from the browser that sealed them.</p>
+      <p className="fine">Campaigns you started or sealed orders in here{account ? ', and the ones your wallet rules' : ''}. Saved on the server; open one to pick up where you left off. Sealed orders can only be revealed from the browser that sealed them.</p>
     </div>
   );
 }

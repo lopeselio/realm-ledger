@@ -47,7 +47,6 @@ export function useGame(id: number | null, signer: Signer | null) {
   const adopt = (v: View, route: number | null = v.id): boolean => {
     if (routeRef.current !== route) return false;
     setView(v);
-    rememberCampaign(v.id);
     return true;
   };
   // the URL a running flow started on: its messages are dropped once you navigate away
@@ -160,6 +159,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       setBefore(null);
       freshDraft();
       created = v.id;
+      rememberCampaign(v.id);
       say(`Campaign ${v.id} is onchain. Plan your first season.`);
     });
     return created;
@@ -173,6 +173,8 @@ export function useGame(id: number | null, signer: Signer | null) {
       const salt = newSalt();
       const hash = sealOrders(set, salt);
       keepSecret(v.id, { orders: set, salt });
+      // you played it: offer it on /play next time (opening a link alone doesn't count)
+      rememberCampaign(v.id);
       if (v.player) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');

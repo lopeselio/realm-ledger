@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   aiDiplomacy,
@@ -183,8 +183,21 @@ async function save(h: Hosted): Promise<void> {
   // save intact rather than a truncated file (loadAll skips the .tmp names)
   const file = join(config.dataDir, `campaign-${h.id}.json`);
   const tmp = `${file}.${process.pid}.${saveSeq++}.tmp`;
-  await writeFile(tmp, JSON.stringify(h));
-  await rename(tmp, file);
+  const fh = await open(tmp, 'w');
+  try {
+    await fh.writeFile(JSON.stringify(h));
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+  try {
+    await rename(tmp, file);
+  } catch (e) {
+    // a filesystem that refuses to rename over a file: save in place rather than not at all
+    console.error(`save ${h.id}: rename failed (${(e as Error).message}); writing in place`);
+    await writeFile(file, JSON.stringify(h));
+    await unlink(tmp).catch(() => undefined);
+  }
 }
 let saveSeq = 0;
 
@@ -198,6 +211,8 @@ export function reconcileAll(): void {
 export async function loadAll(): Promise<number> {
   try {
     for (const f of await readdir(config.dataDir)) {
+      // a save that died before its rename; the previous save is still in place
+      if (/^campaign-\d+\.json\..*\.tmp$/.test(f)) await unlink(join(config.dataDir, f)).catch(() => undefined);
       if (!/^campaign-\d+\.json$/.test(f)) continue;
       const h = JSON.parse(await readFile(join(config.dataDir, f), 'utf8')) as Hosted;
       // campaigns from before the agent market
@@ -848,7 +863,10 @@ export interface CampaignSummary {
   winner: number | null;
 }
 
-/** Recent campaigns, newest first; `ids` and `player` narrow the list (either matches). */
+/**
+ * Recent campaigns, newest first; `ids` and `player` narrow the list (either matches) to the
+ * campaigns someone could resume, and then unfinished ones come first.
+ */
 export function list(filter: { ids?: number[]; player?: string } = {}): CampaignSummary[] {
   const narrowed = filter.ids !== undefined || filter.player !== undefined;
   const ids = new Set(filter.ids ?? []);
@@ -863,5 +881,5 @@ export function list(filter: { ids?: number[]; player?: string } = {}): Campaign
       player: h.player ?? null,
       winner: h.phase === 'over' ? winnerOf(h) : null,
     }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) => (narrowed ? Number(a.phase === 'over') - Number(b.phase === 'over') : 0) || b.createdAt - a.createdAt);
 }
