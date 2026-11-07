@@ -230,6 +230,9 @@ export async function loadAll(): Promise<number> {
     if (!/^campaign-\d+\.json$/.test(f)) continue;
     try {
       const h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
+      const id = Number(/\d+/.exec(f)![0]);
+      if (h?.id !== id || !Array.isArray(h.state?.realms) || typeof h.phase !== 'string' || !h.pending || !h.bundle) throw new Error('not a campaign save');
+      if (campaigns.has(id)) throw new Error(`campaign ${id} already loaded`);
       // campaigns from before the agent market
       h.plans ??= [];
       h.reports ??= [];
@@ -876,7 +879,7 @@ export interface CampaignSummary {
   createdAt: number;
   /** the wallet account that rules realm 0, if any (public: it signs onchain) */
   player: string | null;
-  /** realm 0's seal this season while sealed (public: it is onchain) */
+  /** realm 0's seal this season, as in the campaign view (public: it is onchain) */
   yourSeal: string | null;
   winner: number | null;
 }
@@ -897,7 +900,7 @@ export function list(filter: { ids?: number[]; player?: string } = {}): Campaign
       phase: h.phase,
       createdAt: h.createdAt,
       player: h.player ?? null,
-      yourSeal: h.phase === 'sealed' ? (h.pending.humanSeal ?? null) : null,
+      yourSeal: h.pending.humanSeal ?? null,
       winner: h.phase === 'over' ? winnerOf(h) : null,
     }))
     .sort((a, b) => (narrowed ? Number(a.phase === 'over') - Number(b.phase === 'over') : 0) || b.createdAt - a.createdAt);

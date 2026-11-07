@@ -30,8 +30,9 @@ describe('campaign list', () => {
     writeFileSync(join(dir, 'campaign-5.json.new.tmp'), '{"id":5,');
     // an unreadable file doesn't stop the ones after it from loading
     writeFileSync(join(dir, 'campaign-0.json'), '{"id":0,');
-    // nor does one that parses but has the wrong shape
-    writeFileSync(join(dir, 'campaign-00.json'), '{"id":0}');
+    // nor does one that parses but has the wrong shape, or claims another file's id
+    writeFileSync(join(dir, 'campaign-8.json'), '{"id":8,"pending":{},"bundle":{}}');
+    writeFileSync(join(dir, 'campaign-9.json'), JSON.stringify(saved(2)));
     host = await import('./host.ts');
     expect(await host.loadAll()).toBe(3);
     expect(existsSync(join(dir, 'campaign-4.json.old.tmp'))).toBe(false);
