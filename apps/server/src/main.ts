@@ -2,13 +2,15 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { OrderSet, Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
-import { createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy } from './host.ts';
+import { confirmTreaty, createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 
 // Small JSON API for the game. No framework: a handful of routes.
 //   GET  /api/health
 //   GET  /api/campaigns                      recent campaigns
-//   POST /api/campaigns        {realms, seasons}  start a campaign (you play realm 0)
+//   POST /api/campaigns        {realms, seasons, player?}  start a campaign (you play realm 0;
+//                              with `player`, your own NEAR account rules it and signs its moves)
+//   POST /api/campaigns/:id/treaty {treaty}  after proposing an accepted treaty from your wallet
 //   GET  /api/campaigns/:id                  your view of it (fog of war applied)
 //   POST /api/campaigns/:id/envoy {to, message, proposal?}
 //   POST /api/campaigns/:id/chancellor {task, budget} or {goal, province, budget}
@@ -70,7 +72,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.socket.remoteAddress ?? '?';
       if (!allowCreate(ip)) throw new GameError('too many new campaigns from here; try again later', 429);
       const b = await body(req);
-      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20));
+      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20), typeof b.player === 'string' && b.player ? b.player : undefined);
       return send(res, 201, publicView(h.id));
     }
   }
@@ -85,6 +87,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const proposal = b.proposal as { kind: Treaty['kind']; amount?: number } | undefined;
     const envoy = await sendEnvoy(id, Number(b.to), String(b.message ?? ''), proposal);
     return send(res, 200, { envoy, view: publicView(id) });
+  }
+  if (action === 'treaty') {
+    await confirmTreaty(id, Number(b.treaty));
+    return send(res, 200, publicView(id));
   }
   if (action === 'chancellor') {
     const goal = b.goal as Goal | undefined;

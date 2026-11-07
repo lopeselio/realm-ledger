@@ -5,6 +5,7 @@ A turn-based conquest game on a living war table. Rival realms are ruled by AI a
 Built at NEAR HACKATHON (1–14 Nov 2026). Tracks: Games With Real Economies, Privacy & Private AI, Agent Economy.
 
 **Play: [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html)**. You rule one realm against 2–4 AI rulers.
+- **Sign in or play as a guest:** sign in with any NEAR testnet wallet (NEAR Connect: Meteor, Intear, Nightly, Ledger and others) and your own account rules your realm on chain; your browser signs every seal and reveal. Or play as a guest with no wallet.
 - **Envoys:** you send envoys to the rival rulers. Their replies come from a model running in a TEE on NEAR AI Cloud, and each reply is signed.
 - **Chancellor:** you give your Chancellor a task and a budget. It buys spies and mercenaries from agent companies through the contract's escrow, and pays only for work that passes its check.
 - **Orders:** you seal your orders in your browser, then reveal them. Every season is settled on the NEAR testnet contract.
@@ -28,7 +29,11 @@ Built so far:
   - The TEE model only reads which goal and province you mean; the rules engine plans, prices and haggles: one counter-offer with its reasoning, then accept or walk away.
   - It hires through the contract's escrow, within a per-season and per-campaign cap that your account sets on chain for it.
   - After the season turns, the worker delivers, the Chancellor checks the work against the revealed season, and the contract pays or refunds. Every hire ends with a receipt event.
-- **Agent accounts.** Every ruler seat (`ruler0`–`ruler7`, `player`), the Chancellor and every company is an agent account whose only key is a function-call key: it can call a fixed list of methods on this contract and can't move NEAR. The game server's referee key is restricted in the same way, to `create_campaign`, `settle_season` and `finish_campaign`.
+- **Login** (`apps/web/src/wallet.ts`). Signing in with a NEAR testnet wallet through NEAR Connect makes your account realm 0's ruler in the contract. At sign-in the wallet adds one function-call key limited to `realm-ledger.testnet` and the four moves a ruler makes: `seal`, `reveal`, `propose_treaty` and `set_policy`.
+  - That key stays in your browser, so each turn is signed there with no wallet popup. Gas comes from your own testnet account.
+  - The server never signs for a signed-in player. It checks your seal, reveal, treaty proposal and Chancellor cap on chain.
+  - Guests play through the shared `player` seat that the server holds.
+- **Agent accounts.** Every AI ruler seat (`ruler0`–`ruler7`), the guest seat (`player`), the Chancellor and every company is an agent account whose only key is a function-call key: it can call a fixed list of methods on this contract and can't move NEAR. The game server's referee key is restricted in the same way, to `create_campaign`, `settle_season` and `finish_campaign`.
 - **The game server** (`apps/server`, hosted on Azure App Service at `realm-ledger-api.azurewebsites.net`). It hosts campaigns and runs the AI rulers.
   - **AI orders:** each ruler decides its orders with the deterministic engine, from its own fog-of-war view.
   - **Diplomacy:** the engine decides whether a treaty is accepted. The model only voices the envoy's reply, in character; it may bluff, but it can't change the decision.
@@ -48,7 +53,7 @@ Built so far:
   Click to order, drag to turn the table, scroll to zoom. "Flat map" switches to the 2D view.
 - **The miniatures** (soldier, keep, town, fort, tree) are modelled in code by [`tools/blender/build_assets.py`](./tools/blender/build_assets.py), with no imported meshes or asset packs. Rebuild them with `/Applications/Blender.app/Contents/MacOS/Blender -b -P tools/blender/build_assets.py`; it renders a preview PNG of each to `tools/blender/previews/`.
 
-Login comes next.
+
 
 ## How a season works
 
@@ -68,6 +73,7 @@ pnpm install
 | Do | See |
 |---|---|
 | Open [realm-ledger.vercel.app/play.html](https://realm-ledger.vercel.app/play.html), choose rivals and length, press **New campaign** | Within a few seconds: "Campaign N is onchain. Plan your first season." Click your army (the red circle), then a highlighted province, to march. Send an envoy with a treaty proposal: the reply appears with a "TEE-signed ✓" badge, and the treaty is marked signed or refused. Press **Seal orders**: about 10 seconds later the season turns and the chronicle lists what everyone did. |
+| On the play page, press **Sign in with a NEAR wallet** (a testnet account with a little NEAR for gas), approve the key limited to `realm-ledger.testnet`, then start a campaign | Your account appears at the top. The Proof panel says "ruled by your account …". Sealing posts your seal from your own account (on nearblocks, the `seal` call's signer is you), and an accepted treaty is proposed from your account. No wallet popup appears after the first approval. |
 | On the play page, give the **Chancellor** a task such as "Find out what guards Dunford" (use a rival capital's name; hover the ♛ to see it) with a budget of 25, then seal | Before sealing, the plan: which spy ring it asked, the quote against the fair price, its one counter-offer and reason, and whether it bought or walked away. The hire shows as "in escrow". After the season turns, the receipt shows "paid" with the spy's report and "matched the revealed season ✓", or "refunded" with "false report ✗". |
 | `pnpm verify:campaign https://realm-ledger-api.azurewebsites.net/api/campaigns/<N>/proof` | One ✓ line per check: seals, replays, onchain state hashes and seals, signed TEE replies and their attested signer. Use the campaign number shown on the play page; its "check it" box has the exact command. After the last season it also checks the revealed roll secret and agendas. It needs no API key. |
 | `pnpm test` | 86 tests pass. They check map connectivity, battles, treaties and betrayals, diplomacy decisions, market prices, haggling, spy honesty, the Chancellor's budget limits, seals, whole-campaign replays with hires, and verification of real TEE-signed replies and market jobs, including that tampering is caught. |
@@ -94,7 +100,9 @@ Every rule number (costs, yields, battle modifiers, market drift) is in [`packag
   - the AI rulers' secret agendas were fixed at the start,
   - every envoy reply came from a key that NEAR AI's attestation report binds to the TEE.
 - **Not checked by our verifier:** the Intel TDX and NVIDIA quotes inside the attestation report. That needs Intel's DCAP collateral; NEAR AI documents how to check them.
-- **What the server can see:** the game server sees all orders once they are revealed, and it holds the seat keys, within what the contract allows each seat. Human players currently sign through one shared `player` seat account held by the server. Wallet or social login (open question 1 in DESIGN.md) comes later.
+- **What the server can see and sign:** the game server sees all orders once they are revealed. It holds the AI rulers', the Chancellor's and the companies' keys, within what the contract allows each. A signed-in player's moves are signed only by that player's key; a guest's are signed by the shared `player` seat.
+- **Gas:** a signed-in player pays a fraction of a testnet NEAR in gas from their own account. Sponsoring it with meta-transactions would need a relayer holding a full-access key, which we chose not to run.
+- **Social login:** NEAR Auth and Privy (Google or email, no wallet) both need an app registration we don't have, so login is wallet-based for now.
 - **Crashes and retries:** before any onchain action that can't safely be repeated (hires and treaties), the server writes it to an intent log. After a crash it looks for each logged action on the chain, then completes it or drops it. Seals, reveals, settlements and job settlements are skipped when the chain already has them, so they're retried safely after network errors. RPC calls fail over across three providers. `crashtest` exercises all of this against testnet.
 - **Rules versions:** campaigns from before the agent market play by rules version 1, and the verifier replays them that way. A real finished campaign from that time (#11) is kept as a test fixture and still verifies.
 

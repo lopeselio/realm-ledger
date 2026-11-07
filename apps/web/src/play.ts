@@ -1,5 +1,6 @@
 import './style.css';
 import {
+  canonicalJson,
   COST,
   GOODS,
   newSalt,
@@ -16,7 +17,9 @@ import {
   type Treaty,
   visibleProvinces,
 } from '@realm-ledger/rules';
+import { view as chainView } from './chain.ts';
 import { chronicle } from './chronicle.ts';
+import { restoreSigner, signIn, type Signer } from './wallet.ts';
 import { createBoard } from './board.ts';
 import { provinceTip, REALM_COLORS } from './map.ts';
 
@@ -52,6 +55,10 @@ interface View {
   openJobs: number[];
   tasksLeft: number;
   yourSeal: string | null;
+  /** your own NEAR account, if you rule this campaign from a wallet */
+  player: string | null;
+  chancellor: string;
+  proposeTreaty: { from: number; to: number; kind: Treaty['kind']; amount: number } | null;
 }
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -63,6 +70,14 @@ let before: GameState | null = null;
 let orders: Order[] = [];
 let selected: number | undefined;
 let busy = false;
+let signer: Signer | null = null;
+
+/** The wallet that must sign for this campaign, or an explanation of why it can't. */
+function walletFor(v: View): Signer {
+  if (!signer) throw new Error(`This campaign is ruled by ${v.player}. Sign in with that wallet to play it.`);
+  if (signer.accountId !== v.player) throw new Error(`This campaign is ruled by ${v.player}, but you are signed in as ${signer.accountId}.`);
+  return signer;
+}
 const board = createBoard({
   svg,
   container: $('table3d'),
@@ -153,7 +168,12 @@ async function load(id: number): Promise<void> {
 
 async function newCampaign(): Promise<void> {
   await withBusy('Creating the campaign onchain and fetching the model attestation…', async () => {
-    const v = await api<View>('/campaigns', { realms: Number($<HTMLSelectElement>('realms').value), seasons: Number($<HTMLSelectElement>('seasons').value) });
+    const v = await api<View>('/campaigns', {
+      realms: Number($<HTMLSelectElement>('realms').value),
+      seasons: Number($<HTMLSelectElement>('seasons').value),
+      // signed in: your own account rules realm 0 onchain
+      ...(signer ? { player: signer.accountId } : {}),
+    });
     history.replaceState(null, '', `?c=${v.id}`);
     view = v;
     before = null;
@@ -172,6 +192,11 @@ async function seal(): Promise<void> {
     const salt = newSalt();
     const hash = sealOrders(set, salt);
     keepSecret(v.id, set, salt);
+    if (v.player) {
+      // your own key posts your seal; the server only sees the hash and checks it onchain
+      status('Posting your seal onchain from your account…');
+      await walletFor(v).call('seal', { campaign: v.id, realm: v.human, seal: hash });
+    }
     try {
       view = await api<View>(`/campaigns/${v.id}/seal`, { seal: hash });
     } catch (e) {
@@ -195,6 +220,10 @@ async function reveal(): Promise<void> {
   }
   await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
     before = v.state;
+    if (v.player) {
+      const rec = await chainView<{ revealed: boolean }>('get_seal', { campaign: v.id, season: v.season, realm: v.human });
+      if (!rec?.revealed) await walletFor(v).call('reveal', { campaign: v.id, realm: v.human, orders: canonicalJson(secret.orders), salt: secret.salt });
+    }
     let r: { events: GameEvent[]; view: View };
     try {
       r = await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, secret);
@@ -217,6 +246,14 @@ async function giveTask(e: SubmitEvent): Promise<void> {
   const v = view;
   const body = { task: $<HTMLTextAreaElement>('task').value, budget: Number($<HTMLInputElement>('budget').value) };
   await withBusy('The Chancellor reads your task, asks for quotes and haggles…', async () => {
+    if (v.player) {
+      // you set your Chancellor's spending cap onchain; the contract enforces it on every hire
+      const p = await chainView<{ season_cap: number; campaign_cap: number; spent_season: number; season: number; spent_total: number }>('get_policy', { campaign: v.id, spender: v.chancellor });
+      const spentSeason = p && p.season === v.season ? p.spent_season : 0;
+      const spentTotal = p?.spent_total ?? 0;
+      status('Setting the Chancellor’s cap onchain from your account…');
+      await walletFor(v).call('set_policy', { campaign: v.id, realm: v.human, spender: v.chancellor, season_cap: spentSeason + body.budget, campaign_cap: spentTotal + body.budget });
+    }
     const r = await api<{ task: View['plans'][number]; view: View }>(`/campaigns/${v.id}/chancellor`, body);
     view = r.view;
     $<HTMLTextAreaElement>('task').value = '';
@@ -238,6 +275,14 @@ async function sendEnvoy(e: SubmitEvent): Promise<void> {
   await withBusy('Your envoy rides out…', async () => {
     const r = await api<{ envoy: Envoy; view: View }>(`/campaigns/${v.id}/envoy`, body);
     view = r.view;
+    const t = r.view.proposeTreaty;
+    if (t && v.player) {
+      // the envoy agreed: propose the treaty from your own account, then the rival accepts onchain
+      status('Proposing the treaty onchain from your account…');
+      const kindName = t.kind[0]!.toUpperCase() + t.kind.slice(1);
+      const treaty = await walletFor(v).call<number>('propose_treaty', { campaign: v.id, from: t.from, to: t.to, kind: kindName, amount: t.amount });
+      view = await api<View>(`/campaigns/${v.id}/treaty`, { treaty });
+    }
     $<HTMLTextAreaElement>('envoy-msg').value = '';
     render();
     status(r.envoy.accepted === undefined ? 'The envoy returns.' : r.envoy.accepted ? 'Treaty signed onchain by both rulers.' : 'Refused.');
@@ -416,6 +461,7 @@ function render(): void {
   // proof
   $('proof').innerHTML = `<dl>
       <dt>contract</dt><dd><a href="https://testnet.nearblocks.io/address/${esc(v.contract)}" target="_blank" rel="noopener">${esc(v.contract)}</a>, campaign #${v.id}</dd>
+      <dt>your realm</dt><dd>${v.player ? `ruled by your account <a href="https://testnet.nearblocks.io/address/${esc(v.player)}" target="_blank" rel="noopener">${esc(v.player)}</a>; your seals and reveals are signed in this browser` : 'a guest seat signed by the game server; sign in with a NEAR wallet to sign your own moves'}</dd>
       <dt>AI diplomacy</dt><dd>${v.attested ? `${esc(v.attested.model)} in a TEE; attestation fetched with nonce <code>${esc(v.attested.nonce.slice(0, 12))}…</code>` : 'model unavailable'}</dd>
       <dt>proof bundle</dt><dd><a href="${API}/api/campaigns/${v.id}/proof" target="_blank" rel="noopener">download</a></dd>
       <dt>check it</dt><dd><code>pnpm verify:campaign ${API}/api/campaigns/${v.id}/proof</code></dd>
@@ -433,6 +479,34 @@ function refreshControls(): void {
 }
 
 // ---------- wiring ----------
+
+function renderAccount(): void {
+  const el = $('account');
+  el.innerHTML = signer
+    ? `<span class="who-am-i" title="Your NEAR testnet account">${esc(signer.accountId)}</span> <button id="sign-out" type="button">Sign out</button>`
+    : `<button id="sign-in" type="button" class="primary">Sign in with a NEAR wallet</button><span class="fine guest">or play as a guest</span>`;
+}
+$('account').addEventListener('click', (e) => {
+  const id = (e.target as HTMLElement).id;
+  if (id === 'sign-in')
+    void withBusy('Opening your wallet; approve the key limited to the realm contract…', async () => {
+      signer = await signIn();
+      renderAccount();
+      status(`Signed in as ${signer.accountId}. New campaigns are ruled by your account.`);
+    });
+  if (id === 'sign-out')
+    void withBusy('Signing out…', async () => {
+      await signer?.signOut();
+      signer = null;
+      renderAccount();
+      status('Signed out. New campaigns use a guest seat.');
+    });
+});
+renderAccount();
+void restoreSigner().then((s) => {
+  signer = s;
+  renderAccount();
+});
 
 $('new').addEventListener('click', () => void newCampaign());
 $('seal').addEventListener('click', () => void seal());

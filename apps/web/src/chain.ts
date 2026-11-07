@@ -17,7 +17,7 @@ export interface ChainCampaign {
   treaties: unknown[];
 }
 
-async function view<T>(method: string, args: object): Promise<T | null> {
+export async function view<T>(method: string, args: object): Promise<T | null> {
   const res = await fetch(RPC, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

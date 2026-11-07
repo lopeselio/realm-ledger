@@ -12,7 +12,10 @@
     "test": "echo 'no web tests yet'"
   },
   "dependencies": {
+    "@hot-labs/near-connect": "0.11.4",
     "@realm-ledger/rules": "workspace:*",
+    "function-call-key-plugin": "2.1.0",
+    "near-api-js": "7.4.0",
     "three": "0.186.1"
   },
   "devDependencies": {

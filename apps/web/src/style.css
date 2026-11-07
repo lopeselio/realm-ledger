@@ -205,4 +205,8 @@ h3.sub { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem;
 .table3d { position: relative; }
 .table3d canvas { cursor: pointer; }
 .view-toggle { white-space: nowrap; }
+.header-right { display: grid; gap: 10px; justify-items: end; }
+.account { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.who-am-i { font-family: var(--font-mono); font-size: 0.85rem; color: var(--brass); }
+.account .guest { color: #a8987a; margin: 0; }
 .cta { display: inline-block; margin-top: 10px; background: var(--brass); color: var(--table); padding: 8px 14px; border-radius: 6px; font-weight: 700; text-decoration: none; }

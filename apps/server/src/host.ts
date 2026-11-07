@@ -35,7 +35,7 @@ import {
   type Treaty,
 } from '@realm-ledger/rules';
 import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
-import { call, view } from './chain.ts';
+import { accountExists, call, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
 import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
 
@@ -124,6 +124,14 @@ export interface Hosted {
   chancellorBudget: number;
   /** onchain actions in flight; see Intent */
   intents: Intent[];
+  /**
+   * The player's own NEAR account, when they signed in with a wallet. Then realm 0's seals,
+   * reveals, treaty proposals and Chancellor caps are signed by the player's key in their
+   * browser; the server only checks them onchain and never signs for realm 0.
+   */
+  player?: string;
+  /** a treaty the envoy accepted, waiting for the player's onchain proposal */
+  pendingTreaty?: Treaty;
   bundle: ProofBundle;
   createdAt: number;
 }
@@ -159,7 +167,9 @@ const isContractError = (e: unknown): boolean => /panicked|ExecutionError|Functi
 
 const hex = (n = 32): string => randomBytes(n).toString('hex');
 const treatyKey = (t: Treaty): string => `${t.kind}:${Math.min(...t.realms)}:${Math.max(...t.realms)}`;
-const seatAccount = (s: GameState, realm: number): string => (s.realms[realm]!.human ? playerAccount() : rulerAccount(realm));
+/** The account that rules a realm: the player's own wallet account if they signed in, else the shared seat. */
+const seatOf = (h: Pick<Hosted, 'player' | 'state'>, realm: number): string =>
+  h.state.realms[realm]!.human ? (h.player ?? playerAccount()) : rulerAccount(realm);
 
 export class GameError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -208,7 +218,15 @@ function get(id: number): Hosted {
 
 // ---------- create ----------
 
-export async function createCampaign(realms: number, seasons = 20): Promise<Hosted> {
+export async function createCampaign(realms: number, seasons = 20, player?: string): Promise<Hosted> {
+  if (player !== undefined) {
+    if (!/^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/.test(player) || player.length < 2 || player.length > 64)
+      throw new GameError('that is not a NEAR account id');
+    const seat = player.endsWith(`.${config.contract}`) ? player.slice(0, -config.contract.length - 1) : null;
+    if (player === config.contract || (seat !== null && /^(ruler\d+|player|chancellor|merc\d+|spy\d+|smoke-.+)$/.test(seat)))
+      throw new GameError('the game\'s own accounts cannot play');
+    if (!(await accountExists(player))) throw new GameError(`${player} does not exist on ${config.network}`);
+  }
   if (!Number.isInteger(realms) || realms < 3 || realms > 6) throw new GameError('realms must be 3 to 6');
   if (!Number.isInteger(seasons) || seasons < 4 || seasons > 20) throw new GameError('seasons must be 4 to 20');
   const seed = `rl-${hex(6)}`;
@@ -223,7 +241,7 @@ export async function createCampaign(realms: number, seasons = 20): Promise<Host
   const [id, attestation] = await Promise.all([
     call<number>(config.referee, 'create_campaign', {
       realms: state.realms.map((r) => ({
-        ruler: seatAccount(state, r.id),
+        ruler: r.id === HUMAN && player ? player : seatOf({ state }, r.id),
         chancellor: r.id === HUMAN ? chancellorAccount() : null,
         treasury: START_PURSE.crowns,
         season_cap: SEASON_CAP,
@@ -254,6 +272,7 @@ export async function createCampaign(realms: number, seasons = 20): Promise<Host
     reports: [],
     chancellorBudget: 0,
     intents: [],
+    ...(player ? { player } : {}),
     bundle: {
       version: 1,
       contract: config.contract,
@@ -278,14 +297,14 @@ export async function createCampaign(realms: number, seasons = 20): Promise<Host
 async function signOnchain(h: Hosted, t: Treaty): Promise<number> {
   // the contract numbers treaties; use the id it returns, since proposals sent in
   // parallel can land in any order
-  const id = await call<number>(seatAccount(h.state, t.realms[0]), 'propose_treaty', {
+  const id = await call<number>(seatOf(h, t.realms[0]), 'propose_treaty', {
     campaign: h.id,
     from: t.realms[0],
     to: t.realms[1],
     kind: t.kind[0]!.toUpperCase() + t.kind.slice(1),
     amount: t.amount ?? 0,
   });
-  await call(seatAccount(h.state, t.realms[1]), 'accept_treaty', { campaign: h.id, treaty: id });
+  await call(seatOf(h, t.realms[1]), 'accept_treaty', { campaign: h.id, treaty: id });
   return id;
 }
 
@@ -388,11 +407,39 @@ export async function sendEnvoy(
     }
     if (verdict?.accept && proposal) {
       const t: Treaty = { kind: proposal.kind, realms: [HUMAN, to], since: h.state.season, ...(amount !== undefined ? { amount } : {}) };
-      await signTreatyRecorded(h, t);
+      // a signed-in player proposes from their own wallet, then the server has the AI accept
+      if (h.player) h.pendingTreaty = t;
+      else await signTreatyRecorded(h, t);
     }
     h.envoys.push(envoy);
     await save(h);
     return envoy;
+  });
+}
+
+/**
+ * After a signed-in player proposed the accepted treaty from their wallet: check the
+ * proposal onchain, have the AI ruler accept it, and apply it.
+ */
+export async function confirmTreaty(id: number, treatyId: number): Promise<void> {
+  return locked(id, async () => {
+    const h = get(id);
+    const t = h.pendingTreaty;
+    if (!h.player || !t) throw new GameError('no treaty is waiting for your proposal');
+    type OnchainTreaty = { id: number; kind: string; realms: number[]; amount: number; proposed_season: number; signed_season: number | null };
+    const treaties = async (): Promise<OnchainTreaty[]> => (await view<{ treaties: OnchainTreaty[] }>('get_campaign', { campaign: h.id }))?.treaties ?? [];
+    const onchain = (await treaties()).find((x) => x.id === treatyId);
+    const kind = t.kind[0]!.toUpperCase() + t.kind.slice(1);
+    if (!onchain || onchain.kind !== kind || onchain.realms[0] !== t.realms[0] || onchain.realms[1] !== t.realms[1] || onchain.amount !== (t.amount ?? 0) || onchain.proposed_season !== t.since)
+      throw new GameError('that onchain proposal does not match the treaty the envoy agreed');
+    await call(rulerAccount(t.realms[1]), 'accept_treaty', { campaign: h.id, treaty: treatyId }, {
+      done: async () => (await treaties()).find((x) => x.id === treatyId)?.signed_season != null,
+    });
+    h.treatyIds[treatyKey(t)] = treatyId;
+    h.state = signTreaty(h.state, t);
+    if (!h.pending.treaties.some((x) => treatyKey(x) === treatyKey(t))) h.pending.treaties.push(t);
+    delete h.pendingTreaty;
+    await save(h);
   });
 }
 
@@ -405,6 +452,11 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
     if (!/^[0-9a-f]{64}$/.test(seal)) throw new GameError('seal must be sha256 hex');
     const s = h.state;
     const human = s.realms[HUMAN]!;
+    if (h.player && human.alive) {
+      const posted = (await view<{ seal: string }>('get_seal', { campaign: h.id, season: s.season, realm: HUMAN }))?.seal;
+      if (!posted) throw new GameError('seal your orders onchain from your wallet first');
+      if (posted !== seal) throw new GameError('the seal onchain is not the one you sent');
+    }
 
     // AI rulers settle their own treaties first, then decide from their own view.
     // Every step is saved as it happens, so a retried seal picks up where it stopped.
@@ -463,12 +515,16 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       reveals.push({ realm: HUMAN, orders, salt, seal: h.pending.humanSeal });
     }
     reveals.sort((a, b) => a.realm - b.realm);
+    if (h.player && h.pending.humanSeal) {
+      const rec = await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: HUMAN });
+      if (!rec?.revealed) throw new GameError('reveal your orders onchain from your wallet first');
+    }
 
     // every reveal is checked against its seal by the contract too
     await Promise.all(
       reveals.map((x) =>
         call(
-          seatAccount(before, x.realm),
+          seatOf(h, x.realm),
           'reveal',
           { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt },
           { done: async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: x.realm }))?.revealed },
@@ -589,7 +645,7 @@ async function reconcile(h: Hosted): Promise<void> {
       const kind = t.kind[0]!.toUpperCase() + t.kind.slice(1);
       const c = await view<{ treaties: { id: number; kind: string; realms: number[]; proposed_season: number; signed_season: number | null }[] }>('get_campaign', { campaign: h.id });
       const onchain = c?.treaties.find((x) => x.kind === kind && x.realms[0] === t.realms[0] && x.realms[1] === t.realms[1] && x.proposed_season === t.since);
-      if (onchain && onchain.signed_season === null) await call(seatAccount(h.state, t.realms[1]), 'accept_treaty', { campaign: h.id, treaty: onchain.id });
+      if (onchain && onchain.signed_season === null) await call(seatOf(h, t.realms[1]), 'accept_treaty', { campaign: h.id, treaty: onchain.id });
       if (onchain) completeTreaty(h, intent, onchain.id);
       else h.intents = h.intents.filter((i) => i.id !== intent.id);
       console.log(`reconciled treaty ${intent.id} in campaign ${h.id}: ${onchain ? `treaty ${onchain.id}` : 'never landed'}`);
@@ -678,7 +734,17 @@ export async function runChancellor(
     const plan = planTask(viewFor(h.state, HUMAN), HUMAN, { ...task, budget });
     const deals = planDeals(plan, HUMAN);
     const jobs: number[] = []; // filled by hireRecorded as hires land
-    if (deals.length > 0) {
+    if (deals.length > 0 && h.player) {
+      // a signed-in player sets the Chancellor's cap from their wallet; check it covers the plan
+      const p = await view<{ season_cap: number; campaign_cap: number; spent_season: number; season: number; spent_total: number }>('get_policy', {
+        campaign: h.id,
+        spender: chancellorAccount(),
+      });
+      const seasonLeft = p ? p.season_cap - (p.season === h.state.season ? p.spent_season : 0) : 0;
+      const campaignLeft = p ? p.campaign_cap - p.spent_total : 0;
+      if (Math.min(seasonLeft, campaignLeft) < plan.spent)
+        throw new GameError(`the Chancellor's onchain cap allows ${Math.max(0, Math.min(seasonLeft, campaignLeft))} crowns; raise it from your wallet first`);
+    } else if (deals.length > 0) {
       // the player raises the Chancellor's onchain cap by this task's budget
       const spentThisSeason = h.pending.jobs.filter((j) => j.buyer === chancellorAccount()).reduce((n, j) => n + j.deal.price, 0);
       h.chancellorBudget += budget;
@@ -749,6 +815,9 @@ export function publicView(id: number) {
     tasksLeft: Math.max(0, TASKS_PER_SEASON - h.plans.filter((p) => p.season === h.state.season).length),
     // the hash of your sealed orders (public onchain anyway); the browser reveals the secret that matches
     yourSeal: h.pending.humanSeal ?? null,
+    player: h.player ?? null,
+    chancellor: chancellorAccount(),
+    proposeTreaty: h.pendingTreaty ? { from: h.pendingTreaty.realms[0], to: h.pendingTreaty.realms[1], kind: h.pendingTreaty.kind, amount: h.pendingTreaty.amount ?? 0 } : null,
     scores: scores(view),
   };
 }
