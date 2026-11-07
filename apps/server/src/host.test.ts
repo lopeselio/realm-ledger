@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -23,11 +23,20 @@ describe('campaign list', () => {
     writeFileSync(join(dir, 'campaign-1.json'), JSON.stringify(saved(1, undefined, 'over')));
     writeFileSync(join(dir, 'campaign-2.json'), JSON.stringify(saved(2, 'alice.testnet')));
     writeFileSync(join(dir, 'campaign-3.json'), JSON.stringify(saved(3)));
-    // a write that died before its rename: ignored
-    writeFileSync(join(dir, 'campaign-4.json.1.0.tmp'), '{"id":4,');
+    // a write that died before its rename, long ago: deleted
+    writeFileSync(join(dir, 'campaign-4.json.old.tmp'), '{"id":4,');
+    utimesSync(join(dir, 'campaign-4.json.old.tmp'), new Date(0), new Date(0));
+    // another container's save in progress: left alone
+    writeFileSync(join(dir, 'campaign-5.json.new.tmp'), '{"id":5,');
+    // an unreadable file doesn't stop the ones after it from loading
+    writeFileSync(join(dir, 'campaign-0.json'), '{"id":0,');
+    // nor does one that parses but has the wrong shape, or claims another file's id
+    writeFileSync(join(dir, 'campaign-8.json'), '{"id":8,"pending":{},"bundle":{}}');
+    writeFileSync(join(dir, 'campaign-9.json'), JSON.stringify(saved(2)));
     host = await import('./host.ts');
     expect(await host.loadAll()).toBe(3);
-    expect(existsSync(join(dir, 'campaign-4.json.1.0.tmp'))).toBe(false);
+    expect(existsSync(join(dir, 'campaign-4.json.old.tmp'))).toBe(false);
+    expect(existsSync(join(dir, 'campaign-5.json.new.tmp'))).toBe(true);
   });
 
   it('lists everything, newest first, without a filter', () => {
@@ -45,6 +54,6 @@ describe('campaign list', () => {
   });
 
   it('reports progress and the ruling account', () => {
-    expect(host.list({ ids: [2] })[0]).toMatchObject({ season: 2, maxSeasons: 12, phase: 'planning', player: 'alice.testnet', winner: null });
+    expect(host.list({ ids: [2] })[0]).toMatchObject({ season: 2, maxSeasons: 12, phase: 'planning', player: 'alice.testnet', yourSeal: null, winner: null });
   });
 });

@@ -91,7 +91,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v || v.phase !== 'sealed') return;
     const secret = findSecret(v.id, v.season, v.yourSeal);
     if (!secret) {
-      say('Your sealed orders are not stored in this browser, so they cannot be revealed here. The season will pass without them.', 'error');
+      say('Your sealed orders are not stored in this browser, so they cannot be revealed here. Only a browser that still holds them (the one you sealed from, if its storage was kept) can finish this season.', 'error');
       return;
     }
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
@@ -172,13 +172,16 @@ export function useGame(id: number | null, signer: Signer | null) {
       const set: OrderSet = { realm: v.human, season: v.season, orders };
       const salt = newSalt();
       const hash = sealOrders(set, salt);
+      // the wallet that must sign, checked before anything is stored
+      const wallet = v.player ? walletFor(v) : null;
       keepSecret(v.id, { orders: set, salt });
-      // you played it: offer it on /play next time (opening a link alone doesn't count)
+      // sealing here makes it yours to come back to (opening a link alone doesn't); remembered
+      // before the network calls, since the seal may land onchain even if they error
       rememberCampaign(v.id);
-      if (v.player) {
+      if (wallet) {
         // your own key posts your seal; the server only sees the hash and checks it onchain
         say('Posting your seal onchain from your account…');
-        await walletFor(v).call('seal', { campaign: v.id, realm: v.human, seal: hash });
+        await wallet.call('seal', { campaign: v.id, realm: v.human, seal: hash });
       }
       try {
         adopt(await api<View>(`/campaigns/${v.id}/seal`, { seal: hash }));

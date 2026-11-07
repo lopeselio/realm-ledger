@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
-import { mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   aiDiplomacy,
@@ -182,10 +182,12 @@ async function save(h: Hosted): Promise<void> {
   // write a temp file and rename it over the old one: a crash mid-write leaves the previous
   // save intact rather than a truncated file (loadAll skips the .tmp names)
   const file = join(config.dataDir, `campaign-${h.id}.json`);
-  const tmp = `${file}.${process.pid}.${saveSeq++}.tmp`;
+  // unique per write: during a deploy the old and new containers share /home and may both have pid 1
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  const json = JSON.stringify(h);
   const fh = await open(tmp, 'w');
   try {
-    await fh.writeFile(JSON.stringify(h));
+    await fh.writeFile(json);
     await fh.sync();
   } finally {
     await fh.close();
@@ -195,11 +197,13 @@ async function save(h: Hosted): Promise<void> {
   } catch (e) {
     // a filesystem that refuses to rename over a file: save in place rather than not at all
     console.error(`save ${h.id}: rename failed (${(e as Error).message}); writing in place`);
-    await writeFile(file, JSON.stringify(h));
+    await writeFile(file, json);
     await unlink(tmp).catch(() => undefined);
   }
 }
-let saveSeq = 0;
+
+/** Temp files older than this are leftovers of a crashed save, not a write in progress. */
+const STALE_TMP_MS = 60 * 60_000; // generous: the file server's clock may differ from ours
 
 /** Settles interrupted onchain actions left by a crash, in the background. */
 export function reconcileAll(): void {
@@ -209,12 +213,26 @@ export function reconcileAll(): void {
 }
 
 export async function loadAll(): Promise<number> {
+  let files: string[];
   try {
-    for (const f of await readdir(config.dataDir)) {
-      // a save that died before its rename; the previous save is still in place
-      if (/^campaign-\d+\.json\..*\.tmp$/.test(f)) await unlink(join(config.dataDir, f)).catch(() => undefined);
-      if (!/^campaign-\d+\.json$/.test(f)) continue;
-      const h = JSON.parse(await readFile(join(config.dataDir, f), 'utf8')) as Hosted;
+    files = await readdir(config.dataDir);
+  } catch {
+    return campaigns.size; // no data yet
+  }
+  for (const f of files) {
+    const path = join(config.dataDir, f);
+    // a save that died before its rename; the previous save is still in place
+    if (/^campaign-\d+\.json\..*\.tmp$/.test(f)) {
+      const age = await stat(path).then((st) => Date.now() - st.mtimeMs, () => 0);
+      if (age > STALE_TMP_MS) await unlink(path).catch(() => undefined);
+      continue;
+    }
+    const name = /^campaign-(0|[1-9]\d*)\.json$/.exec(f);
+    if (!name) continue;
+    try {
+      const h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
+      const id = Number(name[1]);
+      if (h?.id !== id || !Array.isArray(h.state?.realms) || typeof h.phase !== 'string' || !h.pending || !h.bundle) throw new Error('not a campaign save');
       // campaigns from before the agent market
       h.plans ??= [];
       h.reports ??= [];
@@ -224,9 +242,10 @@ export async function loadAll(): Promise<number> {
       h.intents ??= [];
       for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
       campaigns.set(h.id, h);
+    } catch (e) {
+      // one unreadable or malformed file must not hide every campaign after it, or stop the server
+      console.error(`load ${f}: ${(e as Error).message}; skipped`);
     }
-  } catch {
-    // no data yet
   }
   return campaigns.size;
 }
@@ -860,6 +879,8 @@ export interface CampaignSummary {
   createdAt: number;
   /** the wallet account that rules realm 0, if any (public: it signs onchain) */
   player: string | null;
+  /** realm 0's seal while the season is sealed (public: it is onchain by then) */
+  yourSeal: string | null;
   winner: number | null;
 }
 
@@ -879,6 +900,8 @@ export function list(filter: { ids?: number[]; player?: string } = {}): Campaign
       phase: h.phase,
       createdAt: h.createdAt,
       player: h.player ?? null,
+      // set before the onchain call succeeds, so only trusted once the season is sealed
+      yourSeal: h.phase === 'sealed' ? (h.pending.humanSeal ?? null) : null,
       winner: h.phase === 'over' ? winnerOf(h) : null,
     }))
     .sort((a, b) => (narrowed ? Number(a.phase === 'over') - Number(b.phase === 'over') : 0) || b.createdAt - a.createdAt);

@@ -78,6 +78,7 @@ export interface CampaignSummary {
   phase: View['phase'];
   createdAt: number;
   player: string | null;
+  yourSeal: string | null;
   winner: number | null;
 }
 
