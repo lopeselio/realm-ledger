@@ -278,9 +278,9 @@ function Account({ game, signer, setSigner }: { game: Game; signer: Signer | nul
           <button type="button" onClick={doSignOut}>
             Sign out
           </button>
-          {!keyIsCurrent(signer.accountId) && (
+          {!keyIsCurrent(signer) && (
             <span className="fine stale-key">
-              Your key predates a newer move, so the wallet may ask you to approve it.{' '}
+              Your wallet key is missing or predates a newer move, so the wallet may ask you to approve moves.{' '}
               <button type="button" onClick={doRefreshKey}>
                 Refresh key
               </button>

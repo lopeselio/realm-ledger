@@ -230,6 +230,9 @@ export function reconcileAll(): void {
   }
 }
 
+/** Seat accounts whose key can't sign a reveal (out of allowance, gone, or not allowed): until restart. */
+const deadSeatKeys = new Set<string>();
+
 /** Seasons the sweep failed to settle, and when: tried again only after an hour. */
 const sweepFailed = new Map<string, number>();
 
@@ -735,11 +738,15 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // referee instead: the contract accepts the referee's reveal for any realm, and checks it
       // against the seal just the same
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
+        const seat = seatOf(h, x.realm);
         try {
-          await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
+          // a seat whose key already failed for good goes straight to the referee
+          if (deadSeatKeys.has(seat)) throw new Error(`Access key of ${seat} does not exist on account (failed earlier)`);
+          await call(seat, 'reveal', args(x), { done: revealed(x.realm) });
         } catch (e) {
           // (a key that may not call `reveal` at all is the same: the referee can)
           if (!isKeyFailure(e) && !isMethodNotAllowed(e)) throw e;
+          deadSeatKeys.add(seat);
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${errText(e).slice(0, 80)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);

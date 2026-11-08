@@ -71,7 +71,9 @@ function isNetworkError(e: unknown): boolean {
   // near-api-js puts the HTTP status in `cause` (e.g. "… Bad Gateway" with cause 502)
   if (typeof cause === 'number' && [408, 429, 500, 502, 503, 504].includes(cause)) return true;
   if (cause instanceof Error && isNetworkError(cause)) return true;
-  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|\b(?:429|500|502|503|504)\b|Exceeded \d+ attempts|RetriesExceeded/i.test(
+  // (status codes come in `cause`, checked above: a bare number in a message is too often a
+  // nonce, block height or amount)
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|Exceeded \d+ attempts|RetriesExceeded/i.test(
     String((e as Error)?.message ?? e),
   );
 }
@@ -87,7 +89,7 @@ function isRefusal(e: unknown): boolean {
   const text = `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
   if (/panicked/.test(text)) return true;
   if (/AccessKeyDoesNotExist|AccessKeyNotFound|AccountDoesNotExist|does not exist/.test(text)) return false;
-  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|panicked|does not allow method|Not enough allowance/.test(text);
+  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|does not allow method|Not enough allowance/.test(text);
 }
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

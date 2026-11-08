@@ -9,6 +9,8 @@ export const RULER_METHODS = ['seal', 'reveal', 'forfeit', 'propose_treaty', 'se
 
 export interface Signer {
   accountId: string;
+  /** a development key, not a wallet session */
+  dev?: boolean;
   /** Calls a contract method as the signed-in account and returns its result. */
   call<T = unknown>(method: string, args: object): Promise<T>;
   signOut(): Promise<void>;
@@ -82,6 +84,7 @@ async function devSigner(): Promise<Signer | null> {
   const account = new Account(stored.accountId, new JsonRpcProvider({ url: 'https://test.rpc.fastnear.com' }), KeyPairSigner.fromSecretKey(stored.privateKey as `ed25519:${string}`));
   return {
     accountId: stored.accountId,
+    dev: true,
     async call<T>(method: string, args: object): Promise<T> {
       return (await account.callFunction({ contractId: CONTRACT, methodName: method, args: args as Record<string, unknown>, gas: 30_000_000_000_000n })) as T;
     },
@@ -96,11 +99,14 @@ async function devSigner(): Promise<Signer | null> {
  * A key made at an earlier sign-in may lack a move added since (e.g. `forfeit`); the wallet
  * then asks for approval of that move instead, and signing in again makes a current key.
  */
-export function keyIsCurrent(accountId: string): boolean {
+export function keyIsCurrent(signer: Signer): boolean {
+  if (signer.dev) return true;
   try {
-    // where function-call-key-plugin keeps the key it created at sign-in
-    const stored = JSON.parse(localStorage.getItem(`access_key::plugin::testnet::${accountId}`) ?? 'null') as { contractId?: string; methodNames?: string[] } | null;
-    if (!stored?.methodNames) return true; // no plugin key here (dev signer, or the wallet signs every move)
+    // where function-call-key-plugin keeps the key it created at sign-in; it removes the key
+    // once the chain says it's gone, and the wallet then has to approve every move
+    const stored = JSON.parse(localStorage.getItem(`access_key::plugin::testnet::${signer.accountId}`) ?? 'null') as { contractId?: string; methodNames?: string[] } | null;
+    if (!stored) return false;
+    if (!stored.methodNames) return true;
     // a key for another contract signs none of our moves
     if (stored.contractId !== undefined && stored.contractId !== CONTRACT) return false;
     // an empty list means any method on that contract
