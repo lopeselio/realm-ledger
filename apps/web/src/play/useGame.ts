@@ -1,7 +1,7 @@
 // The game against the AI rulers: the campaign view from the server, your draft orders, and
 // the flows that seal, reveal, hire and send envoys. Flows run one at a time (`busy`).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty, revealable } from '@realm-ledger/rules';
+import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt } from '@realm-ledger/rules';
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { capitalize } from '../format.ts';
@@ -171,7 +171,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       }
       // a wallet gives up its own orders at once; a guest seat's settle without them once the
       // contract's reveal window closes (or now, if the chain already settled this season)
-      const at = !c ? null : v.player || c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
+      const at = !c ? null : v.player || c.season > v.season ? Date.now() : forfeitOpensAt(c);
       setForfeitAt(at);
       say(
         `${found ? 'The contract cannot accept your sealed orders as a reveal' : 'Your sealed orders are not stored in this browser, so they cannot be revealed here. Reveal from a browser that still holds them'}${
@@ -196,7 +196,12 @@ export function useGame(id: number | null, signer: Signer | null) {
           } catch (e) {
             // a forfeit from another browser may have landed first: decide from the chain
             state = await onChain(v);
-            if (!state.revealed && !state.declared && !state.moved) throw state.known ? e : unreadable(e);
+            if (!state.revealed && !state.declared && !state.moved) {
+              // still unrevealed: whatever the reason (a refusal, a cancelled popup), your wallet
+              // can always give these orders up instead, so offer that too
+              if (state.known) setForfeitAt(Date.now());
+              throw state.known ? e : unreadable(e);
+            }
           }
         }
         forfeited = state.declared && !state.revealed;
@@ -208,7 +213,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         // the contract refused these orders: they can't be revealed, so offer to settle without them
         if (/settle the season without them/.test((e as Error).message)) {
           const { c } = await onChain(v);
-          if (c) setForfeitAt(v.player ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000);
+          if (c) setForfeitAt(v.player ? Date.now() : forfeitOpensAt(c));
         }
         throw e;
       }

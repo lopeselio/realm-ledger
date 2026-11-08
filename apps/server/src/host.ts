@@ -16,6 +16,7 @@ import {
   type Plan,
   type SpyReport,
   canonicalJson,
+  forfeitOpensAt,
   revealable,
   commit,
   considerTreaty,
@@ -635,8 +636,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
               `no forfeit by ${h.player} is visible onchain: if you just forfeited from that wallet, try again in a moment; otherwise sign in with it (on any device) and forfeit`,
               403,
             );
-          // the contract allows it a full season after the seal deadline; a minute of margin for its clock
-          const opens = c.seal_deadline_ms + c.season_ms + 60_000;
+          const opens = forfeitOpensAt(c);
           if (Date.now() < opens) throw new GameError(`your orders can be forfeited from ${new Date(opens).toISOString()}`, 409);
         }
         return { forfeited: [HUMAN] };

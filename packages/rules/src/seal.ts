@@ -44,6 +44,15 @@ export const MAX_REVEAL_BYTES = 8_000;
 export const MAX_SALT_BYTES = 128;
 
 /**
+ * When the realm contract lets the referee settle a season without a sealed realm's reveal:
+ * a full season after the seal deadline (contracts/realm `settle_season`), plus a minute of
+ * margin for the chain's clock. Takes the contract's campaign record.
+ */
+export function forfeitOpensAt(c: { seal_deadline_ms: number; season_ms: number }): number {
+  return c.seal_deadline_ms + c.season_ms + 60_000;
+}
+
+/**
  * Orders the realm contract accepts as a reveal: canonical JSON it writes the same way (safe
  * whole numbers only, ASCII keys, no lone surrogates) and no larger than MAX_REVEAL_BYTES.
  * Checked before sealing, so a seal can always be revealed.
