@@ -72,7 +72,5 @@ describe('access-key failures, as near-api-js reports them', () => {
     expect(host.isKeyFailure(new Error('Contract panicked: orders do not match the seal'))).toBe(false);
     // a lagging RPC's view of a key added a moment ago is not a key failure
     expect(host.isKeyFailure(new Error('Access key ed25519:abc does not exist at block height 7'))).toBe(false);
-    // but a key that stays missing is, whatever the message says
-    expect(host.isKeyFailure(new host.DeadSeatKey('ruler1.realm-ledger.testnet', new Error('Access key ed25519:abc does not exist at block height 7')))).toBe(true);
   });
 });

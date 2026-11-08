@@ -178,11 +178,9 @@ const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((
 /** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
 // (not "… does not exist at block height", which a lagging RPC says of a key added a moment ago)
 const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist on account|AccessKeyNotFound/;
-/** Every RPC says the key doesn't exist: lag (a key added a moment ago) or deleted. */
-const LAGGING_KEY = /AccessKeyDoesNotExist|does not exist at block height/;
 /** The signing key may not make this call (wrong method or contract): it never will. */
 const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch|ReceiverMismatch|receiver .* does not match|InvalidAccessKey/;
-export const isKeyFailure = (e: unknown): boolean => e instanceof DeadSeatKey || KEY_FAILURE.test(errText(e));
+export const isKeyFailure = (e: unknown): boolean => KEY_FAILURE.test(errText(e));
 export const isMethodNotAllowed = (e: unknown): boolean => METHOD_NOT_ALLOWED.test(errText(e));
 
 const hex = (n = 32): string => randomBytes(n).toString('hex');
@@ -232,19 +230,6 @@ export function reconcileAll(): void {
   }
 }
 
-/** Seat accounts whose key couldn't sign a reveal, and when: the referee reveals for them for ten minutes. */
-const deadSeatKeys = new Map<string, { at: number; error: unknown }>();
-/** Seat accounts every RPC says have no such key: since when, and last seen (lag clears in seconds; a deleted key doesn't). */
-const missingSince = new Map<string, { since: number; last: number }>();
-
-/** A seat key that has been missing on every RPC for minutes: deleted, not lag. */
-export class DeadSeatKey extends Error {
-  constructor(seat: string, cause: unknown) {
-    super(`${seat}'s access key is still missing after five minutes (${String((cause as Error)?.message ?? cause).slice(0, 80)})`);
-    this.name = 'DeadSeatKey';
-  }
-}
-
 /** Seasons the sweep failed to settle: not tried again before this time. */
 const sweepFailed = new Map<string, number>();
 /** How many sweeps running a season's revealed orders weren't kept onchain. */
@@ -289,13 +274,11 @@ export async function sweepAbandoned(): Promise<void> {
       sweepFailed.delete(key);
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
-      // orders the contract refused won't change: stop trying this season (the player can still
-      // settle it without them). Anything else, including "not kept onchain" (a lagging RPC can
-      // say that too), is tried again at the next sweep
-      // ("not kept onchain" three sweeps running isn't lag: those orders are gone)
-      const notKept = /not kept onchain/.test(msg) ? (sweepNotKept.get(key) ?? 0) + 1 : 0;
+      // tried again at the next sweep; but "not kept onchain" three times (a lagging RPC can say
+      // it once) means those orders are gone, and the season is left for the player
+      const notKept = (sweepNotKept.get(key) ?? 0) + (/not kept onchain/.test(msg) ? 1 : 0);
       sweepNotKept.set(key, notKept);
-      sweepFailed.set(key, /refused your orders/.test(msg) || notKept >= 3 ? Infinity : started + 10 * 60_000 - 1_000);
+      sweepFailed.set(key, notKept >= 3 ? Infinity : started + 10 * 60_000 - 1_000);
       console.warn(`sweep ${h.id}: ${msg}`);
     }
   }
@@ -761,47 +744,22 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // a seat whose own key can't sign (out of gas allowance, or gone) is revealed by the
       // referee instead: the contract accepts the referee's reveal for any realm, and checks it
       // against the seal just the same
+      // A seat the server signs for (an AI ruler's, or the guest seat) whose reveal fails for any
+      // reason but a contract panic (its key out of allowance, gone, not allowed, a lagging RPC)
+      // is revealed by the referee instead: the contract accepts the referee's reveal for any
+      // realm and checks it against the seal just the same. If the referee can't either, the
+      // seat's own error is what counts.
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
-        const seat = seatOf(h, x.realm);
-        const dead = deadSeatKeys.get(seat);
-        // a seat whose key failed in the last ten minutes goes straight to the referee, keeping that error
-        let e: unknown = dead?.error;
-        if (!dead || dead.at < Date.now() - 10 * 60_000) {
-          try {
-            await call(seat, 'reveal', args(x), { done: revealed(x.realm) });
-            deadSeatKeys.delete(seat);
-            missingSince.delete(seat);
-            return;
-          } catch (caught) {
-            let err: unknown = caught;
-            // The referee reveals instead when the seat's key can't sign: out of allowance, not
-            // allowed to call `reveal`, or gone. "Does not exist" from every RPC is ambiguous: lag
-            // (a key added a moment ago) clears within seconds, a deleted key doesn't. So it's
-            // lag at first (the referee tries; nothing is remembered or taken as permanent) and a
-            // deleted key once it has lasted five minutes.
-            if (LAGGING_KEY.test(errText(err))) {
-              const seen = missingSince.get(seat);
-              // sightings within an hour of each other add up (reveals and sweeps come minutes
-              // apart); one after a longer gap starts a new count, so an old lag doesn't
-              const since = seen && Date.now() - seen.last < 3_600_000 ? seen.since : Date.now();
-              missingSince.set(seat, { since, last: Date.now() });
-              if (Date.now() - since >= 5 * 60_000) err = new DeadSeatKey(seat, err);
-            }
-            // (the count clears only when the seat signs again: a network error in between says
-            // nothing about whether the key exists)
-            const lagging = !(err instanceof DeadSeatKey) && LAGGING_KEY.test(errText(err));
-            if (!isKeyFailure(err) && !isMethodNotAllowed(err) && !lagging) throw err;
-            if (!lagging) deadSeatKeys.set(seat, { at: Date.now(), error: err });
-            e = err;
-          }
+        try {
+          await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
+        } catch (e) {
+          if (isContractError(e)) throw e;
+          console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${errText(e).slice(0, 80)}); the referee reveals for it`);
+          await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
+            console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
+            throw isKeyFailure(r) || isMethodNotAllowed(r) ? e : r;
+          });
         }
-        console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${errText(e).slice(0, 80)}); the referee reveals for it`);
-        await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
-          console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
-          // the referee can't sign it either (its key lacks the method, or is out of allowance):
-          // the seat's own, permanent, failure stands. Anything else may clear: retry later.
-          throw isKeyFailure(r) || isMethodNotAllowed(r) ? e : r;
-        });
       };
       // a failure that won't clear by itself: the seat's key is out of allowance or gone, or the
       // contract refused the call (a contract panic is deterministic; a network or nonce error

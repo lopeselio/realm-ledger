@@ -78,7 +78,7 @@ function isNetworkError(e: unknown): boolean {
   if (cause instanceof Error && isNetworkError(cause)) return true;
   // (status codes come in `cause`, checked above: a bare number in a message is too often a
   // nonce, block height or amount)
-  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|Exceeded \d+ attempts|RetriesExceeded/i.test(
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|Exceeded \d+ attempts|RetriesExceeded|ShardCongested|ShardStuck|Expired/i.test(
     String((e as Error)?.message ?? e),
   );
 }
@@ -93,6 +93,8 @@ function isNetworkError(e: unknown): boolean {
 function isRefusal(e: unknown): boolean {
   const text = `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
   if (/panicked/.test(text)) return true;
+  // the chain is busy, not saying no: another RPC, or a moment later, may get through
+  if (/ShardCongested|ShardStuck|Expired/.test(text)) return false;
   if (/AccessKeyDoesNotExist|AccessKeyNotFound|AccountDoesNotExist|does not exist/.test(text)) return false;
   return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|does not allow method|Not enough allowance/.test(text);
 }
@@ -112,14 +114,14 @@ export function call<T = unknown>(signer: string, method: string, args: object, 
     }) as Promise<T>;
   const guarded = async (): Promise<T> => {
     for (let attempt = 0; ; attempt++) {
-      // (after a failure the catch below has just checked)
-      if (attempt === 0 && opts.done && (await opts.done())) return undefined as T;
+      // before every attempt: an earlier one may have landed late
+      if (opts.done && (await opts.done())) return undefined as T;
       try {
         return await once();
       } catch (e) {
-        // whatever went wrong, the call may have landed (a resend after a timeout comes back
+        // a definite failure may still hide a landed call (a resend after a timeout comes back
         // with a stale nonce, say): if its effect is onchain, it worked
-        if (opts.done && (await opts.done().catch(() => false))) return undefined as T;
+        if (!isNetworkError(e) && opts.done && (await opts.done().catch(() => false))) return undefined as T;
         if (!opts.done || attempt >= 3 || !isNetworkError(e)) throw e;
         console.warn(`${signer} ${method}: ${(e as Error).message}; retrying`);
         await sleep(800 * (attempt + 1));
