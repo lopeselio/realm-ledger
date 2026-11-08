@@ -120,7 +120,8 @@ export function useGame(id: number | null, signer: Signer | null) {
     return Promise.all([
       read(chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id })),
       read(chainView<{ revealed: boolean }>('get_seal', where)),
-      read(chainView<boolean>('get_forfeit', where)),
+      // only a wallet ruler can forfeit; a guest seat's mark is always false
+      v.player ? read(chainView<boolean>('get_forfeit', where)) : Promise.resolve(false),
     ]).then(([c0, rec, declared]) => {
       const c = c0 === FAILED ? null : c0;
       return {

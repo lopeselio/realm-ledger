@@ -577,11 +577,12 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       });
       let declared = firstRead;
       if (!c) throw new GameError('campaign not found onchain', 502);
-      const check = (o: OrderSet, s: string) => {
+      // `onchain`: the contract already accepted them as a reveal, so they aren't re-judged
+      const check = (o: OrderSet, s: string, onchain = false) => {
         if (o.realm !== HUMAN || o.season !== before.season) throw new GameError('those orders are for another realm or season');
         // what the contract accepts as a reveal: refused here, before they're saved, so they
         // can't block the season
-        if (!revealable(o, s)) throw new GameError('those orders are not something the contract can accept as a reveal');
+        if (!onchain && !revealable(o, s)) throw new GameError('those orders are not something the contract can accept as a reveal');
         if (sealOrders(o, s) !== seal) throw new GameError('those orders do not match your seal');
         return { reveal: { realm: HUMAN, orders: o, salt: s, seal }, forfeited: [] };
       };
@@ -589,11 +590,10 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // whatever orders were saved or arrive now
       const settledWithout = c.season > before.season && !rec?.revealed;
       if (settledWithout) return { forfeited: [HUMAN] };
-      // a wallet's forfeit was just sent: an RPC node may not have seen it yet
       let revealedNow = !!rec?.revealed;
       // a wallet's browser posts right after its reveal or forfeit lands onchain: an RPC node may
       // not have seen it yet, so re-read both a few times (either may land meanwhile)
-      for (let i = 0; h.player && (forfeit || orders) && !declared && !revealedNow && i < 3; i++) {
+      for (let i = 0; h.player && !declared && !revealedNow && i < 3; i++) {
         await new Promise((r) => setTimeout(r, 2_000));
         [declared, revealedNow] = await Promise.all([readForfeit(), view<{ revealed: boolean }>('get_seal', where).then((x) => !!x?.revealed, () => revealedNow)]);
       }
@@ -602,11 +602,11 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // reveal that matches the seal and is canonical, so they can always land)
       const saved = h.pending.humanReveal;
       // (a wallet's are saved only once revealed onchain: the server never signs for a wallet)
-      if (saved && (!orders || salt === null) && !declared && (!h.player || revealedNow)) return check(saved.orders, saved.salt);
+      if (saved && (!orders || salt === null) && !declared && (!h.player || revealedNow)) return check(saved.orders, saved.salt, revealedNow);
       if (revealedNow) {
         // revealed onchain, from whichever browser: those orders count, and the contract keeps
         // them until the season settles, so a browser that lost them doesn't matter
-        if (orders && salt !== null) return check(orders, salt);
+        if (orders && salt !== null) return check(orders, salt, true);
         let kept: { orders: string; salt: string } | null;
         try {
           kept = (await view<{ orders: string; salt: string }>('get_reveal', where)) ?? null;
@@ -621,7 +621,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         } catch {
           throw new GameError('the orders revealed onchain are not valid JSON', 409);
         }
-        return check(parsed, kept.salt);
+        return check(parsed, kept.salt, true);
       }
       if (forfeit || declared) {
         if (!declared) {
