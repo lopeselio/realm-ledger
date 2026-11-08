@@ -692,9 +692,13 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         // stuck means a failure that won't clear by itself: the seat's key is out of allowance
         // or gone, or the contract refuses the orders. Anything else gets one more try first.
         const permanent = (e: unknown) => /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/.test(String((e as Error)?.message ?? e)) || ORDERS_REFUSED.test(String((e as Error)?.message ?? e));
-        const retried = await Promise.all(failed.map((x) => send(x).then(() => null, (e: unknown) => e)));
+        const readCampaign = () => view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
+        // no retry once the chain has moved past this season: those reveals can only fail and
+        // would spend the seats' gas allowance
+        const prior = await readCampaign();
+        const retried = prior && prior.season > before.season ? failed.map((x) => (results[toSend.indexOf(x)] as PromiseRejectedResult).reason) : await Promise.all(failed.map((x) => send(x).then(() => null, (e: unknown) => e)));
         // read after the retries, so the window or a settle that happened meanwhile counts
-        const c = await view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
+        const c = await readCampaign();
         const moved = !!c && c.season > before.season;
         const unrevealed = await Promise.all(failed.map((x) => revealed(x.realm)().then((r) => !r, () => false)));
         const stuck = failed.filter((_, i) => unrevealed[i] && retried[i] !== null && (moved || permanent(retried[i]))).map((x) => x.realm);

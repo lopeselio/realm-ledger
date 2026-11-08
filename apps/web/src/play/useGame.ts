@@ -31,6 +31,8 @@ export function useGame(id: number | null, signer: Signer | null) {
 
   // flows await the server and the chain: they read the latest values through refs
   const viewRef = useRef<View | null>(null);
+  // seasons whose orders the contract refused: never resent from this tab
+  const refusedRef = useRef(new Set<string>());
   const busyRef = useRef(false);
   // the campaign in the URL: a flow that finishes after you navigated away must not bring its campaign back
   const routeRef = useRef(id);
@@ -139,9 +141,9 @@ export function useGame(id: number | null, signer: Signer | null) {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
     const found = findSecret(v.id, v.season, v.yourSeal);
-    // orders the contract won't accept as a reveal (sealed before that was checked) are as good
-    // as lost: offer to settle without them
-    const secret = found && revealable(found.orders, found.salt) ? found : null;
+    // orders the contract won't accept as a reveal (sealed before that was checked, or refused
+    // by it already) are as good as lost: offer to settle without them, and don't resend them
+    const secret = found && revealable(found.orders, found.salt) && !refusedRef.current.has(`${v.id}:${v.season}`) ? found : null;
     if (!secret) {
       const { c, revealed, declared, known } = await onChain(v);
       // still the same sealed season once the chain answered
@@ -215,8 +217,10 @@ export function useGame(id: number | null, signer: Signer | null) {
       try {
         r = await settle(v, forfeited ? { forfeit: true } : secret);
       } catch (e) {
-        // the contract refused these orders: they can't be revealed, so offer to settle without them
+        // the contract refused these orders: they can't be revealed, so stop sending them and
+        // offer to settle without them
         if (/settle the season without them/.test((e as Error).message)) {
+          refusedRef.current.add(`${v.id}:${v.season}`);
           const { c } = await onChain(v);
           if (c) setForfeitAt(v.player ? Date.now() : forfeitOpensAt(c));
         }
