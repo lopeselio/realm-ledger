@@ -106,6 +106,8 @@ interface Pending {
   humanSeal?: string;
   /** your orders once we have them, saved before they go onchain so a crash can't lose them */
   humanReveal?: { orders: OrderSet; salt: string };
+  /** the contract refused your orders as a reveal: they're never sent again this season */
+  humanRefused?: boolean;
 }
 
 export interface Hosted {
@@ -585,6 +587,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         if (o.realm !== HUMAN || o.season !== before.season) throw new GameError('those orders are for another realm or season');
         // what the contract accepts as a reveal: refused here, before they're saved, so they
         // can't block the season
+        if (!onchain && h.pending.humanRefused) throw new GameError('the contract refused these orders; settle the season without them', 409);
         if (!onchain && !revealable(o, s)) throw new GameError('those orders are not something the contract can accept as a reveal');
         if (sealOrders(o, s) !== seal) throw new GameError('those orders do not match your seal');
         return { reveal: { realm: HUMAN, orders: o, salt: s, seal }, forfeited: [] };
@@ -682,6 +685,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         const msg = mine?.status === 'rejected' ? String((mine.reason as Error)?.message ?? mine.reason) : '';
         if (h.pending.humanReveal && ORDERS_REFUSED.test(msg)) {
           delete h.pending.humanReveal;
+          h.pending.humanRefused = true;
           await save(h);
           throw new GameError(`the contract refused your orders (${msg}); settle the season without them`, 409);
         }

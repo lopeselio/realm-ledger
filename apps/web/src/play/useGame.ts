@@ -130,7 +130,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         c,
         revealed: rec !== FAILED && !!rec?.revealed,
         declared: declared === true,
-        moved: !!c && c.season !== v.season,
+        moved: !!c && c.season > v.season,
         known: c0 !== FAILED && rec !== FAILED && declared !== FAILED,
       };
     });
@@ -206,7 +206,10 @@ export function useGame(id: number | null, signer: Signer | null) {
             if (!state.revealed && !state.declared && !state.moved) {
               // still unrevealed because the contract refused these orders themselves (not a
               // cancelled popup, a network error or running out of gas): offer to give them up
-              if (state.known && ORDERS_REFUSED.test(String((e as Error)?.message ?? e))) setForfeitAt(Date.now());
+              if (state.known && ORDERS_REFUSED.test(String((e as Error)?.message ?? e))) {
+                refusedRef.current.add(`${v.id}:${v.season}`);
+                setForfeitAt(Date.now());
+              }
               throw state.known ? e : unreadable(e);
             }
           }
