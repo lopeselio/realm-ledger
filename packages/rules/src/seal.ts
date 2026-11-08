@@ -44,6 +44,12 @@ export const MAX_REVEAL_BYTES = 8_000;
 export const MAX_SALT_BYTES = 128;
 
 /**
+ * The realm contract's refusals of the orders themselves (format, size, seal), as opposed to
+ * a network error, running out of gas or a reveal that already landed. Matches its panic text.
+ */
+export const ORDERS_REFUSED = /orders must be|reveal too large|orders do not match the seal/;
+
+/**
  * When the realm contract lets the referee settle a season without a sealed realm's reveal:
  * a full season after the seal deadline (contracts/realm `settle_season`), plus a minute of
  * margin for the chain's clock. Takes the contract's campaign record.

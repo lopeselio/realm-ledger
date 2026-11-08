@@ -1,7 +1,7 @@
 // The game against the AI rulers: the campaign view from the server, your draft orders, and
 // the flows that seal, reveal, hire and send envoys. Flows run one at a time (`busy`).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt } from '@realm-ledger/rules';
+import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt, ORDERS_REFUSED } from '@realm-ledger/rules';
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { capitalize } from '../format.ts';
@@ -204,7 +204,7 @@ export function useGame(id: number | null, signer: Signer | null) {
             if (!state.revealed && !state.declared && !state.moved) {
               // still unrevealed because the contract refused these orders themselves (not a
               // cancelled popup, a network error or running out of gas): offer to give them up
-              if (state.known && /orders must be|reveal too large|orders do not match the seal/.test(String((e as Error)?.message ?? e))) setForfeitAt(Date.now());
+              if (state.known && ORDERS_REFUSED.test(String((e as Error)?.message ?? e))) setForfeitAt(Date.now());
               throw state.known ? e : unreadable(e);
             }
           }

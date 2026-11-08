@@ -17,6 +17,7 @@ import {
   type SpyReport,
   canonicalJson,
   forfeitOpensAt,
+  ORDERS_REFUSED,
   revealable,
   commit,
   considerTreaty,
@@ -522,7 +523,9 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
     if (h.pending.ai.length === 0) {
       h.pending.ai = aiOrders(h.state).map((planned) => {
         // a seal the contract couldn't accept as a reveal would block the season: do nothing instead
-        const orders = revealable(planned) ? planned : { ...planned, orders: [] };
+        const ok = revealable(planned);
+        if (!ok) console.warn(`campaign ${h.id}: realm ${planned.realm}'s AI orders can't be revealed onchain; it does nothing this season`);
+        const orders = ok ? planned : { ...planned, orders: [] };
         const salt = hex();
         return { realm: orders.realm, orders, salt, seal: sealOrders(orders, salt) };
       });
@@ -684,7 +687,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         // already landed) is retried as it is.
         const mine = results[toSend.findIndex((x) => x.realm === HUMAN)];
         const msg = mine?.status === 'rejected' ? String((mine.reason as Error)?.message ?? mine.reason) : '';
-        if (h.pending.humanReveal && /orders must be|reveal too large|orders do not match the seal/.test(msg)) {
+        if (h.pending.humanReveal && ORDERS_REFUSED.test(msg)) {
           delete h.pending.humanReveal;
           await save(h);
           throw new GameError(`the contract refused your orders (${msg}); settle the season without them`, 409);
