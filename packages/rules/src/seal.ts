@@ -37,3 +37,54 @@ export const commit = (value: unknown, salt: string): string => sha256Hex(`${can
 
 /** Fingerprint of a whole game state, for replay checks. */
 export const stateHash = (s: GameState): string => sha256Hex(canonicalJson(s));
+
+/** The realm contract's MAX_ORDERS_JSON (contracts/realm/src/lib.rs): the largest reveal, in UTF-8 bytes. */
+export const MAX_REVEAL_BYTES = 8_000;
+/** The realm contract's limit on a reveal's salt, in UTF-8 bytes. */
+export const MAX_SALT_BYTES = 128;
+
+/**
+ * The realm contract's refusals of the orders themselves (format, size, seal), as opposed to
+ * a network error, running out of gas or a reveal that already landed. Matches its panic text.
+ */
+// ("orders must be this realm's for this season" is left out: it also fires when the chain's
+// season moved on, which says nothing about the orders)
+export const ORDERS_REFUSED = /orders must be (?:JSON|canonical JSON)|reveal too large|orders do not match the seal/;
+
+/**
+ * When the realm contract lets the referee settle a season without a sealed realm's reveal:
+ * a full season after the seal deadline (contracts/realm `settle_season`), plus a minute of
+ * margin for the chain's clock. Takes the contract's campaign record.
+ */
+export function forfeitOpensAt(c: { seal_deadline_ms: number; season_ms: number }): number {
+  return c.seal_deadline_ms + c.season_ms + 60_000;
+}
+
+/**
+ * Orders the realm contract accepts as a reveal: canonical JSON it writes the same way (safe
+ * whole numbers only, ASCII keys, no lone surrogates) and no larger than MAX_REVEAL_BYTES.
+ * Checked before sealing, so a seal can always be revealed.
+ */
+export function revealable(o: OrderSet, salt?: string): boolean {
+  if (salt !== undefined && utf8ToBytes(salt).length > MAX_SALT_BYTES) return false;
+  // a lone surrogate can't be written as UTF-8, so the contract can't parse it
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  const ok = (v: unknown): boolean => {
+    if (typeof v === 'number') return Number.isSafeInteger(v);
+    if (typeof v === 'string') return !lone.test(v);
+    // JSON has no functions, symbols or bigints
+    if (typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') return false;
+    // canonical JSON can't write undefined inside an array (in an object it drops the key)
+    if (v === undefined) return false;
+    // Array.from turns holes in a sparse array into undefined (every() would skip them)
+    if (Array.isArray(v)) return Array.from(v).every(ok);
+    // ASCII keys: sorted the same by JavaScript (UTF-16) and the contract (bytes)
+    if (v !== null && typeof v === 'object') return Object.entries(v).every(([k, x]) => x === undefined || (/^[\x20-\x7e]*$/.test(k) && ok(x)));
+    return true;
+  };
+  try {
+    return Array.isArray(o.orders) && ok(o) && utf8ToBytes(canonicalJson(o)).length <= MAX_REVEAL_BYTES;
+  } catch {
+    return false;
+  }
+}

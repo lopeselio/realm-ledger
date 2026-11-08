@@ -89,9 +89,9 @@ fn seal_reveal_settle_finish() {
     assert!(c.get_seal(id, 0, 1).unwrap().revealed);
     assert!(get_logs().iter().any(|l| l.contains("\"event\":\"revealed\"") && l.contains("march")));
 
-    // realms 0 and 2 never reveal: after a further season the referee may settle anyway
+    // realms 0 and 2 never reveal: after a further season the referee may settle them as forfeited
     as_(referee(), 2_000 + SEASON_MS * 2 + 1);
-    c.settle_season(id, seal_hex(9), vec![10, -20, 0], vec![], vec![]);
+    c.settle_season(id, seal_hex(9), vec![10, -20, 0], vec![], vec![], Some(vec![0, 2]));
     let camp = c.get_campaign(id).unwrap();
     assert_eq!(camp.season, 1);
     assert_eq!(camp.phase, Phase::Sealing);
@@ -102,7 +102,7 @@ fn seal_reveal_settle_finish() {
     // season 1: nobody seals; the deadline passes; settle with realm 2 fallen
     let deadline = camp.seal_deadline_ms;
     as_(referee(), deadline + SEASON_MS);
-    c.settle_season(id, seal_hex(10), vec![0, 0, 0], vec![2], vec![]);
+    c.settle_season(id, seal_hex(10), vec![0, 0, 0], vec![2], vec![], None);
     assert_eq!(c.get_campaign(id).unwrap().phase, Phase::Ended);
 
     let agendas = (0..3).map(agenda).collect();
@@ -167,7 +167,7 @@ fn settling_waits_for_reveals() {
         c.seal(id, i as u8, seal_hex(1));
     }
     as_(referee(), 3_000);
-    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![]);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], None);
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn treaties_are_signed_by_both_and_breaks_are_recorded() {
     assert_eq!(c.get_campaign(id).unwrap().treaties[0].signed_season, Some(0));
 
     as_(referee(), 1_000 + SEASON_MS * 2);
-    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![(t, 0)]);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![(t, 0)], None);
     let tr = &c.get_campaign(id).unwrap().treaties[0];
     assert_eq!(tr.broken_season, Some(0));
     assert_eq!(tr.broken_by, Some(0));
@@ -297,4 +297,188 @@ fn only_the_owner_creates_agents() {
     let (mut c, _) = setup();
     as_(ruler(0), 2_000);
     let _ = c.create_agent("spy".into(), "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap());
+}
+
+/// Every realm seals; realm 1 seals the shared test vector so it can reveal.
+fn all_sealed() -> (RealmLedger, u64) {
+    let (mut c, id) = setup();
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, if i == 1 { ORDERS_SEAL.into() } else { seal_hex(i as u8 + 1) });
+    }
+    (c, id)
+}
+
+#[test]
+fn a_ruler_forfeit_settles_without_waiting() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(0), 3_000);
+    c.forfeit(id, 0, 0);
+    assert!(c.get_forfeit(id, 0, 0));
+    assert!(get_logs().iter().any(|l| l.contains("\"event\":\"forfeited\"")));
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, ORDERS.into(), ORDERS_SALT.into());
+    // the revealed orders are kept for the referee until the season settles
+    assert_eq!(c.get_reveal(id, 0, 1), Some(RevealedOrders { orders: ORDERS.into(), salt: ORDERS_SALT.into() }));
+    as_(ruler(2), 3_000);
+    c.forfeit(id, 2, 0);
+    as_(referee(), 4_000);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 2]));
+    assert_eq!(c.get_campaign(id).unwrap().season, 1);
+    assert!(get_logs().iter().any(|l| l.contains("\"forfeited\":[0,2]")));
+    // kept reveals are removed once settled; the forfeit mark stays as a record
+    assert_eq!(c.get_reveal(id, 0, 1), None);
+    assert!(c.get_forfeit(id, 0, 0));
+}
+
+#[test]
+#[should_panic(expected = "this realm forfeited its orders this season")]
+fn a_forfeit_blocks_a_later_reveal() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(1), 3_000);
+    c.forfeit(id, 1, 0);
+    c.reveal(id, 1, ORDERS.into(), ORDERS_SALT.into());
+}
+
+#[test]
+#[should_panic(expected = "a forfeited realm must have sealed and not revealed")]
+fn a_realm_that_revealed_cannot_be_settled_as_forfeited() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, ORDERS.into(), ORDERS_SALT.into());
+    // even after the window: the reveal landed first, so its orders must count
+    as_(referee(), 2_000 + SEASON_MS * 3);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 1, 2]));
+}
+
+#[test]
+#[should_panic(expected = "a realm can only be forfeited by its ruler or after the reveal window")]
+fn the_referee_cannot_forfeit_a_realm_early() {
+    let (mut c, id) = all_sealed();
+    as_(referee(), 3_000);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 1, 2]));
+}
+
+#[test]
+fn the_referee_may_forfeit_after_the_reveal_window() {
+    let (mut c, id) = all_sealed();
+    as_(referee(), 1_000 + SEASON_MS * 2);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 1, 2]));
+    assert_eq!(c.get_campaign(id).unwrap().season, 1);
+}
+
+#[test]
+#[should_panic(expected = "waiting for reveals")]
+fn every_sealed_realm_is_revealed_or_forfeited() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(0), 3_000);
+    c.forfeit(id, 0, 0);
+    as_(referee(), 3_000);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0]));
+}
+
+#[test]
+#[should_panic(expected = "only the ruler forfeits its orders")]
+fn only_the_ruler_forfeits() {
+    let (mut c, id) = all_sealed();
+    as_(referee(), 3_000);
+    c.forfeit(id, 0, 0);
+}
+
+#[test]
+#[should_panic(expected = "that season is not the current one")]
+fn a_forfeit_names_its_season() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(0), 3_000);
+    c.forfeit(id, 0, 1);
+}
+
+#[test]
+fn agent_seat_reveals_are_not_kept() {
+    // rulers that are sub-accounts of the contract are agent seats: the referee holds their orders
+    let (mut c, _) = setup();
+    let seat: AccountId = "ruler1.contract.testnet".parse().unwrap();
+    let mut ctx = VMContextBuilder::new();
+    ctx.current_account_id("contract.testnet".parse().unwrap());
+    testing_env!(ctx.predecessor_account_id(referee()).block_timestamp(1_000 * 1_000_000).build());
+    let realms = (0..2)
+        .map(|i| RealmInit { ruler: if i == 1 { seat.clone() } else { ruler(i) }, chancellor: None, treasury: 0, season_cap: 0, campaign_cap: 0 })
+        .collect();
+    let commits = (0..2).map(|i| { let (a, s) = agenda(i); commitment(&a, &s) }).collect();
+    let id2 = c.create_campaign(realms, "seed-2".into(), ROLL_COMMIT.into(), commits, 2, SEASON_MS);
+    for (i, who) in [(0u8, ruler(0)), (1u8, seat.clone())] {
+        testing_env!(VMContextBuilder::new().current_account_id("contract.testnet".parse().unwrap()).predecessor_account_id(who).block_timestamp(2_000 * 1_000_000).build());
+        c.seal(id2, i, ORDERS_SEAL.into());
+    }
+    testing_env!(VMContextBuilder::new().current_account_id("contract.testnet".parse().unwrap()).predecessor_account_id(seat).block_timestamp(3_000 * 1_000_000).build());
+    c.reveal(id2, 1, ORDERS.into(), ORDERS_SALT.into());
+    assert_eq!(c.get_reveal(id2, 0, 1), None);
+}
+
+#[test]
+#[should_panic(expected = "waiting for reveals")]
+fn an_unrevealed_realm_must_be_named_even_after_the_window() {
+    let (mut c, id) = all_sealed();
+    as_(referee(), 1_000 + SEASON_MS * 3);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], None);
+}
+
+#[test]
+#[should_panic(expected = "a realm is listed twice")]
+fn a_forfeited_realm_is_listed_once() {
+    let (mut c, id) = all_sealed();
+    as_(referee(), 1_000 + SEASON_MS * 3);
+    c.settle_season(id, seal_hex(9), vec![0, 0, 0], vec![], vec![], Some(vec![0, 0, 1, 2]));
+}
+
+#[test]
+#[should_panic(expected = "orders must be canonical JSON")]
+fn a_reveal_must_be_canonical_json() {
+    let (mut c, id) = setup();
+    let loose = r#"{"realm":1,"season":0,"orders":[]}"#; // keys out of order
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(loose, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, loose.into(), "s".into());
+}
+
+#[test]
+#[should_panic(expected = "orders must be this realm's for this season")]
+fn a_reveal_must_be_for_its_realm_and_season() {
+    let (mut c, id) = setup();
+    let other = r#"{"orders":[],"realm":2,"season":0}"#;
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(other, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, other.into(), "s".into());
+}
+
+#[test]
+#[should_panic(expected = "orders must be canonical JSON")]
+fn a_reveal_uses_safe_integers_only() {
+    let (mut c, id) = setup();
+    let big = r#"{"orders":[{"count":9007199254740993,"kind":"recruit","province":1}],"realm":1,"season":0}"#;
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(big, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, big.into(), "s".into());
+}
+
+#[test]
+#[should_panic(expected = "orders must be canonical JSON")]
+fn a_reveal_uses_ascii_keys_only() {
+    let (mut c, id) = setup();
+    let accented = "{\"orders\":[{\"kind\":\"march\",\"\u{e9}\":1}],\"realm\":1,\"season\":0}";
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(accented, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, accented.into(), "s".into());
 }

@@ -258,9 +258,22 @@ export async function checkAgainstChain(
       checks.push({ name: `season ${sp.season}: realm ${x.realm}'s seal is the one posted onchain`, ok: rec?.seal === x.seal });
     }
     for (const r of sp.forfeited ?? []) {
-      // the contract only settles without a sealed realm's reveal after the reveal window closed
-      const rec = (await view('get_seal', { campaign: b.campaign, season: sp.season, realm: r })) as { revealed: boolean } | null;
-      checks.push({ name: `season ${sp.season}: realm ${r} sealed but never revealed onchain`, ok: !!rec && !rec.revealed });
+      // the contract settles a forfeited realm only if it sealed and never revealed, and only
+      // after its ruler's own forfeit or once the reveal window closed
+      const [rec, declared] = await Promise.all([
+        view('get_seal', { campaign: b.campaign, season: sp.season, realm: r }) as Promise<{ revealed: boolean } | null>,
+        view('get_forfeit', { campaign: b.campaign, season: sp.season, realm: r }).catch(() => null) as Promise<boolean | null>,
+      ]);
+      checks.push({
+        name: `season ${sp.season}: realm ${r} sealed but never revealed onchain`,
+        ok: !!rec && !rec.revealed,
+        detail:
+          declared === null
+            ? 'could not read whether its ruler forfeited (older contract?)'
+            : declared
+              ? 'forfeited by its ruler onchain'
+              : 'not forfeited by its ruler; the contract allows that only after the reveal window (not re-checked here)',
+      });
     }
     // every seal onchain is accounted for: revealed in the bundle, or listed as forfeited
     const accounted = new Set([...sp.seals.map((x) => x.realm), ...(sp.forfeited ?? [])]);
