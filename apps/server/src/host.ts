@@ -616,16 +616,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (saved && !declared && (!h.player || revealedNow) && !sentOk()) return check(saved.orders, saved.salt, revealedNow);
       if (revealedNow) {
         // revealed onchain, from whichever browser: those orders count, and the contract keeps
-        // them until the season settles, so a browser that lost them doesn't matter
-        // the orders sent here, if they match the seal; otherwise (a stale copy in another
-        // browser) the ones the contract kept
-        if (orders && salt !== null) {
-          try {
-            return check(orders, salt, true);
-          } catch {
-            // fall through to the kept orders
-          }
-        }
+        // them until the season settles, so a browser that lost them doesn't matter. The
+        // orders sent here if they match the seal; otherwise (a stale copy) the kept ones
+        if (sentOk()) return check(orders!, salt!, true);
         let kept: { orders: string; salt: string } | null;
         try {
           kept = (await view<{ orders: string; salt: string }>('get_reveal', where)) ?? null;
@@ -668,7 +661,8 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         h.pending.humanReveal = { orders: human.reveal.orders, salt: human.reveal.salt };
         await save(h);
       }
-      const reveals = [...h.pending.ai, ...(human.reveal ? [human.reveal] : [])].sort((a, b) => a.realm - b.realm);
+      let reveals = [...h.pending.ai, ...(human.reveal ? [human.reveal] : [])].sort((a, b) => a.realm - b.realm);
+      const forfeited = [...human.forfeited];
       // every reveal is checked against its seal by the contract too
       const revealed = (realm: number) => async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm }))?.revealed;
       // a wallet reveals its own orders (humanPart checked they're onchain); the server never
@@ -692,7 +686,21 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           await save(h);
           throw new GameError(`the contract refused your orders (${msg}); settle the season without them`, 409);
         }
-        throw rejected.reason;
+        // an AI seat whose reveal can't land (its key out of gas allowance, say) would block the
+        // season for good: once the reveal window has closed the contract lets the referee
+        // settle without it, so it does nothing this season
+        const c = await view<{ seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id }).catch(() => null);
+        const stuck: number[] = [];
+        for (const [i, r] of results.entries()) {
+          const realm = toSend[i]!.realm;
+          if (r.status === 'rejected' && realm !== HUMAN && !(await revealed(realm)().catch(() => true))) stuck.push(realm);
+        }
+        const others = results.some((r, i) => r.status === 'rejected' && !stuck.includes(toSend[i]!.realm));
+        if (others || stuck.length === 0 || !c || Date.now() < forfeitOpensAt(c)) throw rejected.reason;
+        console.warn(`campaign ${h.id}: AI realms ${stuck.join(', ')} could not reveal; settling without them after the reveal window`);
+        reveals = reveals.filter((x) => !stuck.includes(x.realm));
+        forfeited.push(...stuck);
+        forfeited.sort((a, b) => a - b);
       }
       const rollSeed = seasonRollSeed(h.rollSecret, before.season);
       // treaties and deals were already applied to the state as they were made
@@ -711,9 +719,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         treasury_deltas: deltas,
         fallen,
         broken_treaties: broken.filter(([t]) => t !== undefined),
-        forfeited: human.forfeited,
+        forfeited,
       }, { waitUntil: 'FINAL', done: async () => ((await view<{ season: number }>('get_campaign', { campaign: h.id }))?.season ?? 0) > before.season });
-      return { reveals, forfeited: human.forfeited, rollSeed, hash, state, events };
+      return { reveals, forfeited, rollSeed, hash, state, events };
     };
 
     const { reveals, forfeited, rollSeed, hash, state, events } = await settleOnChain();

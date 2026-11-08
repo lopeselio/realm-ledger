@@ -127,6 +127,13 @@ pub struct RevealedOrders {
 const REVEAL_PREFIX: u8 = b'o';
 const FORFEIT_PREFIX: u8 = b'f';
 
+/// Removes a season's kept reveals once nothing needs them.
+fn clear_kept_reveals(campaign: u64, season: u32, realms: usize) {
+    for i in 0..realms as u8 {
+        env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
+    }
+}
+
 fn season_key(prefix: u8, campaign: u64, season: u32, realm: u8) -> Vec<u8> {
     let mut k = vec![prefix];
     k.extend_from_slice(&campaign.to_le_bytes());
@@ -512,9 +519,7 @@ impl RealmLedger {
         }
         c.state_hashes.push(state_hash.clone());
         // this season's kept reveals are no longer needed
-        for i in 0..n as u8 {
-            env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
-        }
+        clear_kept_reveals(campaign, season, n);
         c.season += 1;
         c.sealed = vec![false; n];
         c.revealed = vec![false; n];
@@ -550,10 +555,7 @@ impl RealmLedger {
         }
         c.phase = Phase::Finished;
         // a reveal kept for a season that was never settled
-        let season = c.season;
-        for i in 0..c.realms.len() as u8 {
-            env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
-        }
+        clear_kept_reveals(campaign, c.season, c.realms.len());
         c.winner = Some(winner);
         c.roll_secret = Some(roll_secret.clone());
         Event::CampaignFinished { campaign, winner, roll_secret, agendas: agendas.into_iter().map(|(a, _)| a).collect() }.emit();
