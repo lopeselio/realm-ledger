@@ -74,7 +74,8 @@ export function revealable(o: OrderSet, salt?: string): boolean {
     if (typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') return false;
     // canonical JSON can't write undefined inside an array (in an object it drops the key)
     if (v === undefined) return false;
-    if (Array.isArray(v)) return v.every(ok);
+    // Array.from turns holes in a sparse array into undefined (every() would skip them)
+    if (Array.isArray(v)) return Array.from(v).every(ok);
     // ASCII keys: sorted the same by JavaScript (UTF-16) and the contract (bytes)
     if (v !== null && typeof v === 'object') return Object.entries(v).every(([k, x]) => x === undefined || (/^[\x20-\x7e]*$/.test(k) && ok(x)));
     return true;

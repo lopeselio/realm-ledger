@@ -657,7 +657,8 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     /** Reveals, resolves and settles onchain. */
     const settleOnChain = async () => {
       const human = await humanPart();
-      if (human.reveal) {
+      const prev = h.pending.humanReveal;
+      if (human.reveal && !(prev && prev.salt === human.reveal.salt && canonicalJson(prev.orders) === canonicalJson(human.reveal.orders))) {
         h.pending.humanReveal = { orders: human.reveal.orders, salt: human.reveal.salt };
         await save(h);
       }
@@ -668,11 +669,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // a wallet reveals its own orders (humanPart checked they're onchain); the server never
       // signs for it, even if a lagging node makes its `done` check read false
       const toSend = reveals.filter((x) => !(x.realm === HUMAN && h.player));
-      const results = await Promise.allSettled(
-        toSend.map((x) =>
-          call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }),
-        ),
-      );
+      const send = (x: (typeof reveals)[number]) =>
+        call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) });
+      const results = await Promise.allSettled(toSend.map(send));
       const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
       if (rejected) {
         // the contract refused your own saved orders themselves (it should accept anything
@@ -686,22 +685,16 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           await save(h);
           throw new GameError(`the contract refused your orders (${msg}); settle the season without them`, 409);
         }
-        // an AI seat whose reveal can't land (its key out of gas allowance, say) would block the
-        // season for good: once the reveal window has closed the contract lets the referee
-        // settle without it, so it does nothing this season
-        const c = await view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
-        const failed = toSend.filter((x, i) => results[i]!.status === 'rejected' && x.realm !== HUMAN);
+        // a seat the server signs for (an AI ruler's, or the guest seat) whose reveal can't land
+        // (its key out of gas allowance, say) would block the season for good: once the reveal
+        // window has closed the contract lets the referee settle without it
+        const failed = toSend.filter((_, i) => results[i]!.status === 'rejected');
         // stuck means a failure that won't clear by itself: the seat's key is out of allowance
         // or gone, or the contract refuses the orders. Anything else gets one more try first.
         const permanent = (e: unknown) => /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/.test(String((e as Error)?.message ?? e)) || ORDERS_REFUSED.test(String((e as Error)?.message ?? e));
-        const retried = await Promise.all(
-          failed.map((x) =>
-            call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }).then(
-              () => null,
-              (e: unknown) => e,
-            ),
-          ),
-        );
+        const retried = await Promise.all(failed.map((x) => send(x).then(() => null, (e: unknown) => e)));
+        // read after the retries, so the window or a settle that happened meanwhile counts
+        const c = await view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
         const moved = !!c && c.season > before.season;
         const unrevealed = await Promise.all(failed.map((x) => revealed(x.realm)().then((r) => !r, () => false)));
         const stuck = failed.filter((_, i) => unrevealed[i] && retried[i] !== null && (moved || permanent(retried[i]))).map((x) => x.realm);
@@ -715,7 +708,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         if (others || (stuck.length > 0 && !allowed)) throw (still ?? rejected).reason;
         // every failure was retried successfully, or is a stuck AI seat the contract lets us skip
         if (stuck.length > 0) {
-          console.warn(`campaign ${h.id}: AI realms ${stuck.join(', ')} could not reveal; settling without them after the reveal window`);
+          console.warn(`campaign ${h.id}: realms ${stuck.join(', ')} could not reveal; settling without them after the reveal window`);
+          // the guest seat's saved orders can't land: drop them with the season
+          if (stuck.includes(HUMAN)) delete h.pending.humanReveal;
           reveals = reveals.filter((x) => !stuck.includes(x.realm));
           forfeited.push(...stuck);
           forfeited.sort((a, b) => a - b);

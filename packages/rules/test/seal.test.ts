@@ -37,4 +37,9 @@ describe('revealable: what the contract accepts as a reveal', () => {
   it('refuses values JSON cannot hold', () => {
     expect(revealable(set([{ kind: 'march', from: 1, to: 2, f: () => 1 }]))).toBe(false);
   });
+
+  it('refuses a sparse array', () => {
+    const orders: unknown[] = [{ kind: 'march', from: 1, to: 2 }, , { kind: 'march', from: 3, to: 4 }];
+    expect(revealable(set(orders))).toBe(false);
+  });
 });
