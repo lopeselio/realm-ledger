@@ -40,6 +40,16 @@ describe('RPC failover', () => {
     await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(missing);
   });
 
+  it('does not take a wrapped "does not exist" for an outage', async () => {
+    const missing = new Error('[-32000] Server error: access key ed25519:x does not exist while viewing');
+    const outage = new Error('fetch failed');
+    const p = withRealErrors(new FailoverRpcProvider([failing(missing), failing(missing)]));
+    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(missing);
+    // and an outage still outranks it
+    const q = withRealErrors(new FailoverRpcProvider([failing(missing), failing(outage)]));
+    await expect(q.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(outage);
+  });
+
   it('moves on to the next RPC after a network failure', async () => {
     const ok = Object.assign(new JsonRpcProvider({ url: 'http://unused.invalid' }), { viewAccessKey: async () => ({ nonce: 1 }) });
     const p = withRealErrors(new FailoverRpcProvider([failing(new Error('fetch failed')), ok]));

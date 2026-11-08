@@ -77,8 +77,9 @@ export interface CallOptions {
 
 /** A failure of the RPC or the network, worth trying again (on another RPC). */
 export function isNetworkError(e: unknown): boolean {
-  // a contract's own panic is never the network, whatever numbers or words it contains
-  if (/panicked/.test(String((e as Error)?.message ?? e))) return false;
+  // a contract's own panic is never the network, whatever numbers or words it contains; nor is
+  // "does not exist", which near-api-js may wrap as "[-32000] Server error: …"
+  if (/panicked|does not exist/.test(String((e as Error)?.message ?? e))) return false;
   const cause = (e as { cause?: unknown })?.cause;
   // near-api-js puts the HTTP status in `cause` (e.g. "… Bad Gateway" with cause 502)
   if (typeof cause === 'number' && [408, 429, 500, 502, 503, 504].includes(cause)) return true;
