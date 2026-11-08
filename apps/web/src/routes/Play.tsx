@@ -254,9 +254,13 @@ function Account({ game, signer, setSigner }: { game: Game; signer: Signer | nul
     void game.withBusy('Refreshing your key: sign in again and approve the key limited to the realm contract…', async () => {
       await signer?.signOut();
       setSigner(null);
-      const s = await signIn();
-      setSigner(s);
-      game.say(`Signed in as ${s.accountId} with a current key.`);
+      try {
+        const s = await signIn();
+        setSigner(s);
+        game.say(`Signed in as ${s.accountId} with a current key.`);
+      } catch (e) {
+        throw new Error(`${(e as Error).message}. You are signed out: sign in again to keep playing with your wallet.`);
+      }
     });
   const doSignOut = (): void =>
     void game.withBusy('Signing out…', async () => {
