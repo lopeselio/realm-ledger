@@ -133,9 +133,11 @@ let sweeping = false;
 setInterval(() => {
   if (sweeping) return;
   sweeping = true;
-  void sweepAbandoned().finally(() => {
-    sweeping = false;
-  });
+  void sweepAbandoned()
+    .catch((e: unknown) => console.error(`sweep: ${(e as Error).message}`))
+    .finally(() => {
+      sweeping = false;
+    });
 }, 10 * 60_000).unref();
 server.listen(config.port, () => {
   console.log(`realm-ledger server on :${config.port} (${n} campaigns loaded, contract ${config.contract}, NEAR AI ${nearAiEnabled() ? config.nearAi.model : 'off'})`);

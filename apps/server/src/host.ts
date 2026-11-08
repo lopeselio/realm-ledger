@@ -732,7 +732,8 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         try {
           await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
         } catch (e) {
-          if (!isKeyFailure(e)) throw e;
+          // (a key that may not call `reveal` at all is the same: the referee can)
+          if (!isKeyFailure(e) && !isMethodNotAllowed(e)) throw e;
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${errText(e).slice(0, 80)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
@@ -778,7 +779,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         delete h.pending.humanReveal;
         h.pending.humanRefused = true;
         await save(h);
-        throw new GameError(`the contract refused your orders (${errText(mine)}); settle the season without them`, 409);
+        throw new GameError(`the contract refused your orders (${String((mine as Error)?.message ?? mine)}); settle the season without them`, 409);
       }
       const newlyRefused = toSend.filter((x) => x.realm !== HUMAN && !refused.has(x.realm) && outcome.get(x.realm) && ORDERS_REFUSED.test(errText(outcome.get(x.realm)))).map((x) => x.realm);
       if (newlyRefused.length > 0) {

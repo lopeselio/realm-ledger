@@ -10,8 +10,8 @@ const provider = withRealErrors(new FailoverRpcProvider(RPCS.map((url) => new Js
 
 // near-api-js's failover tries the next RPC on any error and, once all have failed, throws
 // "Exceeded 3 providers" in place of what went wrong, so a refused transaction (a key out of
-// allowance, a method its key may not call) became indistinguishable from an outage. Here
-// only network failures move on to the next RPC; any other error is the answer, unchanged.
+// allowance, a method its key may not call) became indistinguishable from an outage. Here a
+// definite refusal from the chain is returned unchanged; anything else tries the next RPC.
 // (chain.test.ts checks this still holds for the installed near-api-js)
 type Failover = { providers: unknown[]; currentProvider: unknown; switchToNextProvider(): void };
 export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
@@ -20,20 +20,16 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
     get: (p: unknown) => Promise<unknown>,
   ): Promise<unknown> {
     let last: unknown;
-    let answered = false;
     for (let i = 0; i < this.providers.length; i++) {
       try {
-        const result = await get(this.currentProvider);
-        if (result !== undefined) return result;
-        // an empty answer (a method returning nothing) is an answer; another RPC may still say more
-        answered = true;
+        // an empty answer (a method returning nothing) is an answer too
+        return await get(this.currentProvider);
       } catch (e) {
-        if (!isNetworkError(e)) throw e;
+        if (isRefusal(e)) throw e;
         last = e;
       }
       this.switchToNextProvider();
     }
-    if (answered) return undefined;
     throw last ?? new Error(`no answer from ${this.providers.length} RPC providers`);
   };
   return failover;
@@ -63,11 +59,25 @@ export interface CallOptions {
   done?: () => Promise<boolean>;
 }
 
+/** A failure of the RPC or the network, worth trying again (on another RPC). */
 function isNetworkError(e: unknown): boolean {
-  // status codes only as whole words: block heights and amounts in other errors contain digits
-  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|\b(?:429|502|503|504)\b|Too Many Requests|timeout|Exceeded \d+ attempts|RetriesExceeded/i.test(
-    String((e as Error)?.message ?? e) + String((e as { cause?: unknown })?.cause ?? ''),
+  const cause = (e as { cause?: unknown })?.cause;
+  // near-api-js puts the HTTP status in `cause` (e.g. "… Bad Gateway" with cause 502)
+  if (typeof cause === 'number' && [408, 429, 500, 502, 503, 504].includes(cause)) return true;
+  if (cause instanceof Error && isNetworkError(cause)) return true;
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|\b(?:429|500|502|503|504)\b|Exceeded \d+ attempts|RetriesExceeded/i.test(
+    String((e as Error)?.message ?? e),
   );
+}
+
+/**
+ * The chain's definite answer to a request, which another RPC would only repeat: the contract
+ * panicked, the key or account can't do this, the nonce is stale, something doesn't exist.
+ * Anything else (a lagging or broken RPC, the network) is worth asking the next RPC.
+ */
+function isRefusal(e: unknown): boolean {
+  const text = `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
+  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|AccessKey|AccountDoesNotExist|panicked|does not allow method|Not enough allowance|does not exist/.test(text);
 }
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
