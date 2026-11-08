@@ -37,3 +37,31 @@ export const commit = (value: unknown, salt: string): string => sha256Hex(`${can
 
 /** Fingerprint of a whole game state, for replay checks. */
 export const stateHash = (s: GameState): string => sha256Hex(canonicalJson(s));
+
+/** The realm contract's MAX_ORDERS_JSON (contracts/realm/src/lib.rs): the largest reveal, in UTF-8 bytes. */
+export const MAX_REVEAL_BYTES = 8_000;
+
+/**
+ * Orders the realm contract accepts as a reveal: canonical JSON it writes the same way (safe
+ * whole numbers only, ASCII keys, no lone surrogates) and no larger than MAX_REVEAL_BYTES.
+ * Checked before sealing, so a seal can always be revealed.
+ */
+export function revealable(o: OrderSet): boolean {
+  // a lone surrogate can't be written as UTF-8, so the contract can't parse it
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  const ok = (v: unknown): boolean => {
+    if (typeof v === 'number') return Number.isSafeInteger(v);
+    if (typeof v === 'string') return !lone.test(v);
+    // canonical JSON can't write undefined inside an array (in an object it drops the key)
+    if (v === undefined) return false;
+    if (Array.isArray(v)) return v.every(ok);
+    // ASCII keys: sorted the same by JavaScript (UTF-16) and the contract (bytes)
+    if (v !== null && typeof v === 'object') return Object.entries(v).every(([k, x]) => x === undefined || (/^[\x20-\x7e]*$/.test(k) && ok(x)));
+    return true;
+  };
+  try {
+    return Array.isArray(o.orders) && ok(o) && utf8ToBytes(canonicalJson(o)).length <= MAX_REVEAL_BYTES;
+  } catch {
+    return false;
+  }
+}

@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { revealable } from '@realm-ledger/rules';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-'));
@@ -59,10 +60,7 @@ describe('campaign list', () => {
 });
 
 describe('revealable: what the contract accepts as a reveal', () => {
-  let host: typeof import('./host.ts');
-  beforeAll(async () => {
-    host = await import('./host.ts');
-  });
+  const host = { revealable };
   const set = (orders: unknown[]) => ({ realm: 0, season: 1, orders }) as never;
 
   it('accepts ordinary orders', () => {
@@ -84,7 +82,8 @@ describe('revealable: what the contract accepts as a reveal', () => {
     expect(host.revealable(set([{ kind: 'march', 'é': 1 }]))).toBe(false);
   });
 
-  it('refuses an array hole canonical JSON could not write', () => {
+  it('refuses an array hole canonical JSON could not write, but not an unset field', () => {
     expect(host.revealable(set([{ kind: 'march', from: 1, to: 2 }, undefined]))).toBe(false);
+    expect(host.revealable(set([{ kind: 'march', from: 1, to: 2, via: undefined }]))).toBe(true);
   });
 });

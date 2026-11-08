@@ -1,39 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  aiDiplomacy,
-  aiMarket,
-  aiOrders,
-  applyDeal,
-  planDeals,
-  planTask,
-  reportHolds,
-  sha256Hex,
-  spyReport,
-  type Deal,
-  type Goal,
-  type Plan,
-  type SpyReport,
-  canonicalJson,
-  commit,
-  considerTreaty,
-  newCampaign,
-  replaySeason,
-  RULES_VERSION,
-  scores,
-  sealOrders,
-  seasonName,
-  seasonRollSeed,
-  signTreaty,
-  START_PURSE,
-  stateHash,
-  viewFor,
-  type GameEvent,
-  type GameState,
-  type OrderSet,
-  type Treaty,
-} from '@realm-ledger/rules';
+import { aiDiplomacy, aiMarket, aiOrders, applyDeal, planDeals, planTask, reportHolds, sha256Hex, spyReport, type Deal, type Goal, type Plan, type SpyReport, canonicalJson, commit, considerTreaty, newCampaign, replaySeason, RULES_VERSION, scores, sealOrders, seasonName, seasonRollSeed, signTreaty, START_PURSE, stateHash, viewFor, type GameEvent, type GameState, type OrderSet, type Treaty, revealable } from '@realm-ledger/rules';
 import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
 import { accountExists, call, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
@@ -518,7 +486,9 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
     }
     // AI orders and their salts are fixed (and saved) before any seal goes onchain
     if (h.pending.ai.length === 0) {
-      h.pending.ai = aiOrders(h.state).map((orders) => {
+      h.pending.ai = aiOrders(h.state).map((planned) => {
+        // a seal the contract couldn't accept as a reveal would block the season: do nothing instead
+        const orders = revealable(planned) ? planned : { ...planned, orders: [] };
         const salt = hex();
         return { realm: orders.realm, orders, salt, seal: sealOrders(orders, salt) };
       });
@@ -544,27 +514,6 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 
 // ---------- reveal and resolve ----------
 
-/** Orders the contract accepts as a reveal: small enough, and only safe whole numbers. */
-export function revealable(o: OrderSet): boolean {
-  // a lone surrogate can't be written as UTF-8, so the contract can't parse it
-  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-  const ok = (v: unknown): boolean => {
-    if (typeof v === 'number') return Number.isSafeInteger(v);
-    if (typeof v === 'string') return !lone.test(v);
-    // canonical JSON can't write undefined inside an array
-    if (v === undefined) return false;
-    if (Array.isArray(v)) return v.every(ok);
-    // ASCII keys: sorted the same by JavaScript (UTF-16) and the contract (bytes)
-    if (v !== null && typeof v === 'object') return Object.entries(v).every(([k, x]) => /^[\x20-\x7e]*$/.test(k) && ok(x));
-    return true;
-  };
-  try {
-    // the contract's limit is in UTF-8 bytes
-    return Array.isArray(o.orders) && ok(o) && Buffer.byteLength(canonicalJson(o), 'utf8') <= 8_000;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Reveals every seal and resolves the season. With `forfeit`, your sealed orders are given up
@@ -673,19 +622,20 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }),
         ),
       );
-      const failed = results.findIndex((r) => r.status === 'rejected');
-      if (failed >= 0) {
-        const e = (results[failed] as PromiseRejectedResult).reason;
-        // the contract refused your own saved orders (it should accept anything `revealable`
-        // lets through): drop them, so they can't block the season, and let it settle without
-        // them. Only for your realm's reveal; any other failure is retried as it is.
-        const yours = results.findIndex((r, i) => r.status === 'rejected' && reveals[i]!.realm === HUMAN);
-        if (yours >= 0 && h.pending.humanReveal && isContractError((results[yours] as PromiseRejectedResult).reason) && !(await revealed(HUMAN)())) {
+      const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (rejected) {
+        // the contract refused your own saved orders themselves (it should accept anything
+        // `revealable` lets through): drop them so they can't block the season, which then
+        // settles without them. Any other failure (an AI seat's, a network error, a reveal that
+        // already landed) is retried as it is.
+        const mine = results[reveals.findIndex((x) => x.realm === HUMAN)];
+        const msg = mine?.status === 'rejected' ? String((mine.reason as Error)?.message ?? mine.reason) : '';
+        if (h.pending.humanReveal && /orders must be|reveal too large|orders do not match the seal/.test(msg)) {
           delete h.pending.humanReveal;
           await save(h);
-          throw new GameError(`the contract refused your orders (${((results[yours] as PromiseRejectedResult).reason as Error).message}); settle the season without them`, 409);
+          throw new GameError(`the contract refused your orders (${msg}); settle the season without them`, 409);
         }
-        throw e;
+        throw rejected.reason;
       }
       const rollSeed = seasonRollSeed(h.rollSecret, before.season);
       // treaties and deals were already applied to the state as they were made

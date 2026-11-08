@@ -1,7 +1,7 @@
 // The game against the AI rulers: the campaign view from the server, your draft orders, and
 // the flows that seal, reveal, hire and send envoys. Flows run one at a time (`busy`).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty } from '@realm-ledger/rules';
+import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty, revealable } from '@realm-ledger/rules';
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { capitalize } from '../format.ts';
@@ -311,6 +311,8 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!v) return;
     await withBusy('Sealing: posting your hash and every AI ruler’s onchain…', async () => {
       const set: OrderSet = { realm: v.human, season: v.season, orders };
+      // a seal the contract couldn't accept as a reveal would leave the season stuck
+      if (!revealable(set)) throw new Error('These orders are too large for the contract to accept as a reveal. Remove some and seal again.');
       // the wallet that must sign, checked before anything is stored
       const wallet = v.player ? walletFor(v) : null;
       // an earlier attempt's seal may already be onchain (the contract takes one per season):

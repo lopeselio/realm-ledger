@@ -26,6 +26,7 @@ mod tests;
 pub const AGENT_METHODS: &str = "seal,reveal,propose_treaty,accept_treaty,set_policy,hire,deliver,settle_job";
 /// Gas allowance on each agent key. When it runs out the agent can't sign; a new key is needed.
 pub const AGENT_GAS_ALLOWANCE: NearToken = NearToken::from_millinear(500);
+/// Largest reveal in bytes; packages/rules' MAX_REVEAL_BYTES must match it.
 const MAX_ORDERS_JSON: usize = 8_000;
 const MAX_TEXT: usize = 1_000;
 const MAX_REALMS: usize = 8;
