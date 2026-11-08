@@ -690,18 +690,36 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         // season for good: once the reveal window has closed the contract lets the referee
         // settle without it, so it does nothing this season
         const c = await view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
-        const failed = toSend.filter((x, i) => results[i]!.status === 'rejected' && x.realm !== HUMAN).map((x) => x.realm);
-        const unrevealed = await Promise.all(failed.map((realm) => revealed(realm)().then((r) => !r, () => false)));
-        const stuck = failed.filter((_, i) => unrevealed[i]);
+        const failed = toSend.filter((x, i) => results[i]!.status === 'rejected' && x.realm !== HUMAN);
+        // stuck means a failure that won't clear by itself: the seat's key is out of allowance
+        // or gone, or the contract refuses the orders. Anything else gets one more try first.
+        const permanent = (e: unknown) => /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/.test(String((e as Error)?.message ?? e)) || ORDERS_REFUSED.test(String((e as Error)?.message ?? e));
+        const retried = await Promise.all(
+          failed.map((x) =>
+            call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }).then(
+              () => null,
+              (e: unknown) => e,
+            ),
+          ),
+        );
+        const moved = !!c && c.season > before.season;
+        const unrevealed = await Promise.all(failed.map((x) => revealed(x.realm)().then((r) => !r, () => false)));
+        const stuck = failed.filter((_, i) => unrevealed[i] && retried[i] !== null && (moved || permanent(retried[i]))).map((x) => x.realm);
+        // a retry that succeeded counts as revealed
+        for (const [i, x] of failed.entries()) if (retried[i] === null) results[toSend.indexOf(x)] = { status: 'fulfilled', value: undefined };
         const others = results.some((r, i) => r.status === 'rejected' && !stuck.includes(toSend[i]!.realm));
         // the window closed, or the chain already settled this season without them (we
         // crashed after settling, before saving)
         const allowed = !!c && (c.season > before.season || Date.now() >= forfeitOpensAt(c));
-        if (others || stuck.length === 0 || !allowed) throw rejected.reason;
-        console.warn(`campaign ${h.id}: AI realms ${stuck.join(', ')} could not reveal; settling without them after the reveal window`);
-        reveals = reveals.filter((x) => !stuck.includes(x.realm));
-        forfeited.push(...stuck);
-        forfeited.sort((a, b) => a - b);
+        const still = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (others || (stuck.length > 0 && !allowed)) throw (still ?? rejected).reason;
+        // every failure was retried successfully, or is a stuck AI seat the contract lets us skip
+        if (stuck.length > 0) {
+          console.warn(`campaign ${h.id}: AI realms ${stuck.join(', ')} could not reveal; settling without them after the reveal window`);
+          reveals = reveals.filter((x) => !stuck.includes(x.realm));
+          forfeited.push(...stuck);
+          forfeited.sort((a, b) => a - b);
+        }
       }
       const rollSeed = seasonRollSeed(h.rollSecret, before.season);
       // treaties and deals were already applied to the state as they were made
