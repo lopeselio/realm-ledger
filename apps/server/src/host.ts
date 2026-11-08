@@ -230,7 +230,7 @@ export function reconcileAll(): void {
   }
 }
 
-/** Seat accounts whose key couldn't sign a reveal, and when: the referee reveals for them for an hour. */
+/** Seat accounts whose key couldn't sign a reveal, and when: the referee reveals for them for ten minutes. */
 const deadSeatKeys = new Map<string, { at: number; error: unknown }>();
 
 /** Seasons the sweep failed to settle, and when: tried again only after an hour. */
@@ -740,18 +740,21 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
         const seat = seatOf(h, x.realm);
         const dead = deadSeatKeys.get(seat);
-        // a seat whose key failed in the last hour goes straight to the referee, keeping that error
+        // a seat whose key failed in the last ten minutes goes straight to the referee, keeping that error
         let e: unknown = dead?.error;
-        if (!dead || dead.at < Date.now() - 3_600_000) {
+        if (!dead || dead.at < Date.now() - 10 * 60_000) {
           try {
             await call(seat, 'reveal', args(x), { done: revealed(x.realm) });
             deadSeatKeys.delete(seat);
             return;
           } catch (err) {
-            // the referee reveals instead when the seat's key can't sign: out of allowance, gone
-            // (every RPC agreeing it doesn't exist), or not allowed to call `reveal`
-            if (!isKeyFailure(err) && !isMethodNotAllowed(err) && !/AccessKeyDoesNotExist|does not exist at block height/.test(errText(err))) throw err;
-            deadSeatKeys.set(seat, { at: Date.now(), error: err });
+            // the referee reveals instead when the seat's key can't sign: out of allowance, gone, or
+            // not allowed to call `reveal`. Every RPC saying the key "does not exist at block
+            // height" may only mean they're all behind: the referee tries, but that's neither
+            // remembered nor taken as permanent (the reveal is retried if the referee can't)
+            const lagging = /AccessKeyDoesNotExist|does not exist at block height/.test(errText(err));
+            if (!isKeyFailure(err) && !isMethodNotAllowed(err) && !lagging) throw err;
+            if (!lagging) deadSeatKeys.set(seat, { at: Date.now(), error: err });
             e = err;
           }
         }
@@ -766,8 +769,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // a failure that won't clear by itself: the seat's key is out of allowance or gone, or the
       // contract refused the call (a contract panic is deterministic; a network or nonce error
       // is not)
-      // (including a seat key every RPC said doesn't exist, which the referee couldn't cover)
-      const permanent = (e: unknown): boolean => isKeyFailure(e) || isMethodNotAllowed(e) || isContractError(e) || /AccessKeyDoesNotExist/.test(errText(e));
+      const permanent = (e: unknown): boolean => isKeyFailure(e) || isMethodNotAllowed(e) || isContractError(e);
       const readCampaign = () => view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
       // AI seats whose orders the contract already refused this season aren't sent again:
       // each try would spend the seat's gas allowance

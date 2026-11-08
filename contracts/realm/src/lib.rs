@@ -215,6 +215,8 @@ pub enum Event {
     #[event_version("1.0.0")]
     Forfeited { campaign: u64, season: u32, realm: u8 },
     #[event_version("1.0.0")]
+    KeptRevealsCleared { campaign: u64, season: u32 },
+    #[event_version("1.0.0")]
     TreatyProposed { campaign: u64, treaty: u32, kind: TreatyKind, realms: [u8; 2], amount: u64 },
     #[event_version("1.0.0")]
     TreatySigned { campaign: u64, treaty: u32 },
@@ -475,9 +477,10 @@ impl RealmLedger {
         let now = env::block_timestamp_ms();
         let c = self.campaign(campaign);
         require!(c.referee == env::predecessor_account_id(), "only the referee clears kept reveals");
-        let abandoned = c.season == season && now >= c.seal_deadline_ms + 2 * c.season_ms;
+        let abandoned = c.season == season && now >= c.seal_deadline_ms.saturating_add(c.season_ms.saturating_mul(2));
         require!(season < c.season || abandoned, "that season can still be settled");
         clear_kept_reveals(campaign, season, c.realms.len());
+        Event::KeptRevealsCleared { campaign, season }.emit();
     }
 
     /// The referee posts the result of resolving the season with packages/rules: the new

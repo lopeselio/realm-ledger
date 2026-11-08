@@ -106,9 +106,9 @@ export function keyIsCurrent(signer: Signer): boolean {
     // once the chain says it's gone, and the wallet then has to approve every move
     const stored = JSON.parse(localStorage.getItem(`access_key::plugin::testnet::${signer.accountId}`) ?? 'null') as { contractId?: string; methodNames?: string[] } | null;
     if (!stored) return false;
-    if (!stored.methodNames) return true;
     // a key for another contract signs none of our moves
     if (stored.contractId !== undefined && stored.contractId !== CONTRACT) return false;
+    if (!stored.methodNames) return true;
     // an empty list means any method on that contract
     return stored.methodNames.length === 0 || RULER_METHODS.every((m) => stored.methodNames!.includes(m));
   } catch {
