@@ -606,7 +606,15 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (revealedNow) {
         // revealed onchain, from whichever browser: those orders count, and the contract keeps
         // them until the season settles, so a browser that lost them doesn't matter
-        if (orders && salt !== null) return check(orders, salt, true);
+        // the orders sent here, if they match the seal; otherwise (a stale copy in another
+        // browser) the ones the contract kept
+        if (orders && salt !== null) {
+          try {
+            return check(orders, salt, true);
+          } catch {
+            // fall through to the kept orders
+          }
+        }
         let kept: { orders: string; salt: string } | null;
         try {
           kept = (await view<{ orders: string; salt: string }>('get_reveal', where)) ?? null;

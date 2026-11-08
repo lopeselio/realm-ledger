@@ -249,6 +249,8 @@ export function useGame(id: number | null, signer: Signer | null) {
         // nothing to sign if it's forfeited or revealed already, or the season moved on
         const settled = (x: Awaited<ReturnType<typeof onChain>>) => x.declared || x.revealed || x.moved;
         let state = await onChain(v);
+        // a forfeit can't be undone: never sign one without knowing the chain's state
+        if (!state.known) throw new Error('The chain could not be read to check your orders; try again in a moment.');
         if (!settled(state)) {
           say('Giving up your sealed orders onchain from your account…');
           try {
