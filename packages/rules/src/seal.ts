@@ -64,6 +64,8 @@ export function revealable(o: OrderSet, salt?: string): boolean {
   const ok = (v: unknown): boolean => {
     if (typeof v === 'number') return Number.isSafeInteger(v);
     if (typeof v === 'string') return !lone.test(v);
+    // JSON has no functions, symbols or bigints
+    if (typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') return false;
     // canonical JSON can't write undefined inside an array (in an object it drops the key)
     if (v === undefined) return false;
     if (Array.isArray(v)) return v.every(ok);

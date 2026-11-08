@@ -510,9 +510,12 @@ impl RealmLedger {
             Event::TreatyBroken { campaign, treaty: id, by, season }.emit();
         }
         c.state_hashes.push(state_hash.clone());
-        // this season's kept reveals are no longer needed
-        for i in 0..n as u8 {
-            env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
+        // this season's kept reveals are no longer needed (only wallet realms have one)
+        let here = env::current_account_id();
+        for (i, r) in c.realms.iter().enumerate() {
+            if !r.ruler.is_sub_account_of(&here) {
+                env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i as u8));
+            }
         }
         c.season += 1;
         c.sealed = vec![false; n];

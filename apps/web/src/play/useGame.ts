@@ -142,10 +142,14 @@ export function useGame(id: number | null, signer: Signer | null) {
     // as lost: offer to settle without them
     const secret = found && revealable(found.orders, found.salt) ? found : null;
     if (!secret) {
-      const { c, revealed, declared } = await onChain(v);
+      const { c, revealed, declared, known } = await onChain(v);
       // still the same sealed season once the chain answered
       const cur = viewRef.current;
       if (cur?.id !== v.id || cur.season !== v.season || cur.phase !== 'sealed') return;
+      if (!known) {
+        say('Your sealed orders are not here, and the chain could not be read to see what can be done. Reload to try again.', 'error');
+        return;
+      }
       if (declared && !revealed) {
         // your wallet already forfeited (from another browser): finish settling without them
         await withBusy('Your wallet forfeited these orders; settling the season without them…', async () => {
@@ -197,9 +201,9 @@ export function useGame(id: number | null, signer: Signer | null) {
             // a forfeit from another browser may have landed first: decide from the chain
             state = await onChain(v);
             if (!state.revealed && !state.declared && !state.moved) {
-              // still unrevealed: whatever the reason (a refusal, a cancelled popup), your wallet
-              // can always give these orders up instead, so offer that too
-              if (state.known) setForfeitAt(Date.now());
+              // still unrevealed because the contract refused the reveal (not a cancelled popup or
+              // a network error): your wallet can give these orders up instead, so offer that
+              if (state.known && /panicked|FunctionCallError|ExecutionError/i.test(String((e as Error)?.message ?? e))) setForfeitAt(Date.now());
               throw state.known ? e : unreadable(e);
             }
           }

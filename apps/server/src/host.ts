@@ -591,14 +591,10 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (settledWithout) return { forfeited: [HUMAN] };
       // a wallet's forfeit was just sent: an RPC node may not have seen it yet
       let revealedNow = !!rec?.revealed;
-      // likewise a wallet's reveal: the browser posts right after it lands
-      for (let i = 0; h.player && !forfeit && !declared && !revealedNow && orders && i < 3; i++) {
+      // a wallet's browser posts right after its reveal or forfeit lands onchain: an RPC node may
+      // not have seen it yet, so re-read both a few times (either may land meanwhile)
+      for (let i = 0; h.player && (forfeit || orders) && !declared && !revealedNow && i < 3; i++) {
         await new Promise((r) => setTimeout(r, 2_000));
-        revealedNow = await view<{ revealed: boolean }>('get_seal', where).then((x) => !!x?.revealed, () => false);
-      }
-      for (let i = 0; forfeit && h.player && !declared && !revealedNow && i < 3; i++) {
-        await new Promise((r) => setTimeout(r, 2_000));
-        // either may land meanwhile: a reveal from another browser counts instead
         [declared, revealedNow] = await Promise.all([readForfeit(), view<{ revealed: boolean }>('get_seal', where).then((x) => !!x?.revealed, () => revealedNow)]);
       }
       // orders an earlier attempt saved (it may have revealed, then crashed): we hold them, so

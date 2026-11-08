@@ -33,4 +33,8 @@ describe('revealable: what the contract accepts as a reveal', () => {
     expect(revealable(ok, 'a'.repeat(128))).toBe(true);
     expect(revealable(ok, 'é'.repeat(100))).toBe(false); // 100 characters, 200 bytes
   });
+
+  it('refuses values JSON cannot hold', () => {
+    expect(revealable(set([{ kind: 'march', from: 1, to: 2, f: () => 1 }]))).toBe(false);
+  });
 });
