@@ -230,8 +230,8 @@ export function reconcileAll(): void {
   }
 }
 
-/** Seat accounts whose key can't sign a reveal (out of allowance, gone, or not allowed): until restart. */
-const deadSeatKeys = new Set<string>();
+/** Seat accounts whose key couldn't sign a reveal, and when: the referee reveals for them for an hour. */
+const deadSeatKeys = new Map<string, { at: number; error: unknown }>();
 
 /** Seasons the sweep failed to settle, and when: tried again only after an hour. */
 const sweepFailed = new Map<string, number>();
@@ -739,27 +739,35 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // against the seal just the same
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
         const seat = seatOf(h, x.realm);
-        try {
-          // a seat whose key already failed for good goes straight to the referee
-          if (deadSeatKeys.has(seat)) throw new Error(`Access key of ${seat} does not exist on account (failed earlier)`);
-          await call(seat, 'reveal', args(x), { done: revealed(x.realm) });
-        } catch (e) {
-          // (a key that may not call `reveal` at all is the same: the referee can)
-          if (!isKeyFailure(e) && !isMethodNotAllowed(e)) throw e;
-          deadSeatKeys.add(seat);
-          console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${errText(e).slice(0, 80)}); the referee reveals for it`);
-          await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
-            console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
-            // the referee can't sign it either (its key lacks the method, or is out of allowance):
-            // the seat's own, permanent, failure stands. Anything else may clear: retry later.
-            throw isKeyFailure(r) || isMethodNotAllowed(r) ? e : r;
-          });
+        const dead = deadSeatKeys.get(seat);
+        // a seat whose key failed in the last hour goes straight to the referee, keeping that error
+        let e: unknown = dead?.error;
+        if (!dead || dead.at < Date.now() - 3_600_000) {
+          try {
+            await call(seat, 'reveal', args(x), { done: revealed(x.realm) });
+            deadSeatKeys.delete(seat);
+            return;
+          } catch (err) {
+            // the referee reveals instead when the seat's key can't sign: out of allowance, gone
+            // (every RPC agreeing it doesn't exist), or not allowed to call `reveal`
+            if (!isKeyFailure(err) && !isMethodNotAllowed(err) && !/AccessKeyDoesNotExist|does not exist at block height/.test(errText(err))) throw err;
+            deadSeatKeys.set(seat, { at: Date.now(), error: err });
+            e = err;
+          }
         }
+        console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${errText(e).slice(0, 80)}); the referee reveals for it`);
+        await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
+          console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
+          // the referee can't sign it either (its key lacks the method, or is out of allowance):
+          // the seat's own, permanent, failure stands. Anything else may clear: retry later.
+          throw isKeyFailure(r) || isMethodNotAllowed(r) ? e : r;
+        });
       };
       // a failure that won't clear by itself: the seat's key is out of allowance or gone, or the
       // contract refused the call (a contract panic is deterministic; a network or nonce error
       // is not)
-      const permanent = (e: unknown): boolean => isKeyFailure(e) || isMethodNotAllowed(e) || isContractError(e);
+      // (including a seat key every RPC said doesn't exist, which the referee couldn't cover)
+      const permanent = (e: unknown): boolean => isKeyFailure(e) || isMethodNotAllowed(e) || isContractError(e) || /AccessKeyDoesNotExist/.test(errText(e));
       const readCampaign = () => view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
       // AI seats whose orders the contract already refused this season aren't sent again:
       // each try would spend the seat's gas allowance

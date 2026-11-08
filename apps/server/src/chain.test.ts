@@ -33,6 +33,12 @@ describe('RPC failover', () => {
     await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(telling);
   });
 
+  it('ranks a key error above an RPC-side error', async () => {
+    const key = Object.assign(new Error('Access key ed25519:x does not exist on account a.testnet'), { name: 'AccessKeyNotFoundActionError' });
+    const p = withRealErrors(new FailoverRpcProvider([failing(key), failing(new Error('[-32000] Server error: UNKNOWN_BLOCK'))]));
+    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(key);
+  });
+
   it('moves on to the next RPC after a network failure', async () => {
     const ok = Object.assign(new JsonRpcProvider({ url: 'http://unused.invalid' }), { viewAccessKey: async () => ({ nonce: 1 }) });
     const p = withRealErrors(new FailoverRpcProvider([failing(new Error('fetch failed')), ok]));
