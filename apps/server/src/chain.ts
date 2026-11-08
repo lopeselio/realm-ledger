@@ -19,8 +19,6 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
     this: Failover,
     get: (p: unknown) => Promise<unknown>,
   ): Promise<unknown> {
-    // if every RPC fails, the most telling error wins: one about the request (a key that
-    // doesn't exist yet on a lagging node, say) over "fetch failed"
     // ranked: the network (2) over an RPC's own error (1) over "does not exist" (0), since a
     // lagging RPC says that of a key added a moment ago: a partial outage stays an outage
     // (retried), and "does not exist" stands only when every RPC that answered said it
@@ -36,8 +34,10 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
       const at = (start + i) % n;
       try {
         const result = await get(this.providers[at]);
-        this.currentProviderIndex = at;
-        if (result !== undefined) return result;
+        if (result !== undefined) {
+          this.currentProviderIndex = at;
+          return result;
+        }
         // an empty answer may be a lagging RPC's: ask the next, but it stands if none says more
         empty = true;
       } catch (e) {
@@ -85,8 +85,10 @@ export function isNetworkError(e: unknown): boolean {
   if (cause instanceof Error && isNetworkError(cause)) return true;
   // (status codes come in `cause`, checked above: a bare number in a message is too often a
   // nonce, block height or amount)
-  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|Exceeded \d+ attempts|RetriesExceeded|ShardCongested|ShardStuck|Expired/i.test(
-    String((e as Error)?.message ?? e),
+  // also an RPC's own trouble (a node behind or overloaded) and a timed-out transaction, which
+  // may still land: all worth retrying, none an answer about the request
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|timed out|TransactionTimeout|Exceeded \d+ attempts|RetriesExceeded|ShardCongested|ShardStuck|Expired|Server error|UNKNOWN_BLOCK|NO_SYNCED_BLOCKS|INTERNAL_ERROR/i.test(
+    `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`,
   );
 }
 

@@ -108,9 +108,8 @@ export function keyIsCurrent(signer: Signer): boolean {
     if (!stored) return false;
     // a key for another contract signs none of our moves
     if (stored.contractId !== undefined && stored.contractId !== CONTRACT) return false;
-    if (!stored.methodNames) return true;
     // an empty list means any method on that contract
-    return stored.methodNames.length === 0 || RULER_METHODS.every((m) => stored.methodNames!.includes(m));
+    return !stored.methodNames?.length || RULER_METHODS.every((m) => stored.methodNames!.includes(m));
   } catch {
     return true;
   }

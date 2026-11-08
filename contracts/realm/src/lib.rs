@@ -468,8 +468,9 @@ impl RealmLedger {
         Event::Forfeited { campaign, season, realm }.emit();
     }
 
-    /// The referee frees the reveals kept for a season nobody will settle: once a full season
-    /// has passed after the reveal window (or the season settled already). They cost the
+    /// The referee frees the reveals kept for the current season when nobody will settle it:
+    /// once a full season has passed after the reveal window (a settled season's are already
+    /// gone). A reveal made afterwards is kept again, and can be cleared the same way. They cost the
     /// contract storage, and an abandoned campaign would hold them forever. After this the
     /// season can still settle, but only with the revealed orders from elsewhere (the
     /// `revealed` event), so the referee uses it only for seasons it can't settle itself.

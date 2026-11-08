@@ -757,9 +757,10 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         try {
           await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
         } catch (e) {
-          // a contract panic is the chain's answer; a network failure was already retried and the
-          // reveal may still land, so the next attempt (not the referee) picks it up
-          if (isContractError(e) || isNetworkError(e)) throw e;
+          // only when the seat's key can't sign; anything else (a contract panic, a network
+          // failure that was already retried and may still land, a stale nonce) is thrown, and
+          // the next attempt picks it up
+          if (!isKeyFailure(e) && !isMethodNotAllowed(e) && !/AccessKeyDoesNotExist|does not exist/.test(errText(e))) throw e;
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${errText(e).slice(0, 80)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
