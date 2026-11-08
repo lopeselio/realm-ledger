@@ -255,12 +255,17 @@ pub struct RealmLedger {
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// Written the same way by packages/rules' canonical JSON and by serde_json: every object's
-/// keys sorted (serde_json keeps insertion order here, so re-serializing alone doesn't prove
-/// it), and every number a safe integer (larger or fractional numbers print differently).
+/// keys printable ASCII (so JavaScript's UTF-16 sort and byte order agree) and sorted
+/// (serde_json keeps insertion order here, so re-serializing alone doesn't prove it), and
+/// every number a safe integer (larger or fractional numbers print differently).
 fn canonical_shape(v: &near_sdk::serde_json::Value) -> bool {
     use near_sdk::serde_json::Value;
     match v {
-        Value::Object(m) => m.keys().zip(m.keys().skip(1)).all(|(a, b)| a < b) && m.values().all(canonical_shape),
+        Value::Object(m) => {
+            m.keys().all(|k| k.bytes().all(|b| (0x20..=0x7e).contains(&b)))
+                && m.keys().zip(m.keys().skip(1)).all(|(a, b)| a < b)
+                && m.values().all(canonical_shape)
+        }
         Value::Array(a) => a.iter().all(canonical_shape),
         Value::Number(n) => n.as_u64().map(|x| x <= MAX_SAFE_INTEGER).or_else(|| n.as_i64().map(|x| x.unsigned_abs() <= MAX_SAFE_INTEGER)).unwrap_or(false),
         _ => true,

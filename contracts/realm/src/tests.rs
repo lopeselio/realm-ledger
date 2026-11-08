@@ -469,3 +469,16 @@ fn a_reveal_uses_safe_integers_only() {
     as_(ruler(1), 3_000);
     c.reveal(id, 1, big.into(), "s".into());
 }
+
+#[test]
+#[should_panic(expected = "orders must be canonical JSON")]
+fn a_reveal_uses_ascii_keys_only() {
+    let (mut c, id) = setup();
+    let accented = "{\"orders\":[{\"kind\":\"march\",\"\u{e9}\":1}],\"realm\":1,\"season\":0}";
+    for i in 0..3 {
+        as_(ruler(i), 2_000);
+        c.seal(id, i as u8, commitment(accented, "s"));
+    }
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, accented.into(), "s".into());
+}

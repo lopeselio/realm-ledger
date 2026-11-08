@@ -689,14 +689,15 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         // an AI seat whose reveal can't land (its key out of gas allowance, say) would block the
         // season for good: once the reveal window has closed the contract lets the referee
         // settle without it, so it does nothing this season
-        const c = await view<{ seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id }).catch(() => null);
-        const stuck: number[] = [];
-        for (const [i, r] of results.entries()) {
-          const realm = toSend[i]!.realm;
-          if (r.status === 'rejected' && realm !== HUMAN && !(await revealed(realm)().catch(() => true))) stuck.push(realm);
-        }
+        const c = await view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
+        const failed = toSend.filter((x, i) => results[i]!.status === 'rejected' && x.realm !== HUMAN).map((x) => x.realm);
+        const unrevealed = await Promise.all(failed.map((realm) => revealed(realm)().then((r) => !r, () => false)));
+        const stuck = failed.filter((_, i) => unrevealed[i]);
         const others = results.some((r, i) => r.status === 'rejected' && !stuck.includes(toSend[i]!.realm));
-        if (others || stuck.length === 0 || !c || Date.now() < forfeitOpensAt(c)) throw rejected.reason;
+        // the window closed, or the chain already settled this season without them (we
+        // crashed after settling, before saving)
+        const allowed = !!c && (c.season > before.season || Date.now() >= forfeitOpensAt(c));
+        if (others || stuck.length === 0 || !allowed) throw rejected.reason;
         console.warn(`campaign ${h.id}: AI realms ${stuck.join(', ')} could not reveal; settling without them after the reveal window`);
         reveals = reveals.filter((x) => !stuck.includes(x.realm));
         forfeited.push(...stuck);
