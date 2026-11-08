@@ -198,7 +198,17 @@ export function useGame(id: number | null, signer: Signer | null) {
         }
         forfeited = state.declared && !state.revealed;
       }
-      const r = await settle(v, forfeited ? { forfeit: true } : secret);
+      let r: Awaited<ReturnType<typeof settle>>;
+      try {
+        r = await settle(v, forfeited ? { forfeit: true } : secret);
+      } catch (e) {
+        // the contract refused these orders: they can't be revealed, so offer to settle without them
+        if (/settle the season without them/.test((e as Error).message)) {
+          const { c } = await onChain(v);
+          if (c) setForfeitAt(v.player ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000);
+        }
+        throw e;
+      }
       if (!adopt(r.view)) return;
       freshDraft();
       say(
@@ -312,7 +322,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     await withBusy('Sealing: posting your hash and every AI ruler’s onchain…', async () => {
       const set: OrderSet = { realm: v.human, season: v.season, orders };
       // a seal the contract couldn't accept as a reveal would leave the season stuck
-      if (!revealable(set)) throw new Error('These orders are too large for the contract to accept as a reveal. Remove some and seal again.');
+      if (!revealable(set)) throw new Error('The contract could not accept these orders as a reveal: they are too large, or hold a value it cannot store. Change them and seal again.');
       // the wallet that must sign, checked before anything is stored
       const wallet = v.player ? walletFor(v) : null;
       // an earlier attempt's seal may already be onchain (the contract takes one per season):

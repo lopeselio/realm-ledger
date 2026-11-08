@@ -1,7 +1,40 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { aiDiplomacy, aiMarket, aiOrders, applyDeal, planDeals, planTask, reportHolds, sha256Hex, spyReport, type Deal, type Goal, type Plan, type SpyReport, canonicalJson, commit, considerTreaty, newCampaign, replaySeason, RULES_VERSION, scores, sealOrders, seasonName, seasonRollSeed, signTreaty, START_PURSE, stateHash, viewFor, type GameEvent, type GameState, type OrderSet, type Treaty, revealable } from '@realm-ledger/rules';
+import {
+  aiDiplomacy,
+  aiMarket,
+  aiOrders,
+  applyDeal,
+  planDeals,
+  planTask,
+  reportHolds,
+  sha256Hex,
+  spyReport,
+  type Deal,
+  type Goal,
+  type Plan,
+  type SpyReport,
+  canonicalJson,
+  revealable,
+  commit,
+  considerTreaty,
+  newCampaign,
+  replaySeason,
+  RULES_VERSION,
+  scores,
+  sealOrders,
+  seasonName,
+  seasonRollSeed,
+  signTreaty,
+  START_PURSE,
+  stateHash,
+  viewFor,
+  type GameEvent,
+  type GameState,
+  type OrderSet,
+  type Treaty,
+} from '@realm-ledger/rules';
 import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
 import { accountExists, call, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
@@ -514,7 +547,6 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 
 // ---------- reveal and resolve ----------
 
-
 /**
  * Reveals every seal and resolves the season. With `forfeit`, your sealed orders are given up
  * (your realm does nothing this season), for when the browser holding them is gone: a
@@ -539,14 +571,16 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }),
         view<{ revealed: boolean }>('get_seal', where),
         readForfeit(),
-      ]);
+      ]).catch(() => {
+        throw new GameError('could not read the campaign onchain; try again in a moment', 503);
+      });
       let declared = firstRead;
       if (!c) throw new GameError('campaign not found onchain', 502);
       const check = (o: OrderSet, s: string) => {
         if (o.realm !== HUMAN || o.season !== before.season) throw new GameError('those orders are for another realm or season');
         // what the contract accepts as a reveal: refused here, before they're saved, so they
         // can't block the season
-        if (!revealable(o)) throw new GameError('those orders are not something the contract can accept as a reveal');
+        if (!revealable(o) || s.length > 128) throw new GameError('those orders are not something the contract can accept as a reveal');
         if (sealOrders(o, s) !== seal) throw new GameError('those orders do not match your seal');
         return { reveal: { realm: HUMAN, orders: o, salt: s, seal }, forfeited: [] };
       };

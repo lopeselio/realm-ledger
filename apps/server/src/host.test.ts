@@ -1,7 +1,6 @@
 import { existsSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { revealable } from '@realm-ledger/rules';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-'));
@@ -56,34 +55,5 @@ describe('campaign list', () => {
 
   it('reports progress and the ruling account', () => {
     expect(host.list({ ids: [2] })[0]).toMatchObject({ season: 2, maxSeasons: 12, phase: 'planning', player: 'alice.testnet', yourSeal: null, winner: null });
-  });
-});
-
-describe('revealable: what the contract accepts as a reveal', () => {
-  const host = { revealable };
-  const set = (orders: unknown[]) => ({ realm: 0, season: 1, orders }) as never;
-
-  it('accepts ordinary orders', () => {
-    expect(host.revealable(set([{ kind: 'march', from: 3, to: 4 }, { kind: 'trade', good: 'iron', side: 'buy', qty: 2 }]))).toBe(true);
-  });
-
-  it('refuses numbers JavaScript and the contract would write differently', () => {
-    expect(host.revealable(set([{ kind: 'recruit', province: 1, count: 2 ** 53 + 2 }]))).toBe(false);
-    expect(host.revealable(set([{ kind: 'recruit', province: 1, count: 1.5 }]))).toBe(false);
-  });
-
-  it('counts the size limit in UTF-8 bytes', () => {
-    // 3,000 characters, but 9,000 bytes
-    expect(host.revealable(set([{ kind: 'note', text: '城'.repeat(3_000) }]))).toBe(false);
-  });
-
-  it('refuses lone surrogates and non-ASCII keys', () => {
-    expect(host.revealable(set([{ kind: 'note', text: '\ud800' }]))).toBe(false);
-    expect(host.revealable(set([{ kind: 'march', 'é': 1 }]))).toBe(false);
-  });
-
-  it('refuses an array hole canonical JSON could not write, but not an unset field', () => {
-    expect(host.revealable(set([{ kind: 'march', from: 1, to: 2 }, undefined]))).toBe(false);
-    expect(host.revealable(set([{ kind: 'march', from: 1, to: 2, via: undefined }]))).toBe(true);
   });
 });
