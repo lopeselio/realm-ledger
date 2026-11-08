@@ -261,7 +261,8 @@ export async function sweepAbandoned(): Promise<void> {
       await revealSeason(h.id, null, null, false, season);
       sweepFailed.delete(key);
     } catch (e) {
-      sweepFailed.set(key, Date.now());
+      // orders no longer kept onchain (cleared by hand) can't come back: stop trying this season
+      sweepFailed.set(key, /not kept onchain/.test((e as Error).message) ? Infinity : Date.now());
       console.warn(`sweep ${h.id}: ${(e as Error).message}`);
     }
   }

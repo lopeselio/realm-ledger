@@ -6,30 +6,38 @@ import { config, privateKey } from './config.ts';
 
 // several public testnet RPCs (docs.near.org/api/rpc/providers); on a failure the next one is used
 const RPCS = [config.rpcUrl, 'https://near-testnet.drpc.org', 'https://testnet-rpc.intea.rs'].filter((u, i, a) => a.indexOf(u) === i);
-const provider = new FailoverRpcProvider(RPCS.map((url) => new JsonRpcProvider({ url })));
+const provider = withRealErrors(new FailoverRpcProvider(RPCS.map((url) => new JsonRpcProvider({ url }))));
 
 // near-api-js's failover tries the next RPC on any error and, once all have failed, throws
 // "Exceeded 3 providers" in place of what went wrong, so a refused transaction (a key out of
 // allowance, a method its key may not call) became indistinguishable from an outage. Here
 // only network failures move on to the next RPC; any other error is the answer, unchanged.
+// (chain.test.ts checks this still holds for the installed near-api-js)
 type Failover = { providers: unknown[]; currentProvider: unknown; switchToNextProvider(): void };
-(provider as unknown as { withBackoff: (get: (p: unknown) => Promise<unknown>) => Promise<unknown> }).withBackoff = async function (
-  this: Failover,
-  get: (p: unknown) => Promise<unknown>,
-): Promise<unknown> {
-  let last: unknown;
-  for (let i = 0; i < this.providers.length; i++) {
-    try {
-      const result = await get(this.currentProvider);
-      if (result !== undefined) return result;
-    } catch (e) {
-      if (!isNetworkError(e)) throw e;
-      last = e;
+export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
+  (failover as unknown as { withBackoff: (get: (p: unknown) => Promise<unknown>) => Promise<unknown> }).withBackoff = async function (
+    this: Failover,
+    get: (p: unknown) => Promise<unknown>,
+  ): Promise<unknown> {
+    let last: unknown;
+    let answered = false;
+    for (let i = 0; i < this.providers.length; i++) {
+      try {
+        const result = await get(this.currentProvider);
+        if (result !== undefined) return result;
+        // an empty answer (a method returning nothing) is an answer; another RPC may still say more
+        answered = true;
+      } catch (e) {
+        if (!isNetworkError(e)) throw e;
+        last = e;
+      }
+      this.switchToNextProvider();
     }
-    this.switchToNextProvider();
-  }
-  throw last ?? new Error(`no answer from ${this.providers.length} RPC providers`);
-};
+    if (answered) return undefined;
+    throw last ?? new Error(`no answer from ${this.providers.length} RPC providers`);
+  };
+  return failover;
+}
 const accounts = new Map<string, Account>();
 const queues = new Map<string, Promise<unknown>>();
 
@@ -56,7 +64,8 @@ export interface CallOptions {
 }
 
 function isNetworkError(e: unknown): boolean {
-  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|503|502|504|429|Too Many Requests|timeout|Exceeded \d+ attempts|RetriesExceeded|Server error/i.test(
+  // status codes only as whole words: block heights and amounts in other errors contain digits
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|\b(?:429|502|503|504)\b|Too Many Requests|timeout|Exceeded \d+ attempts|RetriesExceeded/i.test(
     String((e as Error)?.message ?? e) + String((e as { cause?: unknown })?.cause ?? ''),
   );
 }

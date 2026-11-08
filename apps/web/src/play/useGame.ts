@@ -265,7 +265,7 @@ export function useGame(id: number | null, signer: Signer | null) {
               if (!state.known) throw unreadable(e);
               const msg = (e as Error).message;
               if (/does not allow method|MethodNameMismatch|MethodNotAllowed|method name is not allowed|not allowed to call/i.test(msg)) {
-                throw new Error(`${msg} Your wallet key predates this action: press Refresh key at the top, then try again.`);
+                throw new Error(`${msg} Your wallet key predates this action: sign out and sign in again (Refresh key at the top does both), then try again.`);
               }
               throw e;
             }
