@@ -597,9 +597,10 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false, onlySeason?: number): Promise<GameEvent[]> {
   return locked(id, async () => {
     const h = get(id);
+    // the sweep settles only the season it watched, still sealed; if the player finished it
+    // meanwhile, or a later one is open, there's nothing for the sweep to do
+    if (onlySeason !== undefined && (h.state.season !== onlySeason || h.phase !== 'sealed')) return [];
     if (h.phase !== 'sealed') throw new GameError('nothing sealed to reveal');
-    // the sweep settles only the season it watched; a later one is the player's to finish
-    if (onlySeason !== undefined && h.state.season !== onlySeason) return [];
     const before = h.state;
 
     /** Your part of the season: your revealed orders, or your realm forfeited. */

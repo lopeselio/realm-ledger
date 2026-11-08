@@ -99,9 +99,12 @@ async function devSigner(): Promise<Signer | null> {
 export function keyIsCurrent(accountId: string): boolean {
   try {
     // where function-call-key-plugin keeps the key it created at sign-in
-    const stored = JSON.parse(localStorage.getItem(`access_key::plugin::testnet::${accountId}`) ?? 'null') as { methodNames?: string[] } | null;
+    const stored = JSON.parse(localStorage.getItem(`access_key::plugin::testnet::${accountId}`) ?? 'null') as { contractId?: string; methodNames?: string[] } | null;
     if (!stored?.methodNames) return true; // no plugin key here (dev signer, or the wallet signs every move)
-    return RULER_METHODS.every((m) => stored.methodNames!.includes(m));
+    // a key for another contract signs none of our moves
+    if (stored.contractId !== undefined && stored.contractId !== CONTRACT) return false;
+    // an empty list means any method on that contract
+    return stored.methodNames.length === 0 || RULER_METHODS.every((m) => stored.methodNames!.includes(m));
   } catch {
     return true;
   }
