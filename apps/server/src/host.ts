@@ -232,8 +232,10 @@ export function reconcileAll(): void {
 
 /** Seat accounts whose key couldn't sign a reveal, and when: the referee reveals for them for ten minutes. */
 const deadSeatKeys = new Map<string, { at: number; error: unknown }>();
+/** Seat accounts every RPC says have no such key, since when (lag clears in seconds; a deleted key doesn't). */
+const missingSince = new Map<string, number>();
 
-/** Seasons the sweep failed to settle, and when: tried again only after an hour. */
+/** Seasons the sweep failed to settle, and when: tried again after ten minutes (the next sweep). */
 const sweepFailed = new Map<string, number>();
 
 /**
@@ -271,7 +273,7 @@ export async function sweepAbandoned(): Promise<void> {
       const msg = String((e as Error)?.message ?? e);
       // orders no longer kept onchain, or refused by the contract, won't change: stop trying this
       // season (the player can still settle it without them); anything else, an hour from now
-      sweepFailed.set(key, /not kept onchain|refused your orders/.test(msg) ? Infinity : Date.now());
+      sweepFailed.set(key, /not kept onchain|refused your orders/.test(msg) ? Infinity : Date.now() - 50 * 60_000);
       console.warn(`sweep ${h.id}: ${msg}`);
     }
   }
@@ -746,13 +748,25 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           try {
             await call(seat, 'reveal', args(x), { done: revealed(x.realm) });
             deadSeatKeys.delete(seat);
+            missingSince.delete(seat);
             return;
-          } catch (err) {
+          } catch (caught) {
+            let err: unknown = caught;
             // the referee reveals instead when the seat's key can't sign: out of allowance, gone, or
             // not allowed to call `reveal`. Every RPC saying the key "does not exist at block
             // height" may only mean they're all behind: the referee tries, but that's neither
             // remembered nor taken as permanent (the reveal is retried if the referee can't)
-            const lagging = /AccessKeyDoesNotExist|does not exist at block height/.test(errText(err));
+            // "does not exist" from every RPC is lag if it clears within minutes, a deleted key if it
+            // doesn't: after five minutes of it, the key counts as gone
+            let lagging = /AccessKeyDoesNotExist|does not exist at block height/.test(errText(err));
+            if (lagging) {
+              const since = missingSince.get(seat) ?? Date.now();
+              missingSince.set(seat, since);
+              if (Date.now() - since >= 5 * 60_000) {
+                lagging = false;
+                err = new Error(`Access key of ${seat} does not exist on account: still missing after five minutes (${errText(err).slice(0, 80)})`);
+              }
+            } else missingSince.delete(seat);
             if (!isKeyFailure(err) && !isMethodNotAllowed(err) && !lagging) throw err;
             if (!lagging) deadSeatKeys.set(seat, { at: Date.now(), error: err });
             e = err;

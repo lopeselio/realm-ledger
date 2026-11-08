@@ -25,16 +25,20 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
     const rank = (e: unknown): number =>
       /AccessKey|AccountDoesNotExist|does not exist|Not enough allowance/.test(`${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`) ? 2 : isNetworkError(e) ? 0 : 1;
     let telling: unknown;
+    let empty = false;
     for (let i = 0; i < this.providers.length; i++) {
       try {
-        // an empty answer (a method returning nothing) is an answer too
-        return await get(this.currentProvider);
+        const result = await get(this.currentProvider);
+        if (result !== undefined) return result;
+        // an empty answer may be a lagging RPC's: ask the next, but it stands if none says more
+        empty = true;
       } catch (e) {
         if (isRefusal(e)) throw e;
         if (telling === undefined || rank(e) > rank(telling)) telling = e;
       }
       this.switchToNextProvider();
     }
+    if (empty) return undefined;
     throw telling ?? new Error(`no answer from ${this.providers.length} RPC providers`);
   };
   return failover;
