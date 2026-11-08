@@ -173,6 +173,14 @@ function crashPoint(name: string): void {
 /** Lowest job id not yet seen; hires after this point get ids at or above it. */
 let jobFloor = 0;
 const isContractError = (e: unknown): boolean => /panicked|ExecutionError|FunctionCallError/i.test(String((e as Error)?.message ?? e));
+/** An error's class name and message, which is how near-api-js tells its errors apart. */
+const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
+/** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
+const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist|AccessKeyNotFound/;
+/** The signing key may not call this method. */
+const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch/;
+export const isKeyFailure = (e: unknown): boolean => KEY_FAILURE.test(errText(e));
+export const isMethodNotAllowed = (e: unknown): boolean => METHOD_NOT_ALLOWED.test(errText(e));
 
 const hex = (n = 32): string => randomBytes(n).toString('hex');
 const treatyKey = (t: Treaty): string => `${t.kind}:${Math.min(...t.realms)}:${Math.max(...t.realms)}`;
@@ -221,37 +229,36 @@ export function reconcileAll(): void {
   }
 }
 
-/** Campaign seasons the last sweep saw revealed onchain but not settled. */
-const seenUnsettled = new Set<string>();
+/** Seasons the sweep failed to settle, and when: tried again only after an hour. */
+const sweepFailed = new Map<string, number>();
 
 /**
  * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
  * are kept onchain at the contract's expense until its season settles, so an abandoned
- * campaign would otherwise hold them for good. Waits one sweep first, so a player still
- * mid-reveal finishes the season themselves. Runs in the background.
+ * campaign would otherwise hold them for good. Only once the season's seal deadline is ten
+ * minutes past (by the chain's clock, so restarts don't matter), so a player still mid-reveal
+ * finishes it themselves. Runs in the background.
  */
 export async function sweepAbandoned(): Promise<void> {
-  const seen = new Set<string>();
   for (const h of [...campaigns.values()]) {
     if (h.phase !== 'sealed' || !h.player) continue;
     const season = h.state.season;
+    const key = `${h.id}:${season}`;
+    if (Date.now() < (sweepFailed.get(key) ?? 0) + 3_600_000) continue;
     try {
       const [c, rec] = await Promise.all([
-        view<{ season: number }>('get_campaign', { campaign: h.id }),
+        view<{ season: number; seal_deadline_ms: number }>('get_campaign', { campaign: h.id }),
         view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
       ]);
-      if (!c || c.season !== season || !rec?.revealed) continue;
-      const key = `${h.id}:${season}`;
-      seen.add(key);
-      if (!seenUnsettled.has(key)) continue;
+      if (!c || c.season !== season || !rec?.revealed || Date.now() < c.seal_deadline_ms + 10 * 60_000) continue;
       console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
       await revealSeason(h.id, null, null, false, season);
+      sweepFailed.delete(key);
     } catch (e) {
+      sweepFailed.set(key, Date.now());
       console.warn(`sweep ${h.id}: ${(e as Error).message}`);
     }
   }
-  seenUnsettled.clear();
-  for (const k of seen) seenUnsettled.add(k);
 }
 
 export async function loadAll(): Promise<number> {
@@ -714,8 +721,6 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // a seat whose own key can't sign (out of gas allowance, or gone) is revealed by the
       // referee instead: the contract accepts the referee's reveal for any realm, and checks it
       // against the seal just the same
-      const errText = (e: unknown): string => String((e as Error)?.message ?? e);
-      const KEY_FAILURE = /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/;
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
         try {
           await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
@@ -726,7 +731,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
             // the referee can't sign it either (its key lacks the method, or is out of allowance):
             // the seat's own, permanent, failure stands. Anything else may clear: retry later.
-            throw KEY_FAILURE.test(errText(r)) || /MethodNameMismatch|MethodNotAllowed/.test(errText(r)) ? e : r;
+            throw KEY_FAILURE.test(errText(r)) || METHOD_NOT_ALLOWED.test(errText(r)) ? e : r;
           });
         }
       };
