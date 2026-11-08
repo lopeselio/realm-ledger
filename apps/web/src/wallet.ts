@@ -91,6 +91,22 @@ async function devSigner(): Promise<Signer | null> {
   };
 }
 
+/**
+ * Whether this browser's key for the account can sign every ruler move without a wallet popup.
+ * A key made at an earlier sign-in may lack a move added since (e.g. `forfeit`); the wallet
+ * then asks for approval of that move instead, and signing in again makes a current key.
+ */
+export function keyIsCurrent(accountId: string): boolean {
+  try {
+    // where function-call-key-plugin keeps the key it created at sign-in
+    const stored = JSON.parse(localStorage.getItem(`access_key::plugin::testnet::${accountId}`) ?? 'null') as { methodNames?: string[] } | null;
+    if (!stored?.methodNames) return true; // no plugin key here (dev signer, or the wallet signs every move)
+    return RULER_METHODS.every((m) => stored.methodNames!.includes(m));
+  } catch {
+    return true;
+  }
+}
+
 /** The signed-in account from an earlier visit, if any. */
 export async function restoreSigner(): Promise<Signer | null> {
   const dev = await devSigner();

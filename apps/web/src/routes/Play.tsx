@@ -10,7 +10,7 @@ import { api, type CampaignSummary } from '../api.ts';
 import { seasonTitle } from '../format.ts';
 import { recentCampaigns } from '../recent.ts';
 import { findSecret } from '../secrets.ts';
-import { restoreSigner, signIn, type Signer } from '../wallet.ts';
+import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
 
@@ -249,6 +249,15 @@ function Account({ game, signer, setSigner }: { game: Game; signer: Signer | nul
       setSigner(s);
       game.say(`Signed in as ${s.accountId}. New campaigns are ruled by your account.`);
     });
+  // a key from an earlier sign-in that lacks a newer move: sign in again to refresh it
+  const doRefreshKey = (): void =>
+    void game.withBusy('Refreshing your key: sign in again and approve the key limited to the realm contract…', async () => {
+      await signer?.signOut();
+      setSigner(null);
+      const s = await signIn();
+      setSigner(s);
+      game.say(`Signed in as ${s.accountId} with a current key.`);
+    });
   const doSignOut = (): void =>
     void game.withBusy('Signing out…', async () => {
       await signer?.signOut();
@@ -265,6 +274,14 @@ function Account({ game, signer, setSigner }: { game: Game; signer: Signer | nul
           <button type="button" onClick={doSignOut}>
             Sign out
           </button>
+          {!keyIsCurrent(signer.accountId) && (
+            <span className="fine stale-key">
+              Your key predates a newer move, so the wallet may ask you to approve it.{' '}
+              <button type="button" onClick={doRefreshKey}>
+                Refresh key
+              </button>
+            </span>
+          )}
         </>
       ) : (
         <>

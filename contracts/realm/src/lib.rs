@@ -466,6 +466,18 @@ impl RealmLedger {
         Event::Forfeited { campaign, season, realm }.emit();
     }
 
+    /// The referee frees the reveals kept for a season nobody will settle: once a full season
+    /// has passed after the reveal window (or the season settled already). They cost the
+    /// contract storage, and an abandoned campaign would hold them forever.
+    pub fn clear_kept_reveals(&mut self, campaign: u64, season: u32) {
+        let now = env::block_timestamp_ms();
+        let c = self.campaign(campaign);
+        require!(c.referee == env::predecessor_account_id(), "only the referee clears kept reveals");
+        let abandoned = c.season == season && now >= c.seal_deadline_ms + 2 * c.season_ms;
+        require!(season < c.season || abandoned, "that season can still be settled");
+        clear_kept_reveals(campaign, season, c.realms.len());
+    }
+
     /// The referee posts the result of resolving the season with packages/rules: the new
     /// state hash, each realm's treasury change, realms that fell and treaties broken.
     ///

@@ -221,6 +221,38 @@ export function reconcileAll(): void {
   }
 }
 
+/**
+ * Settles seasons whose player revealed onchain but never came back to finish them, and frees
+ * what the contract keeps for seasons nobody can settle. A wallet's revealed orders are kept
+ * onchain at the contract's expense until its season settles, so an abandoned campaign would
+ * otherwise hold them for good. Runs in the background.
+ */
+export async function sweepAbandoned(): Promise<void> {
+  for (const h of [...campaigns.values()]) {
+    if (h.phase === 'over' || !h.player) continue;
+    try {
+      const where = { campaign: h.id, season: h.state.season, realm: HUMAN };
+      const [c, rec] = await Promise.all([
+        view<{ seal_deadline_ms: number; season_ms: number; season: number; phase: string }>('get_campaign', { campaign: h.id }),
+        view<{ revealed: boolean }>('get_seal', where),
+      ]);
+      if (!c || !rec?.revealed) continue;
+      if (h.phase === 'sealed' && c.season === h.state.season) {
+        // the orders are onchain: settle with them, as the player's browser would have
+        console.log(`campaign ${h.id}: settling season ${h.state.season}, revealed onchain but not finished`);
+        await revealSeason(h.id, null, null);
+      } else if (h.phase === 'planning' && c.season === h.state.season && Date.now() >= c.seal_deadline_ms + 2 * c.season_ms) {
+        // revealed onchain without the server ever sealing (the browser left mid-seal), so the
+        // season can't settle here: free what the contract kept for it
+        console.log(`campaign ${h.id}: clearing kept reveals for abandoned season ${h.state.season}`);
+        await call(config.referee, 'clear_kept_reveals', { campaign: h.id, season: h.state.season });
+      }
+    } catch (e) {
+      console.warn(`sweep ${h.id}: ${(e as Error).message}`);
+    }
+  }
+}
+
 export async function loadAll(): Promise<number> {
   let files: string[];
   try {
@@ -674,8 +706,20 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // a wallet reveals its own orders (humanPart checked they're onchain); the server never
       // signs for it, even if a lagging node makes its `done` check read false
       const toSend = reveals.filter((x) => !(x.realm === HUMAN && h.player));
-      const send = (x: (typeof reveals)[number]) =>
-        call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) });
+      const args = (x: (typeof reveals)[number]) => ({ campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt });
+      // a seat whose own key can't sign (out of gas allowance, or gone) is revealed by the
+      // referee instead: the contract accepts the referee's reveal for any realm, and checks it
+      // against the seal just the same
+      const keyFailure = (e: unknown): boolean => /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/.test(String((e as Error)?.message ?? e));
+      const send = async (x: (typeof reveals)[number]): Promise<void> => {
+        try {
+          await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
+        } catch (e) {
+          if (!keyFailure(e)) throw e;
+          console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${String((e as Error)?.message ?? e).slice(0, 80)}); the referee reveals for it`);
+          await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) });
+        }
+      };
       const errText = (e: unknown): string => String((e as Error)?.message ?? e);
       // a failure that won't clear by itself: the seat's key is out of allowance or gone, or the
       // contract refused the call (a contract panic is deterministic; a network or nonce error
