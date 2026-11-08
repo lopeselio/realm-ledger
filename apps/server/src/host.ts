@@ -177,8 +177,8 @@ const isContractError = (e: unknown): boolean => /panicked|ExecutionError|Functi
 const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
 /** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
 const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist|AccessKeyNotFound/;
-/** The signing key may not call this method. */
-const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch/;
+/** The signing key may not make this call (wrong method or contract): it never will. */
+const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch|ReceiverMismatch|receiver .* does not match|InvalidAccessKey/;
 export const isKeyFailure = (e: unknown): boolean => KEY_FAILURE.test(errText(e));
 export const isMethodNotAllowed = (e: unknown): boolean => METHOD_NOT_ALLOWED.test(errText(e));
 
@@ -235,11 +235,17 @@ const sweepFailed = new Map<string, number>();
 /**
  * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
  * are kept onchain at the contract's expense until its season settles, so an abandoned
- * campaign would otherwise hold them for good. Only once the season's seal deadline is ten
- * minutes past (by the chain's clock, so restarts don't matter), so a player still mid-reveal
+ * campaign would otherwise hold them for good. Only once the season's seal deadline (set
+ * onchain, so restarts don't matter) is ten minutes past, so a player still mid-reveal
  * finishes it themselves. Runs in the background.
  */
 export async function sweepAbandoned(): Promise<void> {
+  // forget failures for seasons that are settled now
+  for (const k of sweepFailed.keys()) {
+    const [id, season] = k.split(':').map(Number);
+    const h = campaigns.get(id!);
+    if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailed.delete(k);
+  }
   for (const h of [...campaigns.values()]) {
     if (h.phase !== 'sealed' || !h.player) continue;
     const season = h.state.season;
@@ -725,20 +731,20 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         try {
           await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
         } catch (e) {
-          if (!KEY_FAILURE.test(errText(e))) throw e;
+          if (!isKeyFailure(e)) throw e;
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${errText(e).slice(0, 80)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
             // the referee can't sign it either (its key lacks the method, or is out of allowance):
             // the seat's own, permanent, failure stands. Anything else may clear: retry later.
-            throw KEY_FAILURE.test(errText(r)) || METHOD_NOT_ALLOWED.test(errText(r)) ? e : r;
+            throw isKeyFailure(r) || isMethodNotAllowed(r) ? e : r;
           });
         }
       };
       // a failure that won't clear by itself: the seat's key is out of allowance or gone, or the
       // contract refused the call (a contract panic is deterministic; a network or nonce error
       // is not)
-      const permanent = (e: unknown): boolean => KEY_FAILURE.test(errText(e)) || isContractError(e);
+      const permanent = (e: unknown): boolean => isKeyFailure(e) || isMethodNotAllowed(e) || isContractError(e);
       const readCampaign = () => view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
       // AI seats whose orders the contract already refused this season aren't sent again:
       // each try would spend the seat's gas allowance
