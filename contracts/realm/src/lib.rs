@@ -480,7 +480,10 @@ impl RealmLedger {
         let abandoned = c.season == season && now >= c.seal_deadline_ms.saturating_add(c.season_ms.saturating_mul(2));
         require!(season < c.season || abandoned, "that season can still be settled");
         clear_kept_reveals(campaign, season, c.realms.len());
-        Event::KeptRevealsCleared { campaign, season }.emit();
+        // (a settled season's were already cleared when it settled)
+        if abandoned {
+            Event::KeptRevealsCleared { campaign, season }.emit();
+        }
     }
 
     /// The referee posts the result of resolving the season with packages/rules: the new

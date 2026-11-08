@@ -178,6 +178,8 @@ const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((
 /** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
 // (not "… does not exist at block height", which a lagging RPC says of a key added a moment ago)
 const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist on account|AccessKeyNotFound/;
+/** Every RPC says the key doesn't exist: lag (a key added a moment ago) or deleted. */
+const LAGGING_KEY = /AccessKeyDoesNotExist|does not exist at block height/;
 /** The signing key may not make this call (wrong method or contract): it never will. */
 const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch|ReceiverMismatch|receiver .* does not match|InvalidAccessKey/;
 export const isKeyFailure = (e: unknown): boolean => e instanceof DeadSeatKey || KEY_FAILURE.test(errText(e));
@@ -245,6 +247,8 @@ export class DeadSeatKey extends Error {
 
 /** Seasons the sweep failed to settle: not tried again before this time. */
 const sweepFailed = new Map<string, number>();
+/** How many sweeps running a season's revealed orders weren't kept onchain. */
+const sweepNotKept = new Map<string, number>();
 
 /**
  * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
@@ -254,11 +258,16 @@ const sweepFailed = new Map<string, number>();
  * finishes it themselves. Runs in the background.
  */
 export async function sweepAbandoned(): Promise<void> {
+  // retries are timed from the sweep's start, so a failed season comes up at the next sweep
+  const started = Date.now();
   // forget failures for seasons that are settled now
   for (const k of sweepFailed.keys()) {
     const [id, season] = k.split(':').map(Number);
     const h = campaigns.get(id!);
-    if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailed.delete(k);
+    if (!h || h.phase !== 'sealed' || h.state.season !== season) {
+      sweepFailed.delete(k);
+      sweepNotKept.delete(k);
+    }
   }
   for (const h of [...campaigns.values()]) {
     if (h.phase !== 'sealed' || !h.player) continue;
@@ -282,7 +291,10 @@ export async function sweepAbandoned(): Promise<void> {
       // orders the contract refused won't change: stop trying this season (the player can still
       // settle it without them). Anything else, including "not kept onchain" (a lagging RPC can
       // say that too), is tried again at the next sweep
-      sweepFailed.set(key, /refused your orders/.test(msg) ? Infinity : Date.now() + 10 * 60_000);
+      // ("not kept onchain" three sweeps running isn't lag: those orders are gone)
+      const notKept = /not kept onchain/.test(msg) ? (sweepNotKept.get(key) ?? 0) + 1 : 0;
+      sweepNotKept.set(key, notKept);
+      sweepFailed.set(key, /refused your orders/.test(msg) || notKept >= 3 ? Infinity : started + 10 * 60_000 - 1_000);
       console.warn(`sweep ${h.id}: ${msg}`);
     }
   }
@@ -766,14 +778,15 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
             // (a key added a moment ago) clears within seconds, a deleted key doesn't. So it's
             // lag at first (the referee tries; nothing is remembered or taken as permanent) and a
             // deleted key once it has lasted five minutes.
-            if (/AccessKeyDoesNotExist|does not exist at block height/.test(errText(err))) {
+            if (LAGGING_KEY.test(errText(err))) {
               const seen = missingSince.get(seat);
-              // a sighting long after the last one starts a new count (an old lag doesn't add up)
-              const since = seen && Date.now() - seen.last < 10 * 60_000 ? seen.since : Date.now();
+              // sightings within an hour of each other add up (reveals and sweeps come minutes
+              // apart); one after a longer gap starts a new count, so an old lag doesn't
+              const since = seen && Date.now() - seen.last < 3_600_000 ? seen.since : Date.now();
               missingSince.set(seat, { since, last: Date.now() });
               if (Date.now() - since >= 5 * 60_000) err = new DeadSeatKey(seat, err);
             } else missingSince.delete(seat);
-            const lagging = !(err instanceof DeadSeatKey) && /AccessKeyDoesNotExist|does not exist at block height/.test(errText(err));
+            const lagging = !(err instanceof DeadSeatKey) && LAGGING_KEY.test(errText(err));
             if (!isKeyFailure(err) && !isMethodNotAllowed(err) && !lagging) throw err;
             if (!lagging) deadSeatKeys.set(seat, { at: Date.now(), error: err });
             e = err;
