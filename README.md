@@ -33,7 +33,7 @@ Built so far:
   - That key stays in your browser, so each turn is signed there with no wallet popup. Gas comes from your own testnet account.
   - The server never signs for a signed-in player. It checks your seal, reveal, treaty proposal and Chancellor cap on chain.
   - Guests play through the shared `player` seat that the server holds.
-- **Agent accounts.** Every AI ruler seat (`ruler0`–`ruler7`), the guest seat (`player`), the Chancellor and every company is an agent account whose only key is a function-call key: it can call a fixed list of methods on this contract and can't move NEAR. The game server's referee key is restricted in the same way, to `create_campaign`, `settle_season`, `finish_campaign`, `reveal` (for a seat whose own key can't sign) and `clear_kept_reveals` (for abandoned seasons).
+- **Agent accounts.** Every AI ruler seat (`ruler0`–`ruler7`), the guest seat (`player`), the Chancellor and every company is an agent account whose only key is a function-call key: it can call a fixed list of methods on this contract and can't move NEAR. The game server's referee key is restricted in the same way, to `create_campaign`, `settle_season`, `finish_campaign`, `reveal` (for a seat whose own key can't sign) and `clear_kept_reveals` (to free, by hand, what the contract kept for a season nobody can settle).
 - **The game server** (`apps/server`, hosted on Azure App Service at `realm-ledger-api.azurewebsites.net`). It hosts campaigns and runs the AI rulers.
   - **AI orders:** each ruler decides its orders with the deterministic engine, from its own fog-of-war view.
   - **Diplomacy:** the engine decides whether a treaty is accepted. The model only voices the envoy's reply, in character; it may bluff, but it can't change the decision.

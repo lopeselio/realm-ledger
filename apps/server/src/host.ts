@@ -221,45 +221,31 @@ export function reconcileAll(): void {
   }
 }
 
-/**
- * Settles seasons whose player revealed onchain but never came back to finish them, and frees
- * what the contract keeps for seasons nobody can settle. A wallet's revealed orders are kept
- * onchain at the contract's expense until its season settles, so an abandoned campaign would
- * otherwise hold them for good. Runs in the background.
- */
-/** Campaigns the last sweep saw revealed onchain but not settled; settled if still so next time. */
+/** Campaign seasons the last sweep saw revealed onchain but not settled. */
 const seenUnsettled = new Set<string>();
 
+/**
+ * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
+ * are kept onchain at the contract's expense until its season settles, so an abandoned
+ * campaign would otherwise hold them for good. Waits one sweep first, so a player still
+ * mid-reveal finishes the season themselves. Runs in the background.
+ */
 export async function sweepAbandoned(): Promise<void> {
   const seen = new Set<string>();
   for (const h of [...campaigns.values()]) {
-    if (h.phase === 'over' || !h.player) continue;
+    if (h.phase !== 'sealed' || !h.player) continue;
+    const season = h.state.season;
     try {
-      const where = { campaign: h.id, season: h.state.season, realm: HUMAN };
       const [c, rec] = await Promise.all([
-        view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }),
-        view<{ revealed: boolean }>('get_seal', where),
+        view<{ season: number }>('get_campaign', { campaign: h.id }),
+        view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
       ]);
-      if (!c || !rec?.revealed || c.season !== h.state.season) continue;
-      const key = `${h.id}:${h.state.season}`;
-      if (h.phase === 'sealed') {
-        // the orders are onchain but nobody finished the season. Wait one sweep first, so a
-        // player still mid-reveal finishes it themselves; then settle with the kept orders, as
-        // their browser would have (which frees what the contract kept)
-        seen.add(key);
-        if (!seenUnsettled.has(key)) continue;
-        console.log(`campaign ${h.id}: settling season ${h.state.season}, revealed onchain but not finished`);
-        await revealSeason(h.id, null, null);
-      } else if (Date.now() >= c.seal_deadline_ms + 2 * c.season_ms) {
-        // revealed onchain without the server ever sealing (the browser left mid-seal), so the
-        // season can't settle here: free what the contract kept for it, once
-        await locked(h.id, async () => {
-          if (h.phase !== 'planning' || h.state.season !== where.season) return;
-          if (!(await view('get_reveal', where))) return;
-          console.log(`campaign ${h.id}: clearing kept reveals for abandoned season ${where.season}`);
-          await call(config.referee, 'clear_kept_reveals', { campaign: h.id, season: where.season });
-        });
-      }
+      if (!c || c.season !== season || !rec?.revealed) continue;
+      const key = `${h.id}:${season}`;
+      seen.add(key);
+      if (!seenUnsettled.has(key)) continue;
+      console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
+      await revealSeason(h.id, null, null, false, season);
     } catch (e) {
       console.warn(`sweep ${h.id}: ${(e as Error).message}`);
     }
@@ -608,10 +594,12 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
  * wallet's only after that wallet's own onchain `forfeit`, a guest seat's once the reveal
  * window has closed. Orders revealed onchain always count instead.
  */
-export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false): Promise<GameEvent[]> {
+export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false, onlySeason?: number): Promise<GameEvent[]> {
   return locked(id, async () => {
     const h = get(id);
     if (h.phase !== 'sealed') throw new GameError('nothing sealed to reveal');
+    // the sweep settles only the season it watched; a later one is the player's to finish
+    if (onlySeason !== undefined && h.state.season !== onlySeason) return [];
     const before = h.state;
 
     /** Your part of the season: your revealed orders, or your realm forfeited. */
@@ -733,10 +721,11 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         } catch (e) {
           if (!KEY_FAILURE.test(errText(e))) throw e;
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat key can't sign (${errText(e).slice(0, 80)}); the referee reveals for it`);
-          // if the referee can't either, the seat's own failure stands (it's the permanent one)
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
-            throw e;
+            // the referee can't sign it either (its key lacks the method, or is out of allowance):
+            // the seat's own, permanent, failure stands. Anything else may clear: retry later.
+            throw KEY_FAILURE.test(errText(r)) || /MethodNameMismatch|MethodNotAllowed/.test(errText(r)) ? e : r;
           });
         }
       };
