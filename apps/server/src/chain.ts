@@ -19,6 +19,9 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
     this: Failover,
     get: (p: unknown) => Promise<unknown>,
   ): Promise<unknown> {
+    // if every RPC fails, the most telling error wins: one about the request (a key that
+    // doesn't exist yet on a lagging node, say) over "fetch failed"
+    let telling: unknown;
     let last: unknown;
     for (let i = 0; i < this.providers.length; i++) {
       try {
@@ -26,11 +29,12 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
         return await get(this.currentProvider);
       } catch (e) {
         if (isRefusal(e)) throw e;
+        if (!isNetworkError(e)) telling = e;
         last = e;
       }
       this.switchToNextProvider();
     }
-    throw last ?? new Error(`no answer from ${this.providers.length} RPC providers`);
+    throw telling ?? last ?? new Error(`no answer from ${this.providers.length} RPC providers`);
   };
   return failover;
 }
@@ -61,6 +65,8 @@ export interface CallOptions {
 
 /** A failure of the RPC or the network, worth trying again (on another RPC). */
 function isNetworkError(e: unknown): boolean {
+  // a contract's own panic is never the network, whatever numbers or words it contains
+  if (/panicked/.test(String((e as Error)?.message ?? e))) return false;
   const cause = (e as { cause?: unknown })?.cause;
   // near-api-js puts the HTTP status in `cause` (e.g. "… Bad Gateway" with cause 502)
   if (typeof cause === 'number' && [408, 429, 500, 502, 503, 504].includes(cause)) return true;
@@ -74,11 +80,12 @@ function isNetworkError(e: unknown): boolean {
  * The chain's definite answer to a request, which another RPC would only repeat: the contract
  * panicked, the transaction or one of its actions was refused (a key's allowance or methods,
  * a stale nonce). Anything else is worth asking the next RPC, including "does not exist" for
- * a key or account, which an RPC a block behind says about one added a moment ago.
+ * a key or account (as a view or a transaction), which an RPC a block behind says about one
+ * added a moment ago; if every RPC says so, that error is the one returned.
  */
 function isRefusal(e: unknown): boolean {
   const text = `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
-  if (/AccessKeyDoesNotExist|AccountDoesNotExist/.test(text)) return false;
+  if (/AccessKeyDoesNotExist|AccessKeyNotFound|AccountDoesNotExist|does not exist/.test(text)) return false;
   return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|panicked|does not allow method|Not enough allowance/.test(text);
 }
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

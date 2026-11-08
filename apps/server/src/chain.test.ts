@@ -13,7 +13,7 @@ describe('RPC failover', () => {
     await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(refusal);
   });
 
-  it('moves on to the next RPC after a network failure or an RPC-side error', async () => {
+  it('moves on to the next RPC after an RPC-side error', async () => {
     const ok = Object.assign(new JsonRpcProvider({ url: 'http://unused.invalid' }), { viewAccessKey: async () => ({ nonce: 2 }) });
     const lagging = new Error('[-32000] Server error: UNKNOWN_BLOCK');
     const p = withRealErrors(new FailoverRpcProvider([failing(lagging), ok]));
@@ -25,6 +25,12 @@ describe('RPC failover', () => {
     const behind = Object.assign(new Error('Access key ed25519:x does not exist at block height 1'), { name: 'AccessKeyDoesNotExistError' });
     const p = withRealErrors(new FailoverRpcProvider([failing(behind), ok]));
     await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).resolves.toEqual({ nonce: 3 });
+  });
+
+  it('returns the most telling error when every RPC fails', async () => {
+    const telling = Object.assign(new Error('Access key ed25519:x does not exist on account a.testnet'), { name: 'AccessKeyNotFoundActionError' });
+    const p = withRealErrors(new FailoverRpcProvider([failing(telling), failing(new Error('fetch failed'))]));
+    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(telling);
   });
 
   it('moves on to the next RPC after a network failure', async () => {
