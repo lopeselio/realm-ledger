@@ -85,6 +85,7 @@ function isNetworkError(e: unknown): boolean {
  */
 function isRefusal(e: unknown): boolean {
   const text = `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
+  if (/panicked/.test(text)) return true;
   if (/AccessKeyDoesNotExist|AccessKeyNotFound|AccountDoesNotExist|does not exist/.test(text)) return false;
   return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|panicked|does not allow method|Not enough allowance/.test(text);
 }
@@ -104,7 +105,8 @@ export function call<T = unknown>(signer: string, method: string, args: object, 
     }) as Promise<T>;
   const guarded = async (): Promise<T> => {
     for (let attempt = 0; ; attempt++) {
-      if (opts.done && (await opts.done())) return undefined as T;
+      // (after a failure the catch below has just checked)
+      if (attempt === 0 && opts.done && (await opts.done())) return undefined as T;
       try {
         return await once();
       } catch (e) {

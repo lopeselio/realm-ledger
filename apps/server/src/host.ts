@@ -176,7 +176,8 @@ const isContractError = (e: unknown): boolean => /panicked|ExecutionError|Functi
 /** An error's class name and message, which is how near-api-js tells its errors apart. */
 const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
 /** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
-const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist|AccessKeyNotFound/;
+// (not "… does not exist at block height", which a lagging RPC says of a key added a moment ago)
+const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist on account|AccessKeyNotFound/;
 /** The signing key may not make this call (wrong method or contract): it never will. */
 const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch|ReceiverMismatch|receiver .* does not match|InvalidAccessKey/;
 export const isKeyFailure = (e: unknown): boolean => KEY_FAILURE.test(errText(e));
