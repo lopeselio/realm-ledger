@@ -602,7 +602,15 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // reveal that matches the seal and is canonical, so they can always land)
       const saved = h.pending.humanReveal;
       // (a wallet's are saved only once revealed onchain: the server never signs for a wallet)
-      if (saved && (!orders || salt === null) && !declared && (!h.player || revealedNow)) return check(saved.orders, saved.salt, revealedNow);
+      // a copy sent from a browser wins only if it matches the seal (a stale one doesn't)
+      const sentOk = (): boolean => {
+        try {
+          return !!orders && salt !== null && !!check(orders, salt, revealedNow);
+        } catch {
+          return false;
+        }
+      };
+      if (saved && !declared && (!h.player || revealedNow) && !sentOk()) return check(saved.orders, saved.salt, revealedNow);
       if (revealedNow) {
         // revealed onchain, from whichever browser: those orders count, and the contract keeps
         // them until the season settles, so a browser that lost them doesn't matter

@@ -202,9 +202,9 @@ export function useGame(id: number | null, signer: Signer | null) {
             // a forfeit from another browser may have landed first: decide from the chain
             state = await onChain(v);
             if (!state.revealed && !state.declared && !state.moved) {
-              // still unrevealed because the contract refused the reveal (not a cancelled popup or
-              // a network error): your wallet can give these orders up instead, so offer that
-              if (state.known && /panicked|FunctionCallError|ExecutionError/i.test(String((e as Error)?.message ?? e))) setForfeitAt(Date.now());
+              // still unrevealed because the contract refused these orders themselves (not a
+              // cancelled popup, a network error or running out of gas): offer to give them up
+              if (state.known && /orders must be|reveal too large|orders do not match the seal/.test(String((e as Error)?.message ?? e))) setForfeitAt(Date.now());
               throw state.known ? e : unreadable(e);
             }
           }

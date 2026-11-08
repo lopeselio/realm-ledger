@@ -430,7 +430,8 @@ impl RealmLedger {
         require!(commitment(&orders, &salt) == record.seal, "orders do not match the seal");
         record.revealed = true;
         if keep {
-            env::storage_write(&season_key(REVEAL_PREFIX, campaign, season, realm), &near_sdk::serde_json::to_vec(&RevealedOrders { orders: orders.clone(), salt: salt.clone() }).unwrap());
+            // borsh, not JSON: the orders string is stored once, not escaped inside another
+            env::storage_write(&season_key(REVEAL_PREFIX, campaign, season, realm), &near_sdk::borsh::to_vec(&(orders.clone(), salt.clone())).unwrap());
         }
         Event::Revealed { campaign, season, realm, orders, salt }.emit();
     }
@@ -510,12 +511,9 @@ impl RealmLedger {
             Event::TreatyBroken { campaign, treaty: id, by, season }.emit();
         }
         c.state_hashes.push(state_hash.clone());
-        // this season's kept reveals are no longer needed (only wallet realms have one)
-        let here = env::current_account_id();
-        for (i, r) in c.realms.iter().enumerate() {
-            if !r.ruler.is_sub_account_of(&here) {
-                env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i as u8));
-            }
+        // this season's kept reveals are no longer needed
+        for i in 0..n as u8 {
+            env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
         }
         c.season += 1;
         c.sealed = vec![false; n];
@@ -750,7 +748,10 @@ impl RealmLedger {
 
     /// A realm's revealed orders for a season that hasn't settled yet.
     pub fn get_reveal(&self, campaign: u64, season: u32, realm: u8) -> Option<RevealedOrders> {
-        env::storage_read(&season_key(REVEAL_PREFIX, campaign, season, realm)).map(|v| near_sdk::serde_json::from_slice(&v).unwrap())
+        env::storage_read(&season_key(REVEAL_PREFIX, campaign, season, realm)).map(|v| {
+            let (orders, salt): (String, String) = near_sdk::borsh::from_slice(&v).unwrap();
+            RevealedOrders { orders, salt }
+        })
     }
 
     /// Whether a realm's ruler forfeited its orders for a season.
