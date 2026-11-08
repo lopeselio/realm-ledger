@@ -28,3 +28,5 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo test --locked
+      # the native tests don't build the contract's exports: this catches what only wasm hits
+      - run: cargo build --locked --release --target wasm32-unknown-unknown

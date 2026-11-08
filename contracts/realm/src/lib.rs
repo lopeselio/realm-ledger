@@ -128,7 +128,7 @@ const REVEAL_PREFIX: u8 = b'o';
 const FORFEIT_PREFIX: u8 = b'f';
 
 /// Removes a season's kept reveals once nothing needs them.
-fn clear_kept_reveals(campaign: u64, season: u32, realms: usize) {
+fn remove_kept_reveals(campaign: u64, season: u32, realms: usize) {
     for i in 0..realms as u8 {
         env::storage_remove(&season_key(REVEAL_PREFIX, campaign, season, i));
     }
@@ -481,7 +481,7 @@ impl RealmLedger {
         // (a settled season's were already cleared when it settled)
         require!(c.season == season, "only the current season has kept reveals");
         require!(now >= c.seal_deadline_ms.saturating_add(c.season_ms.saturating_mul(2)), "that season can still be settled");
-        clear_kept_reveals(campaign, season, c.realms.len());
+        remove_kept_reveals(campaign, season, c.realms.len());
         Event::KeptRevealsCleared { campaign, season }.emit();
     }
 
@@ -543,7 +543,7 @@ impl RealmLedger {
         }
         c.state_hashes.push(state_hash.clone());
         // this season's kept reveals are no longer needed
-        clear_kept_reveals(campaign, season, n);
+        remove_kept_reveals(campaign, season, n);
         c.season += 1;
         c.sealed = vec![false; n];
         c.revealed = vec![false; n];
@@ -579,7 +579,7 @@ impl RealmLedger {
         }
         c.phase = Phase::Finished;
         // a reveal kept for a season that was never settled
-        clear_kept_reveals(campaign, c.season, c.realms.len());
+        remove_kept_reveals(campaign, c.season, c.realms.len());
         c.winner = Some(winner);
         c.roll_secret = Some(roll_secret.clone());
         Event::CampaignFinished { campaign, winner, roll_secret, agendas: agendas.into_iter().map(|(a, _)| a).collect() }.emit();
