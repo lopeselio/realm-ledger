@@ -678,8 +678,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) });
       const errText = (e: unknown): string => String((e as Error)?.message ?? e);
       // a failure that won't clear by itself: the seat's key is out of allowance or gone, or the
-      // contract refuses the orders
-      const permanent = (e: unknown): boolean => /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/.test(errText(e)) || ORDERS_REFUSED.test(errText(e));
+      // contract refused the call (a contract panic is deterministic; a network or nonce error
+      // is not)
+      const permanent = (e: unknown): boolean => /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/.test(errText(e)) || isContractError(e);
       const readCampaign = () => view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
       // AI seats whose orders the contract already refused this season aren't sent again:
       // each try would spend the seat's gas allowance
@@ -724,8 +725,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (toSend.some((x) => outcome.get(x.realm) != null)) {
         // one more try for failures that may clear, unless the chain already moved past this
         // season (those reveals can only fail)
-        const prior = await readCampaign();
-        if (!(prior && prior.season > before.season)) {
+        if (!movedAlready) {
           await Promise.all(toSend.filter((x) => outcome.get(x.realm) != null && !refused.has(x.realm) && !permanent(outcome.get(x.realm))).map(attempt));
         }
         // read after the retries, so the window or a settle that happened meanwhile counts
