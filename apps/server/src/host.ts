@@ -545,11 +545,23 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 // ---------- reveal and resolve ----------
 
 /** Orders the contract accepts as a reveal: small enough, and only safe whole numbers. */
-function revealable(o: OrderSet): boolean {
-  const safe = (v: unknown): boolean =>
-    typeof v === 'number' ? Number.isSafeInteger(v) : Array.isArray(v) ? v.every(safe) : v !== null && typeof v === 'object' ? Object.values(v).every(safe) : true;
+export function revealable(o: OrderSet): boolean {
+  // a lone surrogate can't be written as UTF-8, so the contract can't parse it
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  const ok = (v: unknown): boolean =>
+    typeof v === 'number'
+      ? Number.isSafeInteger(v)
+      : typeof v === 'string'
+        ? !lone.test(v)
+        : Array.isArray(v)
+          ? v.every(ok)
+          : v !== null && typeof v === 'object'
+            ? // ASCII keys: sorted the same by JavaScript (UTF-16) and the contract (bytes)
+              Object.entries(v).every(([k, x]) => /^[\x20-\x7e]*$/.test(k) && ok(x))
+            : true;
   try {
-    return Array.isArray(o.orders) && safe(o) && canonicalJson(o).length <= 8_000;
+    // the contract's limit is in UTF-8 bytes
+    return Array.isArray(o.orders) && ok(o) && Buffer.byteLength(canonicalJson(o), 'utf8') <= 8_000;
   } catch {
     return false;
   }
@@ -573,7 +585,8 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (!seal) return { forfeited: [] };
       const where = { campaign: h.id, season: before.season, realm: HUMAN };
       // null: couldn't read (an RPC error, or an older contract without this view)
-      const readForfeit = () => view<boolean>('get_forfeit', where).catch(() => null);
+      // only a wallet ruler can forfeit; a guest seat's mark is always false
+      const readForfeit = () => (h.player ? view<boolean>('get_forfeit', where).catch(() => null) : Promise.resolve(false));
       const [c, rec, firstRead] = await Promise.all([
         view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }),
         view<{ revealed: boolean }>('get_seal', where),
@@ -607,7 +620,12 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         // revealed onchain, from whichever browser: those orders count, and the contract keeps
         // them until the season settles, so a browser that lost them doesn't matter
         if (orders && salt !== null) return check(orders, salt);
-        const kept = await view<{ orders: string; salt: string }>('get_reveal', where).catch(() => null);
+        let kept: { orders: string; salt: string } | null;
+        try {
+          kept = (await view<{ orders: string; salt: string }>('get_reveal', where)) ?? null;
+        } catch {
+          throw new GameError('could not read your revealed orders onchain; try again in a moment', 503);
+        }
         // kept only for wallet rulers, and only until the season settles
         if (!kept) throw new GameError('your revealed orders are not kept onchain; open the campaign in the browser that holds them', 409);
         let parsed: OrderSet;
@@ -622,7 +640,11 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         if (!declared) {
           // a wallet's orders are given up only by that wallet; a guest seat's after the window
           if (h.player && declared === null) throw new GameError('could not read your forfeit onchain; try again in a moment', 503);
-          if (h.player) throw new GameError(`only ${h.player} can forfeit these orders: sign in with that wallet (on any device) and forfeit`, 403);
+          if (h.player)
+            throw new GameError(
+              `no forfeit by ${h.player} is visible onchain: if you just forfeited from that wallet, try again in a moment; otherwise sign in with it (on any device) and forfeit`,
+              403,
+            );
           // the contract allows it a full season after the seal deadline; a minute of margin for its clock
           const opens = c.seal_deadline_ms + c.season_ms + 60_000;
           if (Date.now() < opens) throw new GameError(`your orders can be forfeited from ${new Date(opens).toISOString()}`, 409);
@@ -635,7 +657,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     };
 
     /** Reveals, resolves and settles onchain. */
-    const resolveOnce = async () => {
+    const settleOnChain = async () => {
       const human = await humanPart();
       if (human.reveal) {
         h.pending.humanReveal = { orders: human.reveal.orders, salt: human.reveal.salt };
@@ -643,16 +665,23 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       }
       const reveals = [...h.pending.ai, ...(human.reveal ? [human.reveal] : [])].sort((a, b) => a.realm - b.realm);
       // every reveal is checked against its seal by the contract too
-      await Promise.all(
-        reveals.map((x) =>
-          call(
-            seatOf(h, x.realm),
-            'reveal',
-            { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt },
-            { done: async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm: x.realm }))?.revealed },
+      const revealed = (realm: number) => async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm }))?.revealed;
+      try {
+        await Promise.all(
+          reveals.map((x) =>
+            call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }),
           ),
-        ),
-      );
+        );
+      } catch (e) {
+        // the contract refused your saved orders (it should accept anything `revealable` lets
+        // through): drop them, so they can't block the season, and let it settle without them
+        if (human.reveal && h.pending.humanReveal && isContractError(e) && !(await revealed(HUMAN)())) {
+          delete h.pending.humanReveal;
+          await save(h);
+          throw new GameError(`the contract refused your orders (${(e as Error).message}); settle the season without them`, 409);
+        }
+        throw e;
+      }
       const rollSeed = seasonRollSeed(h.rollSecret, before.season);
       // treaties and deals were already applied to the state as they were made
       const { state, events } = replaySeason(before, { season: before.season, treaties: [], deals: [], orders: reveals.map((x) => x.orders), rollSeed, events: [] });
@@ -675,7 +704,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       return { reveals, forfeited: human.forfeited, rollSeed, hash, state, events };
     };
 
-    const { reveals, forfeited, rollSeed, hash, state, events } = await resolveOnce();
+    const { reveals, forfeited, rollSeed, hash, state, events } = await settleOnChain();
     crashPoint('after-settle');
 
     h.bundle.seasons.push({

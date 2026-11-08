@@ -109,15 +109,30 @@ export function useGame(id: number | null, signer: Signer | null) {
     }
   };
 
-  /** This season onchain for your realm; an unreadable view reads as unknown (null / false). */
+  /**
+   * This season onchain for your realm. A view that fails reads as false, and `known` says
+   * whether all three were read, so a decision is never taken on a failed read alone.
+   */
   const onChain = (v: View) => {
     const where = { campaign: v.id, season: v.season, realm: v.human };
+    const FAILED = Symbol('failed');
+    const read = <T,>(p: Promise<T>) => p.catch((): typeof FAILED => FAILED);
     return Promise.all([
-      chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id }).catch(() => null),
-      chainView<{ revealed: boolean }>('get_seal', where).catch(() => null),
-      chainView<boolean>('get_forfeit', where).catch(() => false),
-    ]).then(([c, rec, declared]) => ({ c, revealed: !!rec?.revealed, declared: !!declared, moved: !!c && c.season !== v.season }));
+      read(chainView<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: v.id })),
+      read(chainView<{ revealed: boolean }>('get_seal', where)),
+      read(chainView<boolean>('get_forfeit', where)),
+    ]).then(([c0, rec, declared]) => {
+      const c = c0 === FAILED ? null : c0;
+      return {
+        c,
+        revealed: rec !== FAILED && !!rec?.revealed,
+        declared: declared === true,
+        moved: !!c && c.season !== v.season,
+        known: c0 !== FAILED && rec !== FAILED && declared !== FAILED,
+      };
+    });
   };
+  const unreadable = (e: unknown) => new Error(`${(e as Error).message} (and the chain could not be read to see why; try again in a moment)`);
 
   const reveal = async (): Promise<void> => {
     const v = viewRef.current;
@@ -178,7 +193,7 @@ export function useGame(id: number | null, signer: Signer | null) {
           } catch (e) {
             // a forfeit from another browser may have landed first: decide from the chain
             state = await onChain(v);
-            if (!state.revealed && !state.declared && !state.moved) throw e;
+            if (!state.revealed && !state.declared && !state.moved) throw state.known ? e : unreadable(e);
           }
         }
         forfeited = state.declared && !state.revealed;
@@ -218,6 +233,7 @@ export function useGame(id: number | null, signer: Signer | null) {
           } catch (e) {
             state = await onChain(v);
             if (!settled(state)) {
+              if (!state.known) throw unreadable(e);
               const msg = (e as Error).message;
               if (/MethodNameMismatch|MethodNotAllowed|method name is not allowed|not allowed to call/i.test(msg)) {
                 throw new Error(`${msg} Your wallet key predates this action: sign out and sign in again.`);
