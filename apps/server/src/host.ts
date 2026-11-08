@@ -253,9 +253,9 @@ const sweepNotKept = new Map<string, number>();
 /**
  * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
  * are kept onchain at the contract's expense until its season settles, so an abandoned
- * campaign would otherwise hold them for good. Only once the season's seal deadline (set
- * onchain, so restarts don't matter) is ten minutes past, so a player still mid-reveal
- * finishes it themselves. Runs in the background.
+ * campaign would otherwise hold them for good. Only once the season's reveal window has
+ * closed (forfeitOpensAt, from the onchain deadline, so restarts don't matter), so a player
+ * still revealing finishes the season themselves. Runs in the background.
  */
 export async function sweepAbandoned(): Promise<void> {
   // retries are timed from the sweep's start, so a failed season comes up at the next sweep
@@ -276,13 +276,14 @@ export async function sweepAbandoned(): Promise<void> {
     if (Date.now() < (sweepFailed.get(key) ?? 0)) continue;
     try {
       const [c, rec] = await Promise.all([
-        view<{ season: number; seal_deadline_ms: number }>('get_campaign', { campaign: h.id }),
+        view<{ season: number; seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id }),
         view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
       ]);
       if (!c) continue;
       // the chain settled it already (we crashed before saving): finish recording it
       const moved = c.season > season;
-      if (!moved && (!rec?.revealed || Date.now() < c.seal_deadline_ms + 10 * 60_000)) continue;
+      // only once the reveal window has closed: a player still revealing gets to finish it
+      if (!moved && (!rec?.revealed || Date.now() < forfeitOpensAt(c))) continue;
       console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
       await revealSeason(h.id, null, null, false, season);
       sweepFailed.delete(key);
@@ -785,7 +786,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
               const since = seen && Date.now() - seen.last < 3_600_000 ? seen.since : Date.now();
               missingSince.set(seat, { since, last: Date.now() });
               if (Date.now() - since >= 5 * 60_000) err = new DeadSeatKey(seat, err);
-            } else missingSince.delete(seat);
+            }
+            // (the count clears only when the seat signs again: a network error in between says
+            // nothing about whether the key exists)
             const lagging = !(err instanceof DeadSeatKey) && LAGGING_KEY.test(errText(err));
             if (!isKeyFailure(err) && !isMethodNotAllowed(err) && !lagging) throw err;
             if (!lagging) deadSeatKeys.set(seat, { at: Date.now(), error: err });
