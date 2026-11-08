@@ -761,9 +761,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           // failure that was already retried and may still land, a stale nonce) is thrown, and
           // the next attempt picks it up
           if (!isKeyFailure(e) && !isMethodNotAllowed(e) && !/AccessKeyDoesNotExist|does not exist/.test(errText(e))) throw e;
-          console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${errText(e).slice(0, 80)}); the referee reveals for it`);
+          console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${String((e as Error)?.message ?? e).slice(0, 160)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
-            console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);
+            console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${String((r as Error)?.message ?? r).slice(0, 160)}`);
             throw isKeyFailure(r) || isMethodNotAllowed(r) ? e : r;
           });
         }
