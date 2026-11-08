@@ -6,7 +6,7 @@ import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { capitalize } from '../format.ts';
 import { rememberCampaign } from '../recent.ts';
-import { findSecret, keepSecret } from '../secrets.ts';
+import { findSecret, isRefused, keepSecret, markRefused } from '../secrets.ts';
 import type { Signer } from '../wallet.ts';
 
 export type Status = { text: string; tone: 'info' | 'error' };
@@ -31,8 +31,6 @@ export function useGame(id: number | null, signer: Signer | null) {
 
   // flows await the server and the chain: they read the latest values through refs
   const viewRef = useRef<View | null>(null);
-  // seasons whose orders the contract refused: never resent from this tab
-  const refusedRef = useRef(new Set<string>());
   const busyRef = useRef(false);
   // the campaign in the URL: a flow that finishes after you navigated away must not bring its campaign back
   const routeRef = useRef(id);
@@ -137,13 +135,28 @@ export function useGame(id: number | null, signer: Signer | null) {
   };
   const unreadable = (e: unknown) => new Error(`${(e as Error).message} (and the chain could not be read to see why; try again in a moment)`);
 
+  /** Shows the season a settle produced: the new view, a fresh draft, no forfeit offer, and what happened. */
+  const showSettled = (r: { view: View }, forfeitedElsewhere = false): void => {
+    if (!adopt(r.view)) return;
+    setForfeitAt(null);
+    freshDraft();
+    const over = r.view.phase === 'over' ? ' The campaign is over. Everything is revealed.' : '';
+    say(
+      r.view.lastForfeited
+        ? `${forfeitedElsewhere ? 'Your wallet forfeited these orders, so the season settled without them.' : 'The season turned without your orders, so your realm did nothing in it.'}${over || ' Plan the next one.'}`
+        : over
+          ? over.trim()
+          : `The season turned. ${r.view.envoysLeft} envoys available.`,
+    );
+  };
+
   const reveal = async (): Promise<void> => {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
     const found = findSecret(v.id, v.season, v.yourSeal);
     // orders the contract won't accept as a reveal (sealed before that was checked, or refused
     // by it already) are as good as lost: offer to settle without them, and don't resend them
-    const secret = found && revealable(found.orders, found.salt) && !refusedRef.current.has(`${v.id}:${v.season}`) ? found : null;
+    const secret = found && revealable(found.orders, found.salt) && !isRefused(v.id, v.season) ? found : null;
     if (!secret) {
       const { c, revealed, declared, known } = await onChain(v);
       // still the same sealed season once the chain answered
@@ -157,10 +170,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         // your wallet already forfeited (from another browser): finish settling without them
         await withBusy('Your wallet forfeited these orders; settling the season without them…', async () => {
           setBefore(v.state);
-          const r = await settle(v, { forfeit: true });
-          if (!adopt(r.view)) return;
-          freshDraft();
-          say(r.view.phase === 'over' ? 'The season turned without your orders. The campaign is over.' : 'The season turned without your orders. Plan the next one.');
+          showSettled(await settle(v, { forfeit: true }), true);
         });
         return;
       }
@@ -169,10 +179,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         // season settles, so the server can finish it without them being here
         await withBusy('Your orders are revealed onchain; settling the season with them…', async () => {
           setBefore(v.state);
-          const r = await settle(v, {});
-          if (!adopt(r.view)) return;
-          freshDraft();
-          say(r.view.phase === 'over' ? 'The campaign is over. Everything is revealed.' : `The season turned. ${r.view.envoysLeft} envoys available.`);
+          showSettled(await settle(v, {}));
         });
         return;
       }
@@ -207,7 +214,7 @@ export function useGame(id: number | null, signer: Signer | null) {
               // still unrevealed because the contract refused these orders themselves (not a
               // cancelled popup, a network error or running out of gas): offer to give them up
               if (state.known && ORDERS_REFUSED.test(String((e as Error)?.message ?? e))) {
-                refusedRef.current.add(`${v.id}:${v.season}`);
+                markRefused(v.id, v.season);
                 setForfeitAt(Date.now());
               }
               throw state.known ? e : unreadable(e);
@@ -223,23 +230,13 @@ export function useGame(id: number | null, signer: Signer | null) {
         // the contract refused these orders: they can't be revealed, so stop sending them and
         // offer to settle without them
         if (/settle the season without them/.test((e as Error).message)) {
-          refusedRef.current.add(`${v.id}:${v.season}`);
+          markRefused(v.id, v.season);
           const { c } = await onChain(v);
           if (c) setForfeitAt(v.player ? Date.now() : forfeitOpensAt(c));
         }
         throw e;
       }
-      if (!adopt(r.view)) return;
-      freshDraft();
-      say(
-        r.view.lastForfeited
-          ? forfeited
-            ? 'Your wallet forfeited these orders from another browser, so the season settled without them. Plan the next one.'
-            : 'This season had already been settled without your orders, so your realm did nothing in it. Plan the next one.'
-          : r.view.phase === 'over'
-            ? 'The campaign is over. Everything is revealed.'
-            : `The season turned. ${r.view.envoysLeft} envoys available.`,
-      );
+      showSettled(r, forfeited);
     });
   };
 
@@ -277,12 +274,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         // revealed from another browser meanwhile: those orders count, so settle with them
         revealedElsewhere = state.revealed;
       }
-      const r = await settle(v, revealedElsewhere ? {} : { forfeit: true });
-      if (!adopt(r.view)) return;
-      setForfeitAt(null);
-      freshDraft();
-      const outcome = r.view.lastForfeited ? 'The season turned without your orders.' : 'The season turned.';
-      say(r.view.phase === 'over' ? `${outcome} The campaign is over. Everything is revealed.` : `${outcome} Plan the next one.`);
+      showSettled(await settle(v, revealedElsewhere ? {} : { forfeit: true }));
     });
   };
 

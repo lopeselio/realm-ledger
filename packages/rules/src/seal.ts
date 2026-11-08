@@ -47,7 +47,9 @@ export const MAX_SALT_BYTES = 128;
  * The realm contract's refusals of the orders themselves (format, size, seal), as opposed to
  * a network error, running out of gas or a reveal that already landed. Matches its panic text.
  */
-export const ORDERS_REFUSED = /orders must be|reveal too large|orders do not match the seal/;
+// ("orders must be this realm's for this season" is left out: it also fires when the chain's
+// season moved on, which says nothing about the orders)
+export const ORDERS_REFUSED = /orders must be (?:JSON|canonical JSON)|reveal too large|orders do not match the seal/;
 
 /**
  * When the realm contract lets the referee settle a season without a sealed realm's reveal:

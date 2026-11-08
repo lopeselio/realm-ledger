@@ -694,7 +694,15 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           outcome.set(x.realm, e);
         }
       };
-      await Promise.all(toSend.map((x) => (refused.has(x.realm) ? outcome.set(x.realm, new Error('orders refused earlier this season')) : attempt(x))));
+      // once the chain has moved past this season (we crashed after settling, before saving),
+      // reveals for it can only fail: nothing is sent, and the stuck seats are skipped below
+      const first = await readCampaign();
+      const movedAlready = !!first && first.season > before.season;
+      await Promise.all(
+        toSend.map((x) =>
+          refused.has(x.realm) || movedAlready ? outcome.set(x.realm, new Error(movedAlready ? 'the season already settled' : 'orders refused earlier this season')) : attempt(x),
+        ),
+      );
 
       // the contract refused your own saved orders themselves (it should accept anything
       // `revealable` lets through): drop them so they can't block the season, which then

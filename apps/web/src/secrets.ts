@@ -33,3 +33,26 @@ export function findSecret(id: number, season: number, seal: string | null): Sec
   const all = [...stored(id, season), ...memory.filter((m) => m.id === id && m.secret.orders.season === season).map((m) => m.secret)];
   return all.find((x) => sealOrders(x.orders, x.salt) === seal) ?? null;
 }
+
+// Seasons whose sealed orders the contract refused as a reveal: never sent again from this
+// browser (each try would cost gas and fail), so the page offers to settle without them.
+const refusedKey = (id: number, season: number): string => `realm-ledger:refused:${id}:${season}`;
+const refusedHere = new Set<string>();
+
+export function markRefused(id: number, season: number): void {
+  refusedHere.add(refusedKey(id, season));
+  try {
+    localStorage.setItem(refusedKey(id, season), '1');
+  } catch {
+    // only this tab remembers
+  }
+}
+
+export function isRefused(id: number, season: number): boolean {
+  if (refusedHere.has(refusedKey(id, season))) return true;
+  try {
+    return localStorage.getItem(refusedKey(id, season)) === '1';
+  } catch {
+    return false;
+  }
+}
