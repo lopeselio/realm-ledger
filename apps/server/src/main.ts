@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { OrderSet, Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
-import { confirmTreaty, createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy } from './host.ts';
+import { confirmTreaty, createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 
 // Small JSON API for the game. No framework: a handful of routes.
@@ -128,6 +128,11 @@ const server = createServer((req, res) => {
 
 const n = await loadAll();
 reconcileAll();
+// every 10 minutes, and once a minute after starting (so a host that restarts often still
+// sweeps); overlapping sweeps skip themselves
+const sweep = (): void => void sweepAbandoned().catch((e: unknown) => console.error(`sweep: ${(e as Error).message}`));
+setInterval(sweep, 10 * 60_000).unref();
+setTimeout(sweep, 60_000).unref();
 server.listen(config.port, () => {
   console.log(`realm-ledger server on :${config.port} (${n} campaigns loaded, contract ${config.contract}, NEAR AI ${nearAiEnabled() ? config.nearAi.model : 'off'})`);
 });

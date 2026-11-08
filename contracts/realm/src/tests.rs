@@ -482,3 +482,33 @@ fn a_reveal_uses_ascii_keys_only() {
     as_(ruler(1), 3_000);
     c.reveal(id, 1, accented.into(), "s".into());
 }
+
+#[test]
+fn the_referee_clears_reveals_kept_for_an_abandoned_season() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, ORDERS.into(), ORDERS_SALT.into());
+    assert!(c.get_reveal(id, 0, 1).is_some());
+    // a full season after the reveal window: deadline (1_000 + SEASON_MS) + 2 seasons
+    as_(referee(), 1_000 + SEASON_MS * 3);
+    c.clear_kept_reveals(id, 0);
+    assert_eq!(c.get_reveal(id, 0, 1), None);
+}
+
+#[test]
+#[should_panic(expected = "that season can still be settled")]
+fn kept_reveals_stay_while_the_season_can_settle() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(1), 3_000);
+    c.reveal(id, 1, ORDERS.into(), ORDERS_SALT.into());
+    as_(referee(), 1_000 + SEASON_MS * 2);
+    c.clear_kept_reveals(id, 0);
+}
+
+#[test]
+#[should_panic(expected = "only the referee clears kept reveals")]
+fn only_the_referee_clears_kept_reveals() {
+    let (mut c, id) = all_sealed();
+    as_(ruler(0), 1_000 + SEASON_MS * 3);
+    c.clear_kept_reveals(id, 0);
+}

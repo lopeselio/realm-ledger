@@ -57,3 +57,20 @@ describe('campaign list', () => {
     expect(host.list({ ids: [2] })[0]).toMatchObject({ season: 2, maxSeasons: 12, phase: 'planning', player: 'alice.testnet', yourSeal: null, winner: null });
   });
 });
+
+describe('access-key failures, as near-api-js reports them', () => {
+  it('recognises an exhausted or missing key, and a method the key may not call', async () => {
+    const host = await import('./host.ts');
+    const errors = (await import('near-api-js/rpc-errors')) as unknown as Record<string, new (...a: unknown[]) => Error>;
+    const allowance = new errors.AccessKeyNotEnoughAllowanceActionError!('ruler1.realm-ledger.testnet', '0', '1', 'ed25519:abc', 0, 'tx', 'block');
+    const gone = new errors.AccessKeyNotFoundActionError!('ruler1.realm-ledger.testnet', 'ed25519:abc', 0, 'tx', 'block');
+    const method = new errors.AccessKeyMethodNameMismatchActionError!('reveal', 0, 'tx', 'block');
+    expect(host.isKeyFailure(allowance)).toBe(true);
+    expect(host.isKeyFailure(gone)).toBe(true);
+    expect(host.isKeyFailure(method)).toBe(false);
+    expect(host.isMethodNotAllowed(method)).toBe(true);
+    expect(host.isKeyFailure(new Error('Contract panicked: orders do not match the seal'))).toBe(false);
+    // a lagging RPC's view of a key added a moment ago is not a key failure
+    expect(host.isKeyFailure(new Error('Access key ed25519:abc does not exist at block height 7'))).toBe(false);
+  });
+});

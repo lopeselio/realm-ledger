@@ -38,7 +38,7 @@ import {
   type Treaty,
 } from '@realm-ledger/rules';
 import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
-import { accountExists, call, view } from './chain.ts';
+import { accountExists, call, isNetworkError, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
 import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
 
@@ -173,6 +173,15 @@ function crashPoint(name: string): void {
 /** Lowest job id not yet seen; hires after this point get ids at or above it. */
 let jobFloor = 0;
 const isContractError = (e: unknown): boolean => /panicked|ExecutionError|FunctionCallError/i.test(String((e as Error)?.message ?? e));
+/** An error's class name and message, which is how near-api-js tells its errors apart. */
+const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
+/** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
+// (not "… does not exist at block height", which a lagging RPC says of a key added a moment ago)
+const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist on account|AccessKeyNotFound/;
+/** The signing key may not make this call (wrong method or contract): it never will. */
+const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch|ReceiverMismatch|receiver .* does not match|InvalidAccessKey/;
+export const isKeyFailure = (e: unknown): boolean => KEY_FAILURE.test(errText(e));
+export const isMethodNotAllowed = (e: unknown): boolean => METHOD_NOT_ALLOWED.test(errText(e));
 
 const hex = (n = 32): string => randomBytes(n).toString('hex');
 const treatyKey = (t: Treaty): string => `${t.kind}:${Math.min(...t.realms)}:${Math.max(...t.realms)}`;
@@ -218,6 +227,67 @@ const STALE_TMP_MS = 60 * 60_000; // generous: the file server's clock may diffe
 export function reconcileAll(): void {
   for (const h of campaigns.values()) {
     if (h.intents.length > 0) void locked(h.id, async () => undefined).catch((e) => console.error(`reconcile ${h.id}: ${(e as Error).message}`));
+  }
+}
+
+/** Seasons the sweep failed to settle: how often, and whether it gave up on them. */
+const sweepFailures = new Map<string, { tries: number; notKept: number; givenUp: boolean }>();
+let sweepRunning = false;
+
+/**
+ * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
+ * are kept onchain at the contract's expense until its season settles, so an abandoned
+ * campaign would otherwise hold them for good. Only once the season's reveal window has
+ * closed (forfeitOpensAt, from the onchain deadline, so restarts don't matter), so a player
+ * still revealing finishes the season themselves. A failed season is tried again at the next
+ * sweep. Runs in the background; a sweep that finds one still running does nothing.
+ */
+export async function sweepAbandoned(): Promise<void> {
+  if (sweepRunning) return;
+  sweepRunning = true;
+  try {
+    // forget failures for seasons that are settled now
+    for (const k of sweepFailures.keys()) {
+      const [id, season] = k.split(':').map(Number);
+      const h = campaigns.get(id!);
+      if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailures.delete(k);
+    }
+    for (const h of [...campaigns.values()]) {
+      if (h.phase !== 'sealed' || !h.player) continue;
+      const season = h.state.season;
+      const key = `${h.id}:${season}`;
+      if (sweepFailures.get(key)?.givenUp) continue;
+      try {
+        const [c, rec] = await Promise.all([
+          view<{ season: number; seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id }),
+          view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
+        ]);
+        if (!c) continue;
+        // the chain settled it already (we crashed before saving): finish recording it
+        const moved = c.season > season;
+        // only once the reveal window has closed: a player still revealing gets to finish it
+        if (!moved && (!rec?.revealed || Date.now() < forfeitOpensAt(c))) continue;
+        console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
+        await revealSeason(h.id, null, null, false, season);
+        sweepFailures.delete(key);
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        const f = sweepFailures.get(key) ?? { tries: 0, notKept: 0, givenUp: false };
+        // an outage says nothing about the season: it doesn't count towards giving up
+        if (!isNetworkError(e) && !/try again in a moment/.test(msg)) {
+          f.tries += 1;
+          if (/not kept onchain/.test(msg)) f.notKept += 1;
+        }
+        // "not kept onchain" three times (a lagging RPC can say it once) means those orders are
+        // gone; any other failure six times (each costs the referee gas) is left for the player
+        // and the logs
+        f.givenUp = f.notKept >= 3 || f.tries >= 6;
+        sweepFailures.set(key, f);
+        console.warn(`sweep ${h.id}: ${msg}${f.givenUp ? ' (giving up on this season)' : ''}`);
+      }
+    }
+  } finally {
+    sweepRunning = false;
   }
 }
 
@@ -561,9 +631,12 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
  * wallet's only after that wallet's own onchain `forfeit`, a guest seat's once the reveal
  * window has closed. Orders revealed onchain always count instead.
  */
-export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false): Promise<GameEvent[]> {
+export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false, onlySeason?: number): Promise<GameEvent[]> {
   return locked(id, async () => {
     const h = get(id);
+    // the sweep settles only the season it watched, still sealed; if the player finished it
+    // meanwhile, or a later one is open, there's nothing for the sweep to do
+    if (onlySeason !== undefined && (h.state.season !== onlySeason || h.phase !== 'sealed')) return [];
     if (h.phase !== 'sealed') throw new GameError('nothing sealed to reveal');
     const before = h.state;
 
@@ -674,13 +747,31 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // a wallet reveals its own orders (humanPart checked they're onchain); the server never
       // signs for it, even if a lagging node makes its `done` check read false
       const toSend = reveals.filter((x) => !(x.realm === HUMAN && h.player));
-      const send = (x: (typeof reveals)[number]) =>
-        call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) });
-      const errText = (e: unknown): string => String((e as Error)?.message ?? e);
+      const args = (x: (typeof reveals)[number]) => ({ campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt });
+      // A seat the server signs for (an AI ruler's, or the guest seat) whose key can't sign its
+      // reveal (out of allowance, gone, not allowed, or every RPC saying it doesn't exist) is
+      // revealed by the referee instead: the contract accepts the referee's reveal for any
+      // realm and checks it against the seal just the same. If the referee can't either, the
+      // seat's own error is what counts.
+      const send = async (x: (typeof reveals)[number]): Promise<void> => {
+        try {
+          await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
+        } catch (e) {
+          // only when the seat's key can't sign; anything else (a contract panic, a network
+          // failure that was already retried and may still land, a stale nonce) is thrown, and
+          // the next attempt picks it up
+          if (!isKeyFailure(e) && !isMethodNotAllowed(e) && !/AccessKeyDoesNotExist|does not exist/.test(errText(e))) throw e;
+          console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${String((e as Error)?.message ?? e).slice(0, 160)}); the referee reveals for it`);
+          await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
+            console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${String((r as Error)?.message ?? r).slice(0, 160)}`);
+            throw isKeyFailure(r) || isMethodNotAllowed(r) ? e : r;
+          });
+        }
+      };
       // a failure that won't clear by itself: the seat's key is out of allowance or gone, or the
       // contract refused the call (a contract panic is deterministic; a network or nonce error
       // is not)
-      const permanent = (e: unknown): boolean => /NotEnoughAllowance|AccessKeyNotFound|InvalidAccessKey/.test(errText(e)) || isContractError(e);
+      const permanent = (e: unknown): boolean => isKeyFailure(e) || isMethodNotAllowed(e) || isContractError(e);
       const readCampaign = () => view<{ seal_deadline_ms: number; season_ms: number; season: number }>('get_campaign', { campaign: h.id }).catch(() => null);
       // AI seats whose orders the contract already refused this season aren't sent again:
       // each try would spend the seat's gas allowance
@@ -713,7 +804,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         delete h.pending.humanReveal;
         h.pending.humanRefused = true;
         await save(h);
-        throw new GameError(`the contract refused your orders (${errText(mine)}); settle the season without them`, 409);
+        throw new GameError(`the contract refused your orders (${String((mine as Error)?.message ?? mine)}); settle the season without them`, 409);
       }
       const newlyRefused = toSend.filter((x) => x.realm !== HUMAN && !refused.has(x.realm) && outcome.get(x.realm) && ORDERS_REFUSED.test(errText(outcome.get(x.realm)))).map((x) => x.realm);
       if (newlyRefused.length > 0) {

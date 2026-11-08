@@ -215,6 +215,8 @@ pub enum Event {
     #[event_version("1.0.0")]
     Forfeited { campaign: u64, season: u32, realm: u8 },
     #[event_version("1.0.0")]
+    KeptRevealsCleared { campaign: u64, season: u32 },
+    #[event_version("1.0.0")]
     TreatyProposed { campaign: u64, treaty: u32, kind: TreatyKind, realms: [u8; 2], amount: u64 },
     #[event_version("1.0.0")]
     TreatySigned { campaign: u64, treaty: u32 },
@@ -464,6 +466,23 @@ impl RealmLedger {
         require!(!env::storage_has_key(&key), "already forfeited");
         env::storage_write(&key, &[1]);
         Event::Forfeited { campaign, season, realm }.emit();
+    }
+
+    /// The referee frees the reveals kept for the current season when nobody will settle it:
+    /// once a full season has passed after the reveal window (a settled season's are already
+    /// gone). A reveal made afterwards is kept again, and can be cleared the same way. They cost the
+    /// contract storage, and an abandoned campaign would hold them forever. After this the
+    /// season can still settle, but only with the revealed orders from elsewhere (the
+    /// `revealed` event), so the referee uses it only for seasons it can't settle itself.
+    pub fn clear_kept_reveals(&mut self, campaign: u64, season: u32) {
+        let now = env::block_timestamp_ms();
+        let c = self.campaign(campaign);
+        require!(c.referee == env::predecessor_account_id(), "only the referee clears kept reveals");
+        // (a settled season's were already cleared when it settled)
+        require!(c.season == season, "only the current season has kept reveals");
+        require!(now >= c.seal_deadline_ms.saturating_add(c.season_ms.saturating_mul(2)), "that season can still be settled");
+        clear_kept_reveals(campaign, season, c.realms.len());
+        Event::KeptRevealsCleared { campaign, season }.emit();
     }
 
     /// The referee posts the result of resolving the season with packages/rules: the new

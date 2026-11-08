@@ -6,7 +6,50 @@ import { config, privateKey } from './config.ts';
 
 // several public testnet RPCs (docs.near.org/api/rpc/providers); on a failure the next one is used
 const RPCS = [config.rpcUrl, 'https://near-testnet.drpc.org', 'https://testnet-rpc.intea.rs'].filter((u, i, a) => a.indexOf(u) === i);
-const provider = new FailoverRpcProvider(RPCS.map((url) => new JsonRpcProvider({ url })));
+const provider = withRealErrors(new FailoverRpcProvider(RPCS.map((url) => new JsonRpcProvider({ url }))));
+
+// near-api-js's failover tries the next RPC on any error and, once all have failed, throws
+// "Exceeded 3 providers" in place of what went wrong, so a refused transaction (a key out of
+// allowance, a method its key may not call) became indistinguishable from an outage. Here a
+// definite refusal from the chain is returned unchanged; anything else tries the next RPC.
+// (chain.test.ts checks this still holds for the installed near-api-js)
+type Failover = { providers: unknown[]; currentProviderIndex: number };
+export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
+  (failover as unknown as { withBackoff: (get: (p: unknown) => Promise<unknown>) => Promise<unknown> }).withBackoff = async function (
+    this: Failover,
+    get: (p: unknown) => Promise<unknown>,
+  ): Promise<unknown> {
+    // ranked: the network (2) over an RPC's own error (1) over "does not exist" (0), since a
+    // lagging RPC says that of a key added a moment ago: a partial outage stays an outage
+    // (retried), and "does not exist" stands only when every RPC that answered said it
+    const rank = (e: unknown): number =>
+      isNetworkError(e) ? 2 : /AccessKey|AccountDoesNotExist|does not exist/.test(`${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`) ? 0 : 1;
+    let telling: unknown;
+    let empty = false;
+    // each request walks the list from the current RPC on its own, so parallel requests don't
+    // move each other past a healthy one; the shared index only moves to one that answered
+    const start = this.currentProviderIndex;
+    const n = this.providers.length;
+    for (let i = 0; i < n; i++) {
+      const at = (start + i) % n;
+      try {
+        const result = await get(this.providers[at]);
+        if (result !== undefined) {
+          this.currentProviderIndex = at;
+          return result;
+        }
+        // an empty answer may be a lagging RPC's: ask the next, but it stands if none says more
+        empty = true;
+      } catch (e) {
+        if (isRefusal(e)) throw e;
+        if (telling === undefined || rank(e) > rank(telling)) telling = e;
+      }
+    }
+    if (empty) return undefined;
+    throw telling ?? new Error(`no answer from ${this.providers.length} RPC providers`);
+  };
+  return failover;
+}
 const accounts = new Map<string, Account>();
 const queues = new Map<string, Promise<unknown>>();
 
@@ -32,7 +75,39 @@ export interface CallOptions {
   done?: () => Promise<boolean>;
 }
 
-const isNetworkError = (e: unknown): boolean => /fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|503|502|timeout/i.test(String((e as Error)?.message ?? e) + String((e as { cause?: unknown })?.cause ?? ''));
+/** A failure of the RPC or the network, worth trying again (on another RPC). */
+export function isNetworkError(e: unknown): boolean {
+  // a contract's own panic is never the network, whatever numbers or words it contains; nor is
+  // "does not exist", which near-api-js may wrap as "[-32000] Server error: …"
+  if (/panicked|does not exist/.test(String((e as Error)?.message ?? e))) return false;
+  const cause = (e as { cause?: unknown })?.cause;
+  // near-api-js puts the HTTP status in `cause` (e.g. "… Bad Gateway" with cause 502)
+  if (typeof cause === 'number' && [408, 429, 500, 502, 503, 504].includes(cause)) return true;
+  if (cause instanceof Error && isNetworkError(cause)) return true;
+  // (status codes come in `cause`, checked above: a bare number in a message is too often a
+  // nonce, block height or amount)
+  // also an RPC's own trouble (a node behind or overloaded) and a timed-out transaction, which
+  // may still land: all worth retrying, none an answer about the request
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|Bad Gateway|unavailable|Internal server error|Too Many Requests|timeout|timed out|TransactionTimeout|Exceeded \d+ attempts|RetriesExceeded|ShardCongested|ShardStuck|Expired|Server error|UNKNOWN_BLOCK|NO_SYNCED_BLOCKS|INTERNAL_ERROR/i.test(
+    `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`,
+  );
+}
+
+/**
+ * The chain's definite answer to a request, which another RPC would only repeat: the contract
+ * panicked, the transaction or one of its actions was refused (a key's allowance or methods,
+ * a stale nonce). Anything else is worth asking the next RPC, including "does not exist" for
+ * a key or account (as a view or a transaction), which an RPC a block behind says about one
+ * added a moment ago; if every RPC says so, that error is the one returned.
+ */
+function isRefusal(e: unknown): boolean {
+  const text = `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
+  if (/panicked/.test(text)) return true;
+  // the chain is busy, not saying no: another RPC, or a moment later, may get through
+  if (/ShardCongested|ShardStuck|Expired/.test(text)) return false;
+  if (/AccessKeyDoesNotExist|AccessKeyNotFound|AccountDoesNotExist|does not exist/.test(text)) return false;
+  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|does not allow method|Not enough allowance/.test(text);
+}
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** Calls a contract method as `signer`, after any earlier calls from the same signer. */
@@ -49,10 +124,14 @@ export function call<T = unknown>(signer: string, method: string, args: object, 
     }) as Promise<T>;
   const guarded = async (): Promise<T> => {
     for (let attempt = 0; ; attempt++) {
+      // before every attempt: an earlier one may have landed late
       if (opts.done && (await opts.done())) return undefined as T;
       try {
         return await once();
       } catch (e) {
+        // a definite failure may still hide a landed call (a resend after a timeout comes back
+        // with a stale nonce, say): if its effect is onchain, it worked
+        if (!isNetworkError(e) && opts.done && (await opts.done().catch(() => false))) return undefined as T;
         if (!opts.done || attempt >= 3 || !isNetworkError(e)) throw e;
         console.warn(`${signer} ${method}: ${(e as Error).message}; retrying`);
         await sleep(800 * (attempt + 1));
