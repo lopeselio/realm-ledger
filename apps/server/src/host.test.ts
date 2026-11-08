@@ -83,4 +83,8 @@ describe('revealable: what the contract accepts as a reveal', () => {
     expect(host.revealable(set([{ kind: 'note', text: '\ud800' }]))).toBe(false);
     expect(host.revealable(set([{ kind: 'march', 'é': 1 }]))).toBe(false);
   });
+
+  it('refuses an array hole canonical JSON could not write', () => {
+    expect(host.revealable(set([{ kind: 'march', from: 1, to: 2 }, undefined]))).toBe(false);
+  });
 });

@@ -548,17 +548,16 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
 export function revealable(o: OrderSet): boolean {
   // a lone surrogate can't be written as UTF-8, so the contract can't parse it
   const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-  const ok = (v: unknown): boolean =>
-    typeof v === 'number'
-      ? Number.isSafeInteger(v)
-      : typeof v === 'string'
-        ? !lone.test(v)
-        : Array.isArray(v)
-          ? v.every(ok)
-          : v !== null && typeof v === 'object'
-            ? // ASCII keys: sorted the same by JavaScript (UTF-16) and the contract (bytes)
-              Object.entries(v).every(([k, x]) => /^[\x20-\x7e]*$/.test(k) && ok(x))
-            : true;
+  const ok = (v: unknown): boolean => {
+    if (typeof v === 'number') return Number.isSafeInteger(v);
+    if (typeof v === 'string') return !lone.test(v);
+    // canonical JSON can't write undefined inside an array
+    if (v === undefined) return false;
+    if (Array.isArray(v)) return v.every(ok);
+    // ASCII keys: sorted the same by JavaScript (UTF-16) and the contract (bytes)
+    if (v !== null && typeof v === 'object') return Object.entries(v).every(([k, x]) => /^[\x20-\x7e]*$/.test(k) && ok(x));
+    return true;
+  };
   try {
     // the contract's limit is in UTF-8 bytes
     return Array.isArray(o.orders) && ok(o) && Buffer.byteLength(canonicalJson(o), 'utf8') <= 8_000;
@@ -607,16 +606,19 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       const settledWithout = c.season > before.season && !rec?.revealed;
       if (settledWithout) return { forfeited: [HUMAN] };
       // a wallet's forfeit was just sent: an RPC node may not have seen it yet
-      for (let i = 0; forfeit && h.player && !declared && !rec?.revealed && i < 3; i++) {
+      let revealedNow = !!rec?.revealed;
+      for (let i = 0; forfeit && h.player && !declared && !revealedNow && i < 3; i++) {
         await new Promise((r) => setTimeout(r, 2_000));
-        declared = await readForfeit();
+        // either may land meanwhile: a reveal from another browser counts instead
+        [declared, revealedNow] = await Promise.all([readForfeit(), view<{ revealed: boolean }>('get_seal', where).then((x) => !!x?.revealed, () => revealedNow)]);
       }
       // orders an earlier attempt saved (it may have revealed, then crashed): we hold them, so
       // they count even if a browser that lost them asks to forfeit (the contract accepts any
       // reveal that matches the seal and is canonical, so they can always land)
       const saved = h.pending.humanReveal;
-      if (saved && (!orders || salt === null) && !declared) return check(saved.orders, saved.salt);
-      if (rec?.revealed) {
+      // (a wallet's are saved only once revealed onchain: the server never signs for a wallet)
+      if (saved && (!orders || salt === null) && !declared && (!h.player || revealedNow)) return check(saved.orders, saved.salt);
+      if (revealedNow) {
         // revealed onchain, from whichever browser: those orders count, and the contract keeps
         // them until the season settles, so a browser that lost them doesn't matter
         if (orders && salt !== null) return check(orders, salt);
@@ -666,19 +668,22 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       const reveals = [...h.pending.ai, ...(human.reveal ? [human.reveal] : [])].sort((a, b) => a.realm - b.realm);
       // every reveal is checked against its seal by the contract too
       const revealed = (realm: number) => async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm }))?.revealed;
-      try {
-        await Promise.all(
-          reveals.map((x) =>
-            call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }),
-          ),
-        );
-      } catch (e) {
-        // the contract refused your saved orders (it should accept anything `revealable` lets
-        // through): drop them, so they can't block the season, and let it settle without them
-        if (human.reveal && h.pending.humanReveal && isContractError(e) && !(await revealed(HUMAN)())) {
+      const results = await Promise.allSettled(
+        reveals.map((x) =>
+          call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }),
+        ),
+      );
+      const failed = results.findIndex((r) => r.status === 'rejected');
+      if (failed >= 0) {
+        const e = (results[failed] as PromiseRejectedResult).reason;
+        // the contract refused your own saved orders (it should accept anything `revealable`
+        // lets through): drop them, so they can't block the season, and let it settle without
+        // them. Only for your realm's reveal; any other failure is retried as it is.
+        const yours = results.findIndex((r, i) => r.status === 'rejected' && reveals[i]!.realm === HUMAN);
+        if (yours >= 0 && h.pending.humanReveal && isContractError((results[yours] as PromiseRejectedResult).reason) && !(await revealed(HUMAN)())) {
           delete h.pending.humanReveal;
           await save(h);
-          throw new GameError(`the contract refused your orders (${(e as Error).message}); settle the season without them`, 409);
+          throw new GameError(`the contract refused your orders (${((results[yours] as PromiseRejectedResult).reason as Error).message}); settle the season without them`, 409);
         }
         throw e;
       }
