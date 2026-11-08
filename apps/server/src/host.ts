@@ -38,7 +38,7 @@ import {
   type Treaty,
 } from '@realm-ledger/rules';
 import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
-import { accountExists, call, view } from './chain.ts';
+import { accountExists, call, isNetworkError, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
 import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
 
@@ -234,6 +234,8 @@ export function reconcileAll(): void {
 const sweepFailed = new Map<string, number>();
 /** How many sweeps running a season's revealed orders weren't kept onchain. */
 const sweepNotKept = new Map<string, number>();
+/** How many sweeps running failed to settle a season. */
+const sweepTries = new Map<string, number>();
 
 /**
  * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
@@ -252,6 +254,7 @@ export async function sweepAbandoned(): Promise<void> {
     if (!h || h.phase !== 'sealed' || h.state.season !== season) {
       sweepFailed.delete(k);
       sweepNotKept.delete(k);
+      sweepTries.delete(k);
     }
   }
   for (const h of [...campaigns.values()]) {
@@ -276,9 +279,13 @@ export async function sweepAbandoned(): Promise<void> {
       const msg = String((e as Error)?.message ?? e);
       // tried again at the next sweep; but "not kept onchain" three times (a lagging RPC can say
       // it once) means those orders are gone, and the season is left for the player
+      // and any failure six sweeps running (an hour) is left for the player and the logs: each
+      // try spends the referee's gas
       const notKept = (sweepNotKept.get(key) ?? 0) + (/not kept onchain/.test(msg) ? 1 : 0);
       sweepNotKept.set(key, notKept);
-      sweepFailed.set(key, notKept >= 3 ? Infinity : started + 10 * 60_000 - 1_000);
+      const tries = (sweepTries.get(key) ?? 0) + 1;
+      sweepTries.set(key, tries);
+      sweepFailed.set(key, notKept >= 3 || tries >= 6 ? Infinity : started + 10 * 60_000 - 1_000);
       console.warn(`sweep ${h.id}: ${msg}`);
     }
   }
@@ -741,19 +748,18 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // signs for it, even if a lagging node makes its `done` check read false
       const toSend = reveals.filter((x) => !(x.realm === HUMAN && h.player));
       const args = (x: (typeof reveals)[number]) => ({ campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt });
-      // a seat whose own key can't sign (out of gas allowance, or gone) is revealed by the
-      // referee instead: the contract accepts the referee's reveal for any realm, and checks it
-      // against the seal just the same
-      // A seat the server signs for (an AI ruler's, or the guest seat) whose reveal fails for any
-      // reason but a contract panic (its key out of allowance, gone, not allowed, a lagging RPC)
-      // is revealed by the referee instead: the contract accepts the referee's reveal for any
+      // A seat the server signs for (an AI ruler's, or the guest seat) whose key can't sign its
+      // reveal (out of allowance, gone, not allowed, or every RPC saying it doesn't exist) is
+      // revealed by the referee instead: the contract accepts the referee's reveal for any
       // realm and checks it against the seal just the same. If the referee can't either, the
       // seat's own error is what counts.
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
         try {
           await call(seatOf(h, x.realm), 'reveal', args(x), { done: revealed(x.realm) });
         } catch (e) {
-          if (isContractError(e)) throw e;
+          // a contract panic is the chain's answer; a network failure was already retried and the
+          // reveal may still land, so the next attempt (not the referee) picks it up
+          if (isContractError(e) || isNetworkError(e)) throw e;
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${errText(e).slice(0, 80)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${errText(r).slice(0, 80)}`);

@@ -139,6 +139,8 @@ setInterval(() => {
       sweeping = false;
     });
 }, 10 * 60_000).unref();
+// and once a minute after starting, so a host that restarts often still sweeps
+setTimeout(() => void sweepAbandoned().catch((e: unknown) => console.error(`sweep: ${(e as Error).message}`)), 60_000).unref();
 server.listen(config.port, () => {
   console.log(`realm-ledger server on :${config.port} (${n} campaigns loaded, contract ${config.contract}, NEAR AI ${nearAiEnabled() ? config.nearAi.model : 'off'})`);
 });

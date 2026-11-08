@@ -13,7 +13,7 @@ const provider = withRealErrors(new FailoverRpcProvider(RPCS.map((url) => new Js
 // allowance, a method its key may not call) became indistinguishable from an outage. Here a
 // definite refusal from the chain is returned unchanged; anything else tries the next RPC.
 // (chain.test.ts checks this still holds for the installed near-api-js)
-type Failover = { providers: unknown[]; currentProvider: unknown; switchToNextProvider(): void };
+type Failover = { providers: unknown[]; currentProviderIndex: number };
 export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
   (failover as unknown as { withBackoff: (get: (p: unknown) => Promise<unknown>) => Promise<unknown> }).withBackoff = async function (
     this: Failover,
@@ -26,9 +26,15 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
       /AccessKey|AccountDoesNotExist|does not exist|Not enough allowance/.test(`${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`) ? 2 : isNetworkError(e) ? 0 : 1;
     let telling: unknown;
     let empty = false;
-    for (let i = 0; i < this.providers.length; i++) {
+    // each request walks the list from the current RPC on its own, so parallel requests don't
+    // move each other past a healthy one; the shared index only moves to one that answered
+    const start = this.currentProviderIndex;
+    const n = this.providers.length;
+    for (let i = 0; i < n; i++) {
+      const at = (start + i) % n;
       try {
-        const result = await get(this.currentProvider);
+        const result = await get(this.providers[at]);
+        this.currentProviderIndex = at;
         if (result !== undefined) return result;
         // an empty answer may be a lagging RPC's: ask the next, but it stands if none says more
         empty = true;
@@ -36,7 +42,6 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
         if (isRefusal(e)) throw e;
         if (telling === undefined || rank(e) > rank(telling)) telling = e;
       }
-      this.switchToNextProvider();
     }
     if (empty) return undefined;
     throw telling ?? new Error(`no answer from ${this.providers.length} RPC providers`);
@@ -69,7 +74,7 @@ export interface CallOptions {
 }
 
 /** A failure of the RPC or the network, worth trying again (on another RPC). */
-function isNetworkError(e: unknown): boolean {
+export function isNetworkError(e: unknown): boolean {
   // a contract's own panic is never the network, whatever numbers or words it contains
   if (/panicked/.test(String((e as Error)?.message ?? e))) return false;
   const cause = (e as { cause?: unknown })?.cause;

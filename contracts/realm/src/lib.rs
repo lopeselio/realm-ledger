@@ -477,13 +477,11 @@ impl RealmLedger {
         let now = env::block_timestamp_ms();
         let c = self.campaign(campaign);
         require!(c.referee == env::predecessor_account_id(), "only the referee clears kept reveals");
-        let abandoned = c.season == season && now >= c.seal_deadline_ms.saturating_add(c.season_ms.saturating_mul(2));
-        require!(season < c.season || abandoned, "that season can still be settled");
-        clear_kept_reveals(campaign, season, c.realms.len());
         // (a settled season's were already cleared when it settled)
-        if abandoned {
-            Event::KeptRevealsCleared { campaign, season }.emit();
-        }
+        require!(c.season == season, "only the current season has kept reveals");
+        require!(now >= c.seal_deadline_ms.saturating_add(c.season_ms.saturating_mul(2)), "that season can still be settled");
+        clear_kept_reveals(campaign, season, c.realms.len());
+        Event::KeptRevealsCleared { campaign, season }.emit();
     }
 
     /// The referee posts the result of resolving the season with packages/rules: the new
