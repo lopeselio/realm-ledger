@@ -40,13 +40,16 @@ export const stateHash = (s: GameState): string => sha256Hex(canonicalJson(s));
 
 /** The realm contract's MAX_ORDERS_JSON (contracts/realm/src/lib.rs): the largest reveal, in UTF-8 bytes. */
 export const MAX_REVEAL_BYTES = 8_000;
+/** The realm contract's limit on a reveal's salt, in UTF-8 bytes. */
+export const MAX_SALT_BYTES = 128;
 
 /**
  * Orders the realm contract accepts as a reveal: canonical JSON it writes the same way (safe
  * whole numbers only, ASCII keys, no lone surrogates) and no larger than MAX_REVEAL_BYTES.
  * Checked before sealing, so a seal can always be revealed.
  */
-export function revealable(o: OrderSet): boolean {
+export function revealable(o: OrderSet, salt?: string): boolean {
+  if (salt !== undefined && utf8ToBytes(salt).length > MAX_SALT_BYTES) return false;
   // a lone surrogate can't be written as UTF-8, so the contract can't parse it
   const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
   const ok = (v: unknown): boolean => {

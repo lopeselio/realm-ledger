@@ -580,7 +580,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         if (o.realm !== HUMAN || o.season !== before.season) throw new GameError('those orders are for another realm or season');
         // what the contract accepts as a reveal: refused here, before they're saved, so they
         // can't block the season
-        if (!revealable(o) || s.length > 128) throw new GameError('those orders are not something the contract can accept as a reveal');
+        if (!revealable(o, s)) throw new GameError('those orders are not something the contract can accept as a reveal');
         if (sealOrders(o, s) !== seal) throw new GameError('those orders do not match your seal');
         return { reveal: { realm: HUMAN, orders: o, salt: s, seal }, forfeited: [] };
       };
@@ -590,6 +590,11 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       if (settledWithout) return { forfeited: [HUMAN] };
       // a wallet's forfeit was just sent: an RPC node may not have seen it yet
       let revealedNow = !!rec?.revealed;
+      // likewise a wallet's reveal: the browser posts right after it lands
+      for (let i = 0; h.player && !forfeit && !declared && !revealedNow && orders && i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 2_000));
+        revealedNow = await view<{ revealed: boolean }>('get_seal', where).then((x) => !!x?.revealed, () => false);
+      }
       for (let i = 0; forfeit && h.player && !declared && !revealedNow && i < 3; i++) {
         await new Promise((r) => setTimeout(r, 2_000));
         // either may land meanwhile: a reveal from another browser counts instead
@@ -651,8 +656,11 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       const reveals = [...h.pending.ai, ...(human.reveal ? [human.reveal] : [])].sort((a, b) => a.realm - b.realm);
       // every reveal is checked against its seal by the contract too
       const revealed = (realm: number) => async () => !!(await view<{ revealed: boolean }>('get_seal', { campaign: h.id, season: before.season, realm }))?.revealed;
+      // a wallet reveals its own orders (humanPart checked they're onchain); the server never
+      // signs for it, even if a lagging node makes its `done` check read false
+      const toSend = reveals.filter((x) => !(x.realm === HUMAN && h.player));
       const results = await Promise.allSettled(
-        reveals.map((x) =>
+        toSend.map((x) =>
           call(seatOf(h, x.realm), 'reveal', { campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt }, { done: revealed(x.realm) }),
         ),
       );
@@ -662,7 +670,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
         // `revealable` lets through): drop them so they can't block the season, which then
         // settles without them. Any other failure (an AI seat's, a network error, a reveal that
         // already landed) is retried as it is.
-        const mine = results[reveals.findIndex((x) => x.realm === HUMAN)];
+        const mine = results[toSend.findIndex((x) => x.realm === HUMAN)];
         const msg = mine?.status === 'rejected' ? String((mine.reason as Error)?.message ?? mine.reason) : '';
         if (h.pending.humanReveal && /orders must be|reveal too large|orders do not match the seal/.test(msg)) {
           delete h.pending.humanReveal;

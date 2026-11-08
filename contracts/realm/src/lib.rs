@@ -400,6 +400,7 @@ impl RealmLedger {
     pub fn reveal(&mut self, campaign: u64, realm: u8, orders: String, salt: String) {
         let caller = env::predecessor_account_id();
         let now = env::block_timestamp_ms();
+        // packages/rules' MAX_SALT_BYTES must match the salt limit
         require!(orders.len() <= MAX_ORDERS_JSON && salt.len() <= 128, "reveal too large");
         let c = self.campaign_mut(campaign);
         if c.phase == Phase::Sealing && now >= c.seal_deadline_ms {

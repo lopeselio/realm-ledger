@@ -137,7 +137,10 @@ export function useGame(id: number | null, signer: Signer | null) {
   const reveal = async (): Promise<void> => {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
-    const secret = findSecret(v.id, v.season, v.yourSeal);
+    const found = findSecret(v.id, v.season, v.yourSeal);
+    // orders the contract won't accept as a reveal (sealed before that was checked) are as good
+    // as lost: offer to settle without them
+    const secret = found && revealable(found.orders, found.salt) ? found : null;
     if (!secret) {
       const { c, revealed, declared } = await onChain(v);
       // still the same sealed season once the chain answered
@@ -171,9 +174,9 @@ export function useGame(id: number | null, signer: Signer | null) {
       const at = !c ? null : v.player || c.season > v.season ? Date.now() : c.seal_deadline_ms + c.season_ms + 60_000;
       setForfeitAt(at);
       say(
-        `Your sealed orders are not stored in this browser, so they cannot be revealed here. Reveal from a browser that still holds them${
+        `${found ? 'The contract cannot accept your sealed orders as a reveal' : 'Your sealed orders are not stored in this browser, so they cannot be revealed here. Reveal from a browser that still holds them'}${
           at
-            ? `, or settle the season without them (your realm does nothing this season) ${at <= Date.now() ? (v.player ? 'now, from your wallet' : 'now') : `from ${new Date(at).toLocaleString()}`}`
+            ? `${found ? '. Settle' : ', or settle'} the season without them (your realm does nothing this season) ${at <= Date.now() ? (v.player ? 'now, from your wallet' : 'now') : `from ${new Date(at).toLocaleString()}`}`
             : ''
         }.`,
         'error',
