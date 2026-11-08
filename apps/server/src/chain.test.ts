@@ -20,6 +20,13 @@ describe('RPC failover', () => {
     await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).resolves.toEqual({ nonce: 2 });
   });
 
+  it('asks the next RPC when one says a key does not exist (it may be a block behind)', async () => {
+    const ok = Object.assign(new JsonRpcProvider({ url: 'http://unused.invalid' }), { viewAccessKey: async () => ({ nonce: 3 }) });
+    const behind = Object.assign(new Error('Access key ed25519:x does not exist at block height 1'), { name: 'AccessKeyDoesNotExistError' });
+    const p = withRealErrors(new FailoverRpcProvider([failing(behind), ok]));
+    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).resolves.toEqual({ nonce: 3 });
+  });
+
   it('moves on to the next RPC after a network failure', async () => {
     const ok = Object.assign(new JsonRpcProvider({ url: 'http://unused.invalid' }), { viewAccessKey: async () => ({ nonce: 1 }) });
     const p = withRealErrors(new FailoverRpcProvider([failing(new Error('fetch failed')), ok]));

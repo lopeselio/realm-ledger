@@ -72,12 +72,14 @@ function isNetworkError(e: unknown): boolean {
 
 /**
  * The chain's definite answer to a request, which another RPC would only repeat: the contract
- * panicked, the key or account can't do this, the nonce is stale, something doesn't exist.
- * Anything else (a lagging or broken RPC, the network) is worth asking the next RPC.
+ * panicked, the transaction or one of its actions was refused (a key's allowance or methods,
+ * a stale nonce). Anything else is worth asking the next RPC, including "does not exist" for
+ * a key or account, which an RPC a block behind says about one added a moment ago.
  */
 function isRefusal(e: unknown): boolean {
   const text = `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
-  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|AccessKey|AccountDoesNotExist|panicked|does not allow method|Not enough allowance|does not exist/.test(text);
+  if (/AccessKeyDoesNotExist|AccountDoesNotExist/.test(text)) return false;
+  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|panicked|does not allow method|Not enough allowance/.test(text);
 }
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -99,6 +101,9 @@ export function call<T = unknown>(signer: string, method: string, args: object, 
       try {
         return await once();
       } catch (e) {
+        // whatever went wrong, the call may have landed (a resend after a timeout comes back
+        // with a stale nonce, say): if its effect is onchain, it worked
+        if (opts.done && (await opts.done().catch(() => false))) return undefined as T;
         if (!opts.done || attempt >= 3 || !isNetworkError(e)) throw e;
         console.warn(`${signer} ${method}: ${(e as Error).message}; retrying`);
         await sleep(800 * (attempt + 1));

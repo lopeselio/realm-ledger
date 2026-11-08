@@ -256,14 +256,19 @@ export async function sweepAbandoned(): Promise<void> {
         view<{ season: number; seal_deadline_ms: number }>('get_campaign', { campaign: h.id }),
         view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
       ]);
-      if (!c || c.season !== season || !rec?.revealed || Date.now() < c.seal_deadline_ms + 10 * 60_000) continue;
+      if (!c) continue;
+      // the chain settled it already (we crashed before saving): finish recording it
+      const moved = c.season > season;
+      if (!moved && (!rec?.revealed || Date.now() < c.seal_deadline_ms + 10 * 60_000)) continue;
       console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
       await revealSeason(h.id, null, null, false, season);
       sweepFailed.delete(key);
     } catch (e) {
-      // orders no longer kept onchain (cleared by hand) can't come back: stop trying this season
-      sweepFailed.set(key, /not kept onchain/.test((e as Error).message) ? Infinity : Date.now());
-      console.warn(`sweep ${h.id}: ${(e as Error).message}`);
+      const msg = String((e as Error)?.message ?? e);
+      // orders no longer kept onchain, or refused by the contract, won't change: stop trying this
+      // season (the player can still settle it without them); anything else, an hour from now
+      sweepFailed.set(key, /not kept onchain|refused your orders/.test(msg) ? Infinity : Date.now());
+      console.warn(`sweep ${h.id}: ${msg}`);
     }
   }
 }
