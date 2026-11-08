@@ -27,16 +27,17 @@ describe('RPC failover', () => {
     await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).resolves.toEqual({ nonce: 3 });
   });
 
-  it('returns the most telling error when every RPC fails', async () => {
-    const telling = Object.assign(new Error('Access key ed25519:x does not exist on account a.testnet'), { name: 'AccessKeyNotFoundActionError' });
-    const p = withRealErrors(new FailoverRpcProvider([failing(telling), failing(new Error('fetch failed'))]));
-    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(telling);
+  it('reports a partial outage as an outage, so it is retried', async () => {
+    const missing = Object.assign(new Error('Access key ed25519:x does not exist at block height 1'), { name: 'AccessKeyDoesNotExistError' });
+    const outage = new Error('fetch failed');
+    const p = withRealErrors(new FailoverRpcProvider([failing(missing), failing(outage)]));
+    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(outage);
   });
 
-  it('ranks a key error above an RPC-side error', async () => {
-    const key = Object.assign(new Error('Access key ed25519:x does not exist on account a.testnet'), { name: 'AccessKeyNotFoundActionError' });
-    const p = withRealErrors(new FailoverRpcProvider([failing(key), failing(new Error('[-32000] Server error: UNKNOWN_BLOCK'))]));
-    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(key);
+  it('reports "does not exist" when every RPC that answered said it', async () => {
+    const missing = Object.assign(new Error('Access key ed25519:x does not exist at block height 1'), { name: 'AccessKeyDoesNotExistError' });
+    const p = withRealErrors(new FailoverRpcProvider([failing(missing), failing(missing)]));
+    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(missing);
   });
 
   it('moves on to the next RPC after a network failure', async () => {

@@ -230,64 +230,64 @@ export function reconcileAll(): void {
   }
 }
 
-/** Seasons the sweep failed to settle: not tried again before this time. */
-const sweepFailed = new Map<string, number>();
-/** How many sweeps running a season's revealed orders weren't kept onchain. */
-const sweepNotKept = new Map<string, number>();
-/** How many sweeps running failed to settle a season. */
-const sweepTries = new Map<string, number>();
+/** Seasons the sweep failed to settle: how often, and whether it gave up on them. */
+const sweepFailures = new Map<string, { tries: number; notKept: number; givenUp: boolean }>();
+let sweepRunning = false;
 
 /**
  * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
  * are kept onchain at the contract's expense until its season settles, so an abandoned
  * campaign would otherwise hold them for good. Only once the season's reveal window has
  * closed (forfeitOpensAt, from the onchain deadline, so restarts don't matter), so a player
- * still revealing finishes the season themselves. Runs in the background.
+ * still revealing finishes the season themselves. A failed season is tried again at the next
+ * sweep. Runs in the background; a sweep that finds one still running does nothing.
  */
 export async function sweepAbandoned(): Promise<void> {
-  // retries are timed from the sweep's start, so a failed season comes up at the next sweep
-  const started = Date.now();
-  // forget failures for seasons that are settled now
-  for (const k of sweepFailed.keys()) {
-    const [id, season] = k.split(':').map(Number);
-    const h = campaigns.get(id!);
-    if (!h || h.phase !== 'sealed' || h.state.season !== season) {
-      sweepFailed.delete(k);
-      sweepNotKept.delete(k);
-      sweepTries.delete(k);
+  if (sweepRunning) return;
+  sweepRunning = true;
+  try {
+    // forget failures for seasons that are settled now
+    for (const k of sweepFailures.keys()) {
+      const [id, season] = k.split(':').map(Number);
+      const h = campaigns.get(id!);
+      if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailures.delete(k);
     }
-  }
-  for (const h of [...campaigns.values()]) {
-    if (h.phase !== 'sealed' || !h.player) continue;
-    const season = h.state.season;
-    const key = `${h.id}:${season}`;
-    if (Date.now() < (sweepFailed.get(key) ?? 0)) continue;
-    try {
-      const [c, rec] = await Promise.all([
-        view<{ season: number; seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id }),
-        view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
-      ]);
-      if (!c) continue;
-      // the chain settled it already (we crashed before saving): finish recording it
-      const moved = c.season > season;
-      // only once the reveal window has closed: a player still revealing gets to finish it
-      if (!moved && (!rec?.revealed || Date.now() < forfeitOpensAt(c))) continue;
-      console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
-      await revealSeason(h.id, null, null, false, season);
-      sweepFailed.delete(key);
-    } catch (e) {
-      const msg = String((e as Error)?.message ?? e);
-      // tried again at the next sweep; but "not kept onchain" three times (a lagging RPC can say
-      // it once) means those orders are gone, and the season is left for the player
-      // and any failure six sweeps running (an hour) is left for the player and the logs: each
-      // try spends the referee's gas
-      const notKept = (sweepNotKept.get(key) ?? 0) + (/not kept onchain/.test(msg) ? 1 : 0);
-      sweepNotKept.set(key, notKept);
-      const tries = (sweepTries.get(key) ?? 0) + 1;
-      sweepTries.set(key, tries);
-      sweepFailed.set(key, notKept >= 3 || tries >= 6 ? Infinity : started + 10 * 60_000 - 1_000);
-      console.warn(`sweep ${h.id}: ${msg}`);
+    for (const h of [...campaigns.values()]) {
+      if (h.phase !== 'sealed' || !h.player) continue;
+      const season = h.state.season;
+      const key = `${h.id}:${season}`;
+      if (sweepFailures.get(key)?.givenUp) continue;
+      try {
+        const [c, rec] = await Promise.all([
+          view<{ season: number; seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id }),
+          view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
+        ]);
+        if (!c) continue;
+        // the chain settled it already (we crashed before saving): finish recording it
+        const moved = c.season > season;
+        // only once the reveal window has closed: a player still revealing gets to finish it
+        if (!moved && (!rec?.revealed || Date.now() < forfeitOpensAt(c))) continue;
+        console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
+        await revealSeason(h.id, null, null, false, season);
+        sweepFailures.delete(key);
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        const f = sweepFailures.get(key) ?? { tries: 0, notKept: 0, givenUp: false };
+        // an outage says nothing about the season: it doesn't count towards giving up
+        if (!isNetworkError(e) && !/try again in a moment/.test(msg)) {
+          f.tries += 1;
+          if (/not kept onchain/.test(msg)) f.notKept += 1;
+        }
+        // "not kept onchain" three times (a lagging RPC can say it once) means those orders are
+        // gone; any other failure six times (each costs the referee gas) is left for the player
+        // and the logs
+        f.givenUp = f.notKept >= 3 || f.tries >= 6;
+        sweepFailures.set(key, f);
+        console.warn(`sweep ${h.id}: ${msg}${f.givenUp ? ' (giving up on this season)' : ''}`);
+      }
     }
+  } finally {
+    sweepRunning = false;
   }
 }
 

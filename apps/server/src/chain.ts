@@ -21,9 +21,11 @@ export function withRealErrors<P extends FailoverRpcProvider>(failover: P): P {
   ): Promise<unknown> {
     // if every RPC fails, the most telling error wins: one about the request (a key that
     // doesn't exist yet on a lagging node, say) over "fetch failed"
-    // ranked: something about this key or account (2) over an RPC's own error (1) over the network (0)
+    // ranked: the network (2) over an RPC's own error (1) over "does not exist" (0), since a
+    // lagging RPC says that of a key added a moment ago: a partial outage stays an outage
+    // (retried), and "does not exist" stands only when every RPC that answered said it
     const rank = (e: unknown): number =>
-      /AccessKey|AccountDoesNotExist|does not exist|Not enough allowance/.test(`${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`) ? 2 : isNetworkError(e) ? 0 : 1;
+      isNetworkError(e) ? 2 : /AccessKey|AccountDoesNotExist|does not exist/.test(`${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`) ? 0 : 1;
     let telling: unknown;
     let empty = false;
     // each request walks the list from the current RPC on its own, so parallel requests don't

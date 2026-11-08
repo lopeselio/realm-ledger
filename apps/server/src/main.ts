@@ -128,19 +128,11 @@ const server = createServer((req, res) => {
 
 const n = await loadAll();
 reconcileAll();
-// every 10 minutes, one sweep at a time
-let sweeping = false;
-setInterval(() => {
-  if (sweeping) return;
-  sweeping = true;
-  void sweepAbandoned()
-    .catch((e: unknown) => console.error(`sweep: ${(e as Error).message}`))
-    .finally(() => {
-      sweeping = false;
-    });
-}, 10 * 60_000).unref();
-// and once a minute after starting, so a host that restarts often still sweeps
-setTimeout(() => void sweepAbandoned().catch((e: unknown) => console.error(`sweep: ${(e as Error).message}`)), 60_000).unref();
+// every 10 minutes, and once a minute after starting (so a host that restarts often still
+// sweeps); overlapping sweeps skip themselves
+const sweep = (): void => void sweepAbandoned().catch((e: unknown) => console.error(`sweep: ${(e as Error).message}`));
+setInterval(sweep, 10 * 60_000).unref();
+setTimeout(sweep, 60_000).unref();
 server.listen(config.port, () => {
   console.log(`realm-ledger server on :${config.port} (${n} campaigns loaded, contract ${config.contract}, NEAR AI ${nearAiEnabled() ? config.nearAi.model : 'off'})`);
 });
