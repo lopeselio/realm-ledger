@@ -32,6 +32,8 @@ import {
   START_PURSE,
   stateHash,
   viewFor,
+  visibleProvinces,
+  eventsFor,
   type GameEvent,
   type GameState,
   type OrderSet,
@@ -125,6 +127,8 @@ export interface Hosted {
   pending: Pending;
   envoys: Envoy[];
   lastEvents: GameEvent[];
+  /** provinces the player saw at the start or end of the last settled season: which of its events they see (absent in older saves) */
+  lastSeen?: number[];
   /** Chancellor tasks and their plans */
   plans: { season: number; text: string; plan: Plan; jobs: number[] }[];
   /** spy reports delivered to the player, with the Chancellor's verdict */
@@ -917,6 +921,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     });
     h.state = state;
     h.lastEvents = events;
+    h.lastSeen = [...new Set([...visibleProvinces(before, HUMAN), ...visibleProvinces(state, HUMAN)])];
     // workers deliver; buyers check the work against the resolved season and pay or refund
     const refunds = await closeJobs(h, state, before.season);
     for (const d of refunds) h.state = applyDeal(h.state, d);
@@ -1161,7 +1166,8 @@ export function publicView(id: number) {
     human: HUMAN,
     // rivals' agendas and personalities stay hidden until the campaign ends
     state: over ? h.state : view,
-    lastEvents: h.lastEvents,
+    // what happened in the fog stays there until the campaign ends; the proof bundle keeps it all
+    lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(h.lastSeen ?? visibleProvinces(h.state, HUMAN))),
     envoys: h.envoys.map((e) => ({
       ...e,
       ...(e.signed !== undefined ? { verified: checkReply(h.bundle.replies[e.signed] as SignedReply).ok } : {}),
