@@ -106,7 +106,7 @@ function isRefusal(e: unknown): boolean {
   // the chain is busy, not saying no: another RPC, or a moment later, may get through
   if (/ShardCongested|ShardStuck|Expired/.test(text)) return false;
   if (/AccessKeyDoesNotExist|AccessKeyNotFound|AccountDoesNotExist|does not exist/.test(text)) return false;
-  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|does not allow method|Not enough allowance/.test(text);
+  return /ActionError|ActionExecutionError|ContractExecutionError|InvalidNonce|InvalidTx|does not allow method|Not enough allowance|Not enough balance|NotEnoughBalance/.test(text);
 }
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

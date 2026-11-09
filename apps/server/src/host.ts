@@ -781,9 +781,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // signs for it, even if a lagging node makes its `done` check read false
       const toSend = reveals.filter((x) => !(x.realm === HUMAN && h.player));
       const args = (x: (typeof reveals)[number]) => ({ campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt });
-      // A seat the server signs for (an AI ruler's, or the guest seat) whose key can't sign its
-      // reveal (out of allowance, gone, not allowed, or every RPC saying it doesn't exist) is
-      // revealed by the referee instead: the contract accepts the referee's reveal for any
+      // A seat the server signs for (an AI ruler's, or the guest seat) that can't sign its reveal
+      // (its key out of allowance, gone or not allowed, every RPC saying it doesn't exist, or its
+      // account too poor to pay) is revealed by the referee instead: the contract accepts the referee's reveal for any
       // realm and checks it against the seal just the same. If the referee can't either, the
       // seat's own error is what counts.
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
