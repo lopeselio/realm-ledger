@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fight, forecastMarch, type Troops } from '../src/index.ts';
+import { fight, forecastMarch, plannedMarches, type Troops } from '../src/index.ts';
 import { lineWorld } from './fixture.ts';
 
 const t = (levies: number, regulars = 0, mercs = 0): Troops => ({ levies, regulars, mercs });
@@ -48,4 +48,33 @@ describe('march forecast', () => {
     const f = forecastMarch(s, 0, t(2), 3);
     expect(f.sides[0]).toMatchObject({ outOfSupply: true, modifier: -2 });
   });
+
+  it("counts an ally's win as yours, and an ally's empty province as no battle", () => {
+    const s = lineWorld(5);
+    s.realms.push({ ...s.realms[1]!, id: 2, name: 'Realm 2', capital: 2 });
+    s.owner[2] = 2;
+    s.treaties = [{ kind: 'alliance', realms: [0, 2], since: 0 }];
+    expect(forecastMarch(s, 0, t(2), 2).unopposed).toBe(true);
+    s.owner[3] = 1;
+    s.armies = [
+      { realm: 1, province: 3, ...t(2) },
+      { realm: 2, province: 3, ...t(0, 20) },
+    ];
+    const f = forecastMarch(s, 0, t(1), 3);
+    expect(f.sides.map((x) => [x.realm, x.ally])).toEqual([[0, false], [1, false], [2, true]]);
+    expect(f.winPct).toBe(100);
+  });
+
+  it('plans split marches the way the season takes them: in order, whole, capped', () => {
+    const s = lineWorld(5);
+    s.armies = [{ realm: 0, province: 1, ...t(6, 4) }];
+    const into = plannedMarches(s, 0, [
+      { kind: 'march', from: 1, to: 2, troops: { levies: 6.7, regulars: 0 } },
+      { kind: 'march', from: 1, to: 0 },
+      { kind: 'march', from: 1, to: 2, troops: { levies: 9 } },
+    ]);
+    expect(into.get(2)).toEqual(t(6));
+    expect(into.get(0)).toEqual(t(0, 4));
+  });
 });
+

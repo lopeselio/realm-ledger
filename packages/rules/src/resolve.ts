@@ -1,4 +1,4 @@
-import { fight, type BattleSide } from './battle.ts';
+import { battleSide, fight, type BattleSide } from './battle.ts';
 import {
   CAPITAL_CROWNS,
   COST,
@@ -23,6 +23,7 @@ import {
   strength,
   treatyBetween,
   troopCount,
+  marchingTroops,
 } from './state.ts';
 import { GOODS, type GameEvent, type GameState, type Good, type Order, type OrderSet, type Purse, type Troops } from './types.ts';
 
@@ -263,12 +264,7 @@ function movement(
         reject(realm, o, 'no army there');
         continue;
       }
-      const want = { ...pickTroops(army), ...(o.troops ?? {}) };
-      const troops: Troops = {
-        levies: Math.max(0, Math.min(army.levies, Math.floor(want.levies))),
-        regulars: Math.max(0, Math.min(army.regulars, Math.floor(want.regulars))),
-        mercs: Math.max(0, Math.min(army.mercs, Math.floor(want.mercs))),
-      };
+      const troops = marchingTroops(army, o.troops);
       if (troopCount(troops) === 0) {
         reject(realm, o, 'no troops left to march');
         continue;
@@ -341,13 +337,9 @@ function movement(
     const realms = [...new Set(here.map((c) => c.realm))].sort((a, b) => a - b);
     const hostile = realms.some((a) => realms.some((b) => !friendly(s, a, b)));
     if (!hostile) continue;
-    const owner = s.owner[p]!;
-    const sides: BattleSide[] = realms.map((realm) => ({
-      realm,
-      troops: here.filter((c) => c.realm === realm).reduce((t, c) => addTroops(t, c.troops), noTroops()),
-      defending: realm === owner || (owner === -1 && realm === NEUTRAL),
-      outOfSupply: realm !== NEUTRAL && owner !== realm && !s.map.provinces[p]!.neighbors.some((n) => s.owner[n] === realm),
-    }));
+    const sides: BattleSide[] = realms.map((realm) =>
+      battleSide(s, p, realm, here.filter((c) => c.realm === realm).reduce((t, c) => addTroops(t, c.troops), noTroops())),
+    );
     const result = fight(s, p, sides, rollSeed, `province:${p}`);
     // allies of the winner stand aside and lose nothing
     for (const sd of result.sides) if (sd.realm !== result.winner && friendly(s, sd.realm, result.winner)) sd.troopsAfter = { ...sd.troopsBefore };
