@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { NEUTRAL, troopCount, type GameState } from '@realm-ledger/rules';
 import { REALM_COLORS, type Overlay } from './map.ts';
+import { TIMING, colorOf, type SeasonScript } from './playback.ts';
 
 const SQRT3 = Math.sqrt(3);
 const toXZ = (q: number, r: number): [number, number] => [SQRT3 * (q + r / 2), 1.5 * r];
@@ -26,6 +27,8 @@ type Model = 'soldier' | 'keep' | 'town' | 'fort' | 'tree';
 
 export interface Table3D {
   setState(s: GameState, overlay?: Overlay & { visible?: Set<number>; focus?: number }): void;
+  /** plays a settled season over the board as it now stands */
+  play(s: GameState, script: SeasonScript): void;
   onPick(cb: (province: number) => void): void;
   onHover(cb: (province: number | null, x: number, y: number) => void): void;
   dispose(): void;
@@ -213,7 +216,11 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   const board = new THREE.Group();
   const pieces = new THREE.Group();
   const marks = new THREE.Group();
-  scene.add(board, pieces, marks);
+  // a season's playback: short-lived pieces moved by the render loop
+  const effects = new THREE.Group();
+  scene.add(board, pieces, marks, effects);
+  type Effect = { start: number; end: number; step: (k: number) => void; done: () => void };
+  let running: Effect[] = [];
 
   let pickTiles: THREE.Mesh[] = [];
   const tileProvince = new Map<THREE.Object3D, number>();
@@ -256,6 +263,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     controls.update();
     pieces.position.copy(board.position);
     marks.position.copy(board.position);
+    effects.position.copy(board.position);
 
     for (const t of s.map.tiles) {
       const [x, z] = toXZ(t.q, t.r);
@@ -474,6 +482,100 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     }
   }
 
+  const clashGeo = new THREE.RingGeometry(0.55, 0.75, 32);
+  const poleGeo = new THREE.CylinderGeometry(0.025, 0.025, 1.1, 6);
+  const bannerGeo = new THREE.PlaneGeometry(0.5, 0.32);
+  function play(s: GameState, sc: SeasonScript): void {
+    const now = performance.now();
+    const top = (id: number): number => (tileByProvince.get(id)?.userData.top as number | undefined) ?? 0.2;
+    const at = (id: number): [number, number] => {
+      const p = s.map.provinces[id]!;
+      return toXZ(p.q, p.r);
+    };
+    const add = (obj: THREE.Object3D, startMs: number, forMs: number, step: (k: number) => void, materials: THREE.Material[] = []): void => {
+      obj.visible = false;
+      effects.add(obj);
+      running.push({
+        start: now + startMs,
+        end: now + startMs + forMs,
+        step: (k) => {
+          obj.visible = true;
+          step(k);
+        },
+        done: () => {
+          effects.remove(obj);
+          for (const m of materials) m.dispose();
+        },
+      });
+    };
+    for (const m of sc.moves) {
+      const [x1, z1] = at(m.from);
+      const [x2, z2] = at(m.to);
+      const y1 = top(m.from);
+      const y2 = top(m.to);
+      const fig = painted(models.soldier, colorOf(m.realm), enamelCache);
+      fig.scale.setScalar(1.7);
+      fig.rotation.y = Math.atan2(x2 - x1, z2 - z1);
+      add(fig, TIMING.march, TIMING.marchFor, (k) => {
+        const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+        // a little hop with each stride
+        fig.position.set(x1 + (x2 - x1) * e, y1 + (y2 - y1) * e + Math.abs(Math.sin(k * Math.PI * 4)) * 0.18, z1 + (z2 - z1) * e);
+      });
+    }
+    for (const p of sc.battles) {
+      const [x, z] = at(p);
+      const mat = new THREE.MeshBasicMaterial({ color: '#f5d76e', transparent: true, side: THREE.DoubleSide, depthWrite: false });
+      const ring = new THREE.Mesh(clashGeo, mat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(x, top(p) + 0.08, z);
+      ring.renderOrder = 6;
+      add(
+        ring,
+        TIMING.battle,
+        TIMING.battleFor,
+        (k) => {
+          ring.scale.setScalar(0.4 + k * 1.6);
+          mat.opacity = 1 - k;
+        },
+        [mat],
+      );
+      const flash = new THREE.PointLight('#ffcf7a', 0, 6, 1.5);
+      flash.position.set(x, top(p) + 0.8, z);
+      add(flash, TIMING.battle, TIMING.battleFor, (k) => (flash.intensity = 30 * (1 - k)));
+    }
+    for (const c of sc.captures) {
+      const [x, z] = at(c.province);
+      const y = top(c.province);
+      const mat = new THREE.MeshStandardMaterial({ color: colorOf(c.realm), side: THREE.DoubleSide, transparent: true, roughness: 0.6 });
+      const flag = new THREE.Group();
+      flag.add(new THREE.Mesh(poleGeo, enamel('#d8c9a4')));
+      const banner = new THREE.Mesh(bannerGeo, mat);
+      banner.position.set(0.26, 0.38, 0);
+      flag.add(banner);
+      flag.position.set(x + 0.35, y, z - 0.3);
+      add(
+        flag,
+        TIMING.capture,
+        TIMING.captureFor,
+        (k) => {
+          const rise = Math.min(1, k / 0.25);
+          flag.position.y = y + 0.55 * rise - 0.3 * (1 - rise);
+          banner.rotation.y = Math.sin(k * 14) * 0.25;
+          mat.opacity = k > 0.8 ? (1 - k) / 0.2 : 1;
+        },
+        [mat],
+      );
+    }
+  }
+  const enamel = (hex: string): THREE.Material => {
+    let m = enamelCache.get(`pole:${hex}`);
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.5 });
+      enamelCache.set(`pole:${hex}`, m);
+    }
+    return m;
+  };
+
   // picking
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -526,12 +628,25 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     // candles flicker
     candles[0]!.intensity = 24 + Math.sin(t * 9.1) * 1.5 + Math.sin(t * 23.7) * 1.2;
     candles[1]!.intensity = 18 + Math.sin(t * 7.3 + 1) * 1.4 + Math.sin(t * 19.1) * 1.0;
+    if (running.length) {
+      const ms = performance.now();
+      running = running.filter((e) => {
+        if (ms < e.start) return true;
+        if (ms >= e.end) {
+          e.done();
+          return false;
+        }
+        e.step((ms - e.start) / (e.end - e.start));
+        return true;
+      });
+    }
     controls.update();
     renderer.render(scene, camera);
   });
 
   return {
     setState,
+    play,
     onPick: (cb) => (pickCb = cb),
     onHover: (cb) => (hoverCb = cb),
     dispose: () => {
