@@ -256,15 +256,18 @@ export async function sweepAbandoned(): Promise<void> {
       const h = campaigns.get(id!);
       if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailures.delete(k);
     }
-    let guestsSettled = 0;
-    for (const h of [...campaigns.values()]) {
+    let guestsTried = 0;
+    // guests with the fewest failed tries first, so a few that keep failing can't crowd out the rest
+    const tries = (h: Hosted): number => sweepFailures.get(`${h.id}:${h.state.season}`)?.tries ?? 0;
+    const order = [...campaigns.values()].sort((a, b) => (a.player || b.player ? 0 : tries(a) - tries(b)));
+    for (const h of order) {
       if (h.phase !== 'sealed') continue;
       const season = h.state.season;
       const key = `${h.id}:${season}`;
       if (sweepFailures.get(key)?.givenUp) continue;
       // a few guest seasons per sweep: a backlog of old demo campaigns mustn't drain the referee
       // in one go (checked before any chain read)
-      if (!h.player && guestsSettled >= 3) continue;
+      if (!h.player && guestsTried >= 3) continue;
       try {
         const c = await view<{ season: number; seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id });
         if (!c) continue;
@@ -279,17 +282,21 @@ export async function sweepAbandoned(): Promise<void> {
           // forfeited them onchain (only the wallet can give them up)
           const where = { campaign: h.id, season, realm: HUMAN };
           const [rec, declared] = await Promise.all([view<{ revealed: boolean }>('get_seal', where), view<boolean>('get_forfeit', where).catch(() => null)]);
-          if (declared === null) console.warn(`sweep ${h.id}: couldn't read whether the wallet forfeited; trying again next sweep`);
-          if (!moved && !rec?.revealed && !declared) continue;
-          console.log(`campaign ${h.id}: settling season ${season}, ${rec?.revealed ? 'revealed' : 'forfeited'} onchain but not finished`);
-          await revealSeason(h.id, null, null, !rec?.revealed && !!declared, season);
+          if (!moved && !rec?.revealed && !declared) {
+            if (declared === null) console.warn(`sweep ${h.id}: couldn't read whether the wallet forfeited; trying again next sweep`);
+            continue;
+          }
+          const why = moved ? 'already settled onchain' : rec?.revealed ? 'revealed onchain' : 'forfeited onchain';
+          console.log(`campaign ${h.id}: recording season ${season} (${why}) that nobody finished`);
+          // (revealSeason reads the onchain reveal or forfeit itself)
+          await revealSeason(h.id, null, null, false, season);
         } else {
           // a guest seat whose player never came back: settled with the orders the server kept,
           // or without them, as the contract allows
+          // (an attempt uses a slot whether or not it settles: each can cost the referee gas)
+          guestsTried += 1;
           console.log(`campaign ${h.id}: settling guest season ${season}, left sealed well past its reveal window`);
           await revealSeason(h.id, null, null, true, season);
-          // (only a settled season uses a slot, so a failing one can't hold up the rest)
-          guestsSettled += 1;
         }
         sweepFailures.delete(key);
       } catch (e) {
