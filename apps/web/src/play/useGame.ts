@@ -19,6 +19,9 @@ export interface EnvoyDraft {
 
 const INTRO = 'Choose how many rivals and how long, then start. Each campaign is created onchain.';
 
+/** Whether two orders are the same order. */
+const sameOrder = (a: Order, b: Order): boolean => canonicalJson(a) === canonicalJson(b);
+
 export function useGame(id: number | null, signer: Signer | null) {
   const [view, setViewState] = useState<View | null>(null);
   const [before, setBefore] = useState<GameState | null>(null);
@@ -449,12 +452,12 @@ export function useGame(id: number | null, signer: Signer | null) {
 
   const addOrder = (o: Order): void => {
     // (the same order again adds a copy, but isn't a change the walkthrough counts)
-    if (!orders.some((x) => JSON.stringify(x) === JSON.stringify(o))) setOrderEdits((n) => n + 1);
+    if (!orders.some((x) => sameOrder(x, o))) setOrderEdits((n) => n + 1);
     setOrders((os) => [...os, o]);
   };
   /** The Chancellor's advice, added once. */
   const addAdvice = (o: Order): void => {
-    const same = (x: Order): boolean => JSON.stringify(x) === JSON.stringify(o);
+    const same = (x: Order): boolean => sameOrder(x, o);
     // advice already in the list adds nothing, and isn't an edit; an advised march is a march
     if (!orders.some(same)) {
       setOrderEdits((n) => n + 1);

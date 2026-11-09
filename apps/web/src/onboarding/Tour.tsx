@@ -27,6 +27,8 @@ interface Box {
 }
 
 const PAD = 6;
+/** Controls that use the arrow keys themselves: the tour leaves those keys to them. */
+const ARROW_CONTROLS = 'select, input, textarea, canvas, [role="slider"], [role="listbox"], [role="tablist"], [role="menu"], [role="menubar"], [role="radiogroup"], [contenteditable]';
 const CARD_ROOM = 230;
 
 function find(sel: string): HTMLElement | null {
@@ -56,19 +58,6 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   // the step shown now, for moves decided a moment earlier (a key, a timer, a watch)
   const shown = useRef(i);
   shown.current = i;
-  // the element that had focus when the tour last moved on by itself: the button the player
-  // pressed, whose arrows still drive the tour
-  const pressed = useRef<{ el: Element; at: number } | null>(null);
-  // the last button or link the player clicked on the page
-  const lastClicked = useRef<Element | null>(null);
-  useEffect(() => {
-    const onClick = (e: MouseEvent): void => {
-      const el = (e.target as Element | null)?.closest?.('button, a');
-      if (el && !card.current?.contains(el)) lastClicked.current = el;
-    };
-    window.addEventListener('click', onClick, true);
-    return () => window.removeEventListener('click', onClick, true);
-  }, []);
   /** Moves one step (to the next one on the page, as the buttons show it). `by` says why: the
    *  player (the card takes focus), their action on the page (focus stays on what they pressed),
    *  or the target going away (nothing was pressed). */
@@ -85,10 +74,6 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       if (dir === -1 && n < 0) return;
       shown.current = n;
       focusCard.current = by === 'player';
-      // (the control the player actually clicked to act, not whatever has focus by the time a
-      // slow action like Seal finishes; and only on the step the tour moved to)
-      const a = lastClicked.current;
-      pressed.current = by === 'action' && a ? { el: a, at: n } : null;
       setI(n);
     },
     [i, steps],
@@ -186,24 +171,20 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     };
   }, [i, step, steps, go]);
 
-  // Esc closes the tour from anywhere but a field; the arrows and Enter move it only when focus
-  // is on the card or on nothing in particular, so the rest of the page keeps its keys
+  // Esc closes the tour from anywhere but a field. The arrows move it from anywhere except a
+  // field or a control that uses arrows itself (a dropdown, a slider, the 3D table); Enter only
+  // from the card or nothing in particular, since everywhere else it presses what has focus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // a key something else already handled (the welcome's last Enter, which started the
       // tour) must not also move it on
       if (e.defaultPrevented || typingIn(e.target)) return;
-      const target = e.target as Node | null;
+      const target = e.target as Element | null;
       const ours = target === document.body || target === document.documentElement || (!!target && !!card.current?.contains(target));
-      // after the tour moves on by itself focus stays on the button the player pressed: its
-      // arrows still drive the tour (no other control's do)
-      const onControl = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
-      const arrow = e.key === 'ArrowRight' || e.key === 'ArrowLeft';
-      const justPressed = !!target && target === pressed.current?.el && pressed.current.at === shown.current;
+      const usesArrows = !!target?.closest?.(ARROW_CONTROLS);
       if (e.key === 'Escape') onClose();
-      else if (!ours && !(arrow && justPressed)) return;
-      else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !onControl)) go(1);
-      else if (e.key === 'ArrowLeft') go(-1);
+      else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !usesArrows) go(e.key === 'ArrowRight' ? 1 : -1);
+      else if (e.key === 'Enter' && ours && !(target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement)) go(1);
       else return;
       e.preventDefault();
     };
