@@ -2,6 +2,9 @@ import { NEUTRAL, troopCount, type GameState } from '@realm-ledger/rules';
 
 export const REALM_COLORS = ['#b23a3a', '#2f5fa8', '#c9a227', '#2e8b7a', '#7a4fa3', '#c96f2b', '#5c6b7a', '#b5577b'];
 
+/** A realm's colour on the board; neutral militias are grey. */
+export const colorOf = (realm: number): string => (realm === NEUTRAL ? '#8a8073' : REALM_COLORS[realm % REALM_COLORS.length]!);
+
 const TERRAIN: Record<string, string> = {
   sea: '#1f3c46',
   mountains: '#5f5852',
@@ -107,7 +110,7 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
     const [x, y] = center(p.q, p.r);
     armies.forEach((a, i) => {
       const ox = (i - (armies.length - 1) / 2) * 13;
-      const fill = a.realm === NEUTRAL ? '#8a8073' : REALM_COLORS[a.realm % REALM_COLORS.length]!;
+      const fill = colorOf(a.realm);
       const n = troopCount(a);
       parts.push(
         `<g pointer-events="none"><circle cx="${x + ox}" cy="${y + 5}" r="7.5" fill="${fill}" stroke="#efe3c8" stroke-width="1.4"/>` +
