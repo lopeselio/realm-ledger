@@ -350,7 +350,8 @@ export function useGame(id: number | null, signer: Signer | null) {
 
   const seal = async (): Promise<void> => {
     const v = viewRef.current;
-    if (!v) return;
+    // another flow is running: leave it, and its steps, alone
+    if (!v || busyRef.current) return;
     await withBusy('Sealing: posting your hash and every AI ruler’s onchain…', async () => {
       setStage({ campaign: v.id, step: 'seal' });
       const set: OrderSet = { realm: v.human, season: v.season, orders };
