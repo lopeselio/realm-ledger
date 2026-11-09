@@ -5,6 +5,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type Rea
 import type { GameState } from '@realm-ledger/rules';
 import { renderMap, type Overlay } from '../map.ts';
 import type { Table3D } from '../table3d.ts';
+import { isEmpty, playOnMap, playSounds, reducedMotion, type SeasonScript } from '../playback.ts';
+import { isMuted, onMutedChange, setMuted, unlockSound } from '../sound.ts';
 
 export type BoardOverlay = Overlay & { visible?: Set<number>; focus?: number };
 type Mode = '3d' | '2d';
@@ -40,9 +42,13 @@ export interface BoardProps {
   /** the board's heading row; place `toggle` (the 3D / flat switch) where it belongs */
   head: (toggle: ReactNode) => ReactNode;
   legend: ReactNode;
+  /** a season that just settled, played over the board once per key */
+  replay?: { key: string; script: SeasonScript } | null;
 }
 
-export function Board({ state, overlay, tipHtml, onPick, head, legend }: BoardProps) {
+export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }: BoardProps) {
+  const [muted, setMutedState] = useState(isMuted);
+  useEffect(() => onMutedChange(setMutedState), []);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [table, setTable] = useState<Table3D | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -112,6 +118,19 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend }: BoardPr
     else if (svgRef.current) renderMap(svgRef.current, state, overlay);
   }, [three, table, state, overlay]);
 
+  // play a settled season once, after the board shows how it ended (a 3D table still loading misses it)
+  const played = useRef<string | null>(null);
+  useEffect(() => {
+    if (!replay || played.current === replay.key || isEmpty(replay.script)) return;
+    if (mode === '3d' && !table) return;
+    played.current = replay.key;
+    playSounds(replay.script);
+    if (reducedMotion()) return;
+    if (three) table!.play(state, replay.script);
+    else if (svgRef.current) playOnMap(svgRef.current, state, replay.script);
+    // state and overlay are drawn by the effect above; this one only starts the playback
+  }, [replay, mode, three, table]);
+
   const toggleMode = (): void => {
     const next: Mode = mode === '3d' ? '2d' : '3d';
     try {
@@ -127,14 +146,34 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend }: BoardPr
     return g ? Number(g.getAttribute('data-id')) : null;
   };
 
-  const toggle = unavailable ? null : (
-    <button type="button" className="view-toggle" aria-pressed={mode === '3d'} onClick={toggleMode}>
-      {mode === '3d' ? 'Flat map' : '3D table'}
+  const sound = (
+    <button
+      type="button"
+      className="view-toggle"
+      aria-pressed={!muted}
+      title={muted ? 'Sound is off' : 'Sound is on'}
+      onClick={() => {
+        unlockSound();
+        setMuted(!muted);
+      }}
+    >
+      {muted ? 'Sound off' : 'Sound on'}
     </button>
+  );
+  const toggle = (
+    <span className="board-tools">
+      {sound}
+      {!unavailable && (
+        <button type="button" className="view-toggle" aria-pressed={mode === '3d'} onClick={toggleMode}>
+          {mode === '3d' ? 'Flat map' : '3D table'}
+        </button>
+      )}
+    </span>
   );
 
   return (
-    <section className="board" aria-label="War table">
+    // browsers allow sound only after a touch or click on the page
+    <section className="board" aria-label="War table" onPointerDown={unlockSound}>
       <div className="board-head">{head(toggle)}</div>
       <div className="map-wrap" ref={wrapRef} data-tour="map">
         <svg

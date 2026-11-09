@@ -311,3 +311,6 @@ h3.sub { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem;
 .orders .forecast { font-size: 0.8rem; }
 
 @media (prefers-reduced-motion: reduce) { .turn-steps li.now.working { animation: none; } }
+
+/* ---- board tools: sound and view ---- */
+.board-tools { display: inline-flex; gap: 6px; }
