@@ -11,6 +11,8 @@ export interface GuideSignals {
   campaign: number | null;
   selected: number | undefined;
   orders: number;
+  /** the orders themselves, so a changed order counts as acting even when the count doesn't change */
+  ordersKey: string;
   phase: string | null;
 }
 
@@ -33,6 +35,8 @@ const STEPS: TourStep<GuideSignals>[] = [
     ),
     hint: 'Click one of your provinces or your army.',
     watch: (s) => s.selected,
+    // selecting something, not deselecting (or a season turn clearing the selection)
+    moved: (from, to) => to !== undefined && to !== from,
   },
   {
     target: '[data-tour="orders"]',
@@ -43,7 +47,13 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Add an order to go on.',
-    watch: (s) => s.orders,
+    watch: (s) => `${s.orders}|${s.ordersKey}`,
+    // an order added or changed, not one taken back
+    moved: (from, to) => {
+      const [a, ka] = String(from).split(/\|(.*)/s);
+      const [b, kb] = String(to).split(/\|(.*)/s);
+      return Number(b) >= Number(a) && kb !== ka;
+    },
   },
   {
     target: '[data-tour="purse"]',

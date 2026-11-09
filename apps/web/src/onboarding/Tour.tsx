@@ -12,6 +12,8 @@ export interface TourStep<S> {
   body: ReactNode;
   /** moves on when this value changes while the step is shown */
   watch?: (signals: S) => unknown;
+  /** whether a change of the watched value counts as doing what the step asks (default: any change) */
+  moved?: (from: unknown, to: unknown) => boolean;
   /** what the player can do to move on, shown under the text */
   hint?: string;
   /** the Next button's label on this step */
@@ -59,25 +61,21 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     [steps, i],
   );
 
-  // a target that vanished (a campaign closed, a phase changed) moves the tour on
-  useEffect(() => {
-    if (!step) return;
-    const t = window.setInterval(() => {
-      if (!find(step.target)) setI((cur) => firstPresent(steps, cur + 1, 1));
-    }, 400);
-    return () => window.clearInterval(t);
-  }, [step, steps]);
-
   // move on when the player does what the step asks
   const watched = step?.watch?.(signals);
   const start = useRef<{ i: number; value: unknown }>({ i: -1, value: undefined });
   useEffect(() => {
-    if (!step?.watch) return;
+    // every arrival at a step (forwards or Back) takes a fresh starting point, so a change made
+    // before the player came back to it doesn't count
     if (start.current.i !== i) {
       start.current = { i, value: watched };
       return;
     }
-    if (!Object.is(start.current.value, watched)) go(1, false);
+    if (!step?.watch) return;
+    const moved = step.moved ?? ((a: unknown, b: unknown) => !Object.is(a, b));
+    if (moved(start.current.value, watched)) go(1, false);
+    // keep following the value, so (say) an order removed and added back counts once
+    else start.current = { i, value: watched };
   }, [i, step, watched, go]);
 
   // bring the target into view, then follow it as the page moves
@@ -98,7 +96,11 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const now = find(step.target);
-        if (!now) return;
+        // a target that vanished (a campaign closed, a phase changed) moves the tour on
+        if (!now) {
+          setI((cur) => firstPresent(steps, cur + 1, 1));
+          return;
+        }
         const b = now.getBoundingClientRect();
         setBox((old) =>
           old && old.top === b.top && old.left === b.left && old.width === b.width && old.height === b.height ? old : { top: b.top, left: b.left, width: b.width, height: b.height },
@@ -119,16 +121,21 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       window.removeEventListener('resize', measure);
       window.clearInterval(t);
     };
-  }, [step]);
+  }, [step, steps]);
 
-  // the keys work anywhere on the page, except while typing in a field
+  // Esc closes the tour from anywhere but a field; the arrows and Enter move it only when focus
+  // is on the card or on nothing in particular, so the rest of the page keeps its keys
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // a key something else already handled (the welcome's last Enter, which started the
       // tour) must not also move it on
       if (e.defaultPrevented || typingIn(e.target)) return;
+      const target = e.target as Node | null;
+      const ours = target === document.body || target === document.documentElement || (!!target && !!card.current?.contains(target));
+      const onControl = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       if (e.key === 'Escape') onClose();
-      else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement))) go(1);
+      else if (!ours) return;
+      else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !onControl)) go(1);
       else if (e.key === 'ArrowLeft') go(-1);
       else return;
       e.preventDefault();
@@ -152,8 +159,12 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   if (!step) return null;
   // keep the light's edge on screen when the target is bigger than the window (the map)
   const light = box && clampToView(box);
-  const count = steps.filter((s) => find(s.target)).length;
-  const at = steps.slice(0, i + 1).filter((s) => find(s.target)).length;
+  // which steps' elements are on the page: looked up once per render
+  const present = steps.map((s) => !!find(s.target));
+  const count = present.filter(Boolean).length;
+  const at = present.slice(0, i + 1).filter(Boolean).length;
+  const hasBack = present.slice(0, i).some(Boolean);
+  const isLast = !present.slice(i + 1).some(Boolean);
 
   return (
     <div className="ob-tour">
@@ -170,13 +181,13 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
             Skip
           </button>
           <span className="ob-grow" />
-          {firstPresent(steps, i - 1, -1) >= 0 && (
+          {hasBack && (
             <button type="button" onClick={() => go(-1)}>
               Back
             </button>
           )}
           <button type="button" className="primary" onClick={() => go(1)}>
-            {firstPresent(steps, i + 1, 1) >= steps.length ? 'Done' : (step.next ?? 'Next')}
+            {isLast ? 'Done' : (step.next ?? 'Next')}
           </button>
         </div>
       </div>
@@ -200,14 +211,24 @@ function clampToView(b: Box): CSSProperties {
   return { top, left, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
-/** Below the target if there's room, else above it, else pinned to the bottom of the screen. */
+/**
+ * Below the target if there's room, else above it, else beside it, else at the screen edge
+ * farther from the target's middle, so the card covers as little of what it points at as it can.
+ */
 function placeCard(box: Box | null): CSSProperties {
   const vh = window.innerHeight;
   const vw = window.innerWidth;
   const width = Math.min(360, vw - 32);
-  if (!box || vw < 560) return { left: (vw - width) / 2, bottom: 16, width };
+  const centred = (vw - width) / 2;
+  if (!box) return { left: centred, bottom: 16, width };
+  // a narrow screen: full width, at the top or bottom, away from the target
+  const awayFromTarget = (left: number): CSSProperties => (box.top + box.height / 2 > vh / 2 ? { left, top: 16, width } : { left, bottom: 16, width });
+  if (vw < 560) return awayFromTarget(centred);
   const left = Math.min(Math.max(16, box.left), vw - width - 16);
   if (box.top + box.height + PAD + CARD_ROOM < vh) return { left, top: box.top + box.height + PAD + 10, width };
   if (box.top - PAD > CARD_ROOM) return { left, bottom: vh - box.top + PAD + 10, width };
-  return { left: vw - width - 16, bottom: 16, width };
+  const top = Math.min(Math.max(16, box.top), vh - CARD_ROOM - 16);
+  if (vw - (box.left + box.width + PAD) > width + 32) return { left: box.left + box.width + PAD + 16, top, width };
+  if (box.left - PAD > width + 32) return { left: box.left - PAD - 16 - width, top, width };
+  return awayFromTarget(vw - width - 16);
 }

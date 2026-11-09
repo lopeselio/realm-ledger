@@ -88,7 +88,7 @@ export function Play() {
         </div>
         <div className="header-right">
           <div className="header-tools">
-            <Guide signals={{ campaign: v?.id ?? null, selected, orders: orders.length, phase: v?.phase ?? null }} />
+            <Guide signals={{ campaign: v?.id ?? null, selected, orders: orders.length, ordersKey: JSON.stringify(orders), phase: v?.phase ?? null }} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s) => void start(r, s)} />}
