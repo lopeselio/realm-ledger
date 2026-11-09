@@ -118,8 +118,10 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return send(res, 200, publicView(id));
   }
   if (action === 'reveal') {
-    const events = await revealSeason(id, (b.orders as OrderSet | undefined) ?? null, typeof b.salt === 'string' ? b.salt : null, b.forfeit === true);
-    return send(res, 200, { events, view: publicView(id) });
+    await revealSeason(id, (b.orders as OrderSet | undefined) ?? null, typeof b.salt === 'string' ? b.salt : null, b.forfeit === true);
+    // the season's events as the player may see them, the same as the view's
+    const view = publicView(id);
+    return send(res, 200, { events: view.lastEvents, view });
   }
   return send(res, 404, { error: 'not found' });
 }
