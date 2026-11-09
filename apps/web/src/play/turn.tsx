@@ -1,6 +1,6 @@
 // The season at a glance: the standing of every realm, where ending the season has got to,
 // and what a march would meet.
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { forecastMarch, friendly, pickTroops, treatyBetween, plannedMarches, type Forecast, type ForecastSide, type GameState, type Order } from '@realm-ledger/rules';
 import type { View } from '../api.ts';
 import { colorOf } from '../map.ts';
@@ -61,6 +61,30 @@ export function TurnSteps({ game, v }: { game: Game; v: View }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * On a phone, what you are doing stays under your thumb: the province you picked, where its army
+ * can march (with forecasts) or what you can build there, and End season. Hidden on wider screens,
+ * where the orders panel sits beside the map.
+ */
+export function PhoneDock({ game, v, selection }: { game: Game; v: View; selection: ReactNode }) {
+  if (v.phase === 'over') return null;
+  const n = game.orders.length;
+  const planning = v.phase === 'planning' && !game.busy;
+  return (
+    <div className="phone-dock" role="region" aria-label="Your move">
+      {v.phase === 'planning' && game.selected !== undefined && <div className="dock-selection">{selection}</div>}
+      <div className="dock-bar">
+        <a href="#orders" className="dock-orders">
+          {n === 1 ? '1 order' : `${n} orders`}
+        </a>
+        <button type="button" className="primary end-season" disabled={!planning} onClick={() => void game.seal()}>
+          {game.stage?.campaign === v.id ? 'Ending the season…' : 'End season'}
+        </button>
+      </div>
+    </div>
   );
 }
 

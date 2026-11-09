@@ -11,7 +11,7 @@ const planningOf = (g: Game): boolean => !!g.view && g.view.phase === 'planning'
 
 // ---------- your orders ----------
 
-function Selection({ game, v }: { game: Game; v: View }) {
+export function Selection({ game, v }: { game: Game; v: View }) {
   const s = v.state;
   const sel = game.selected;
   if (sel === undefined) return <p className="fine">Select a province on the map.</p>;
@@ -65,7 +65,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
   const me = v.state.realms[v.human]!;
   const forecasts = useMarchForecasts(v, game.orders);
   return (
-    <section className="panel" data-tour="orders">
+    <section className="panel" data-tour="orders" id="orders">
       <h2>Your orders</h2>
       <div className="selection">{v.phase === 'planning' && <Selection game={game} v={v} />}</div>
       <ol className="orders">
