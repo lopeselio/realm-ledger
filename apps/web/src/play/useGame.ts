@@ -23,6 +23,8 @@ export function useGame(id: number | null, signer: Signer | null) {
   const [view, setViewState] = useState<View | null>(null);
   const [before, setBefore] = useState<GameState | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  // orders the player added or changed (never a reset or a removal): for the walkthrough
+  const [orderEdits, setOrderEdits] = useState(0);
   const [selected, setSelected] = useState<number | undefined>(undefined);
   const [busy, setBusyState] = useState(false);
   const [status, setStatusState] = useState<Status>({ text: INTRO, tone: 'info' });
@@ -426,18 +428,25 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (selected !== undefined && armyAt(selected) && view.state.map.provinces[selected]!.neighbors.includes(p)) {
       const from = selected;
       setOrders((os) => [...os.filter((o) => !(o.kind === 'march' && o.from === from)), { kind: 'march', from, to: p }]);
+      setOrderEdits((n) => n + 1);
       setSelected(undefined);
     } else {
       setSelected(selected === p ? undefined : p);
     }
   };
 
-  const addOrder = (o: Order): void => setOrders((os) => [...os, o]);
+  const addOrder = (o: Order): void => {
+    setOrders((os) => [...os, o]);
+    setOrderEdits((n) => n + 1);
+  };
   /** The Chancellor's advice, added once. */
-  const addAdvice = (o: Order): void => setOrders((os) => (os.some((x) => JSON.stringify(x) === JSON.stringify(o)) ? os : [...os, o]));
+  const addAdvice = (o: Order): void => {
+    setOrders((os) => (os.some((x) => JSON.stringify(x) === JSON.stringify(o)) ? os : [...os, o]));
+    setOrderEdits((n) => n + 1);
+  };
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));
 
-  return { view, before, orders, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
+  return { view, before, orders, orderEdits, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
 }
 
 export type Game = ReturnType<typeof useGame>;

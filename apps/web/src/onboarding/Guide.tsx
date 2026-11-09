@@ -10,8 +10,8 @@ import { Welcome } from './Welcome.tsx';
 export interface GuideSignals {
   campaign: number | null;
   selected: number | undefined;
-  /** the draft orders (the same array until they change) */
-  orders: readonly unknown[];
+  /** how many orders the player has added or changed (a reset or a removal doesn't count) */
+  orderEdits: number;
   phase: string | null;
 }
 
@@ -33,13 +33,13 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Click one of your provinces or your army.',
-    watch: (s) => [s.selected, s.orders] as const,
-    // selecting something (not deselecting, or a season turn clearing the selection), or
-    // giving an order straight away (a march clears the selection)
+    // a selection, or an order straight away (a march clears the selection); a primitive, so
+    // nothing changes between renders unless the player acted
+    watch: (s) => `${s.selected ?? ''}:${s.orderEdits}`,
     moved: (from, to) => {
-      const [sa, oa] = from as readonly [number | undefined, readonly unknown[]];
-      const [sb, ob] = to as readonly [number | undefined, readonly unknown[]];
-      return (sb !== undefined && sb !== sa) || (ob !== oa && ob.length >= oa.length);
+      const [sa, ea] = String(from).split(':');
+      const [sb, eb] = String(to).split(':');
+      return (sb !== '' && sb !== sa) || Number(eb) > Number(ea);
     },
   },
   {
@@ -50,10 +50,9 @@ const STEPS: TourStep<GuideSignals>[] = [
         With your army selected, click a highlighted province to march. With one of your provinces selected, fortify, raise levies or build here. Orders list here; ✕ takes one back.
       </p>
     ),
-    hint: 'Add an order to go on.',
-    watch: (s) => s.orders,
-    // an order added or changed, not one taken back
-    moved: (from, to) => to !== from && (to as readonly unknown[]).length >= (from as readonly unknown[]).length,
+    hint: 'Add or change an order to go on (or Next if you already have).',
+    watch: (s) => s.orderEdits,
+    moved: (from, to) => Number(to) > Number(from),
   },
   {
     target: '[data-tour="purse"]',

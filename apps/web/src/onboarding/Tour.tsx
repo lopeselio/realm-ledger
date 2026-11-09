@@ -39,6 +39,8 @@ function find(sel: string): HTMLElement | null {
 export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; signals: S; onClose: () => void }) {
   const [i, setI] = useState(() => firstPresent(steps, 0, 1));
   const [box, setBox] = useState<Box | null>(null);
+  // bumped when a step's target shows up after the tour arrived
+  const [late, setLate] = useState(0);
   const card = useRef<HTMLDivElement>(null);
   const step = i >= 0 && i < steps.length ? steps[i] : undefined;
 
@@ -55,8 +57,11 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       const n = firstPresent(steps, i + dir, dir);
       // nothing earlier to go back to: stay put
       if (dir === -1 && n < 0) return;
-      focusCard.current = manual;
-      setI((cur) => (cur === i ? n : cur));
+      setI((cur) => {
+        if (cur !== i) return cur; // decided on a step the tour has already left
+        focusCard.current = manual;
+        return n;
+      });
     },
     [steps, i],
   );
@@ -90,6 +95,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       // it may only be laying out (the 3D table): give it a moment before skipping
       const t = window.setTimeout(() => {
         if (!find(step.target)) skip();
+        else setLate((n) => n + 1); // it showed up: measure and follow it
       }, 400);
       return () => window.clearTimeout(t);
     }
@@ -127,7 +133,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       window.removeEventListener('resize', measure);
       window.clearInterval(t);
     };
-  }, [i, step, steps]);
+  }, [i, step, steps, late]);
 
   // Esc closes the tour from anywhere but a field; the arrows and Enter move it only when focus
   // is on the card or on nothing in particular, so the rest of the page keeps its keys
@@ -142,8 +148,10 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       // stays on the one the player pressed
       const onControl = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const arrow = e.key === 'ArrowRight' || e.key === 'ArrowLeft';
+      // (only a button or link inside what the step points at: the rest of the page keeps its keys)
+      const inTarget = !!target && !!step && !!find(step.target)?.contains(target);
       if (e.key === 'Escape') onClose();
-      else if (!ours && !(arrow && onControl)) return;
+      else if (!ours && !(arrow && onControl && inTarget)) return;
       else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !onControl)) go(1);
       else if (e.key === 'ArrowLeft') go(-1);
       else return;
@@ -151,7 +159,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go, onClose]);
+  }, [go, onClose, step]);
 
   // announce a step the player moved to by focusing the card
   useEffect(() => {
@@ -169,7 +177,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   // keep the light's edge on screen when the target is bigger than the window (the map)
   const light = box && clampToView(box);
   // which steps' elements are on the page: looked up once per render
-  const present = steps.map((s) => !!find(s.target));
+  const present = steps.map((s, k) => k === i || !!find(s.target));
   const count = present.filter(Boolean).length;
   const at = present.slice(0, i + 1).filter(Boolean).length;
   const hasBack = present.slice(0, i).some(Boolean);
