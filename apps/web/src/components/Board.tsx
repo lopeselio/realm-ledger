@@ -5,7 +5,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type Rea
 import type { GameState } from '@realm-ledger/rules';
 import { renderMap, type Overlay } from '../map.ts';
 import type { Table3D } from '../table3d.ts';
-import { FRESH_MS, isEmpty, playOnMap, playSounds, reducedMotion, type SeasonScript } from '../playback.ts';
+import { FRESH_MS, isEmpty, playOnMap, playSounds, type SeasonScript } from '../playback.ts';
+import { reducedMotion } from '../onboarding/storage.ts';
 import { isMuted, onMutedChange, setMuted, unlockSound } from '../sound.ts';
 
 export type BoardOverlay = Overlay & { visible?: Set<number>; focus?: number };
@@ -45,6 +46,9 @@ export interface BoardProps {
   /** a season that just settled (at `at`, ms since epoch), played over the board once per key */
   replay?: { key: string; at: number; script: SeasonScript } | null;
 }
+
+// seasons already played back on this page, so a board that remounts doesn't play one twice
+const played = new Set<string>();
 
 export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }: BoardProps) {
   const [muted, setMutedState] = useState(isMuted);
@@ -120,12 +124,12 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
 
   // play a settled season once, after the board shows how it ended. Only while it is fresh: a 3D
   // table that finishes loading seconds later doesn't start it out of the blue
-  const played = useRef<string | null>(null);
+
   const stopMap = useRef<(() => void) | null>(null);
   useEffect(() => {
-    if (!replay || played.current === replay.key || isEmpty(replay.script)) return;
+    if (!replay || played.has(replay.key) || isEmpty(replay.script)) return;
     if (mode === '3d' && !table) return;
-    played.current = replay.key;
+    played.add(replay.key);
     if (Date.now() - replay.at > FRESH_MS) return;
     playSounds(replay.script);
     if (reducedMotion()) return;
@@ -160,10 +164,8 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
       className="view-toggle"
       aria-pressed={!muted}
       title={muted ? 'Sound is off: press to turn it on' : 'Sound is on: press to turn it off'}
-      onClick={() => {
-        unlockSound();
-        setMuted(!muted);
-      }}
+      // (the board's own click handler wakes the sound)
+      onClick={() => setMuted(!muted)}
     >
       <span aria-hidden="true">{muted ? '🔇' : '🔊'}</span> Sound
     </button>
