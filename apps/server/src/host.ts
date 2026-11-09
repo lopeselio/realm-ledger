@@ -177,7 +177,8 @@ const isContractError = (e: unknown): boolean => /panicked|ExecutionError|Functi
 const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((e as Error)?.message ?? e)}`;
 /** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
 // (not "… does not exist at block height", which a lagging RPC says of a key added a moment ago)
-const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist on account|AccessKeyNotFound/;
+// (and an account too poor to pay for the transaction or its storage: the seat can't sign either)
+const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist on account|AccessKeyNotFound|Not enough balance for|NotEnoughBalance|lacks balance .* for state|LackBalanceForState/;
 /** The signing key may not make this call (wrong method or contract): it never will. */
 const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch|ReceiverMismatch|receiver .* does not match|InvalidAccessKey/;
 export const isKeyFailure = (e: unknown): boolean => KEY_FAILURE.test(errText(e));
@@ -235,9 +236,10 @@ const sweepFailures = new Map<string, { tries: number; notKept: number; givenUp:
 let sweepRunning = false;
 
 /**
- * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
- * are kept onchain at the contract's expense until its season settles, so an abandoned
- * campaign would otherwise hold them for good. Only once the season's reveal window has
+ * Settles seasons nobody finished once their reveal window has closed: a wallet's revealed
+ * orders are kept onchain at the contract's expense until its season settles, so an abandoned
+ * campaign would otherwise hold them for good; a guest campaign left sealed would otherwise
+ * never move again (its orders count if the server kept them, else they're forfeited). Only once the season's reveal window has
  * closed (forfeitOpensAt, from the onchain deadline, so restarts don't matter), so a player
  * still revealing finishes the season themselves. A failed season is tried again at the next
  * sweep. Runs in the background; a sweep that finds one still running does nothing.
@@ -253,7 +255,7 @@ export async function sweepAbandoned(): Promise<void> {
       if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailures.delete(k);
     }
     for (const h of [...campaigns.values()]) {
-      if (h.phase !== 'sealed' || !h.player) continue;
+      if (h.phase !== 'sealed') continue;
       const season = h.state.season;
       const key = `${h.id}:${season}`;
       if (sweepFailures.get(key)?.givenUp) continue;
@@ -266,9 +268,19 @@ export async function sweepAbandoned(): Promise<void> {
         // the chain settled it already (we crashed before saving): finish recording it
         const moved = c.season > season;
         // only once the reveal window has closed: a player still revealing gets to finish it
-        if (!moved && (!rec?.revealed || Date.now() < forfeitOpensAt(c))) continue;
-        console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
-        await revealSeason(h.id, null, null, false, season);
+        if (!moved && Date.now() < forfeitOpensAt(c)) continue;
+        if (h.player) {
+          // a wallet: settle with its orders if it revealed them onchain (only the wallet can
+          // give them up otherwise)
+          if (!moved && !rec?.revealed) continue;
+          console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
+          await revealSeason(h.id, null, null, false, season);
+        } else {
+          // a guest seat whose player never came back: settle with the orders the server kept,
+          // or without them, as the contract allows once the window has closed
+          console.log(`campaign ${h.id}: settling guest season ${season}, left sealed past its reveal window`);
+          await revealSeason(h.id, null, null, true, season);
+        }
         sweepFailures.delete(key);
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);

@@ -69,6 +69,9 @@ describe('access-key failures, as near-api-js reports them', () => {
     expect(host.isKeyFailure(gone)).toBe(true);
     expect(host.isKeyFailure(method)).toBe(false);
     expect(host.isMethodNotAllowed(method)).toBe(true);
+    // a seat too poor to pay for its transaction can't sign either
+    const poor = new errors.NotEnoughBalanceError!('100', '200', 'ruler1.realm-ledger.testnet', 'tx', 'block');
+    expect(host.isKeyFailure(poor)).toBe(true);
     expect(host.isKeyFailure(new Error('Contract panicked: orders do not match the seal'))).toBe(false);
     // a lagging RPC's view of a key added a moment ago is not a key failure
     expect(host.isKeyFailure(new Error('Access key ed25519:abc does not exist at block height 7'))).toBe(false);
