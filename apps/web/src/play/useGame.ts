@@ -22,6 +22,9 @@ const INTRO = 'Choose how many rivals and how long, then start. Each campaign is
 /** Whether two orders are the same order. */
 const sameOrder = (a: Order, b: Order): boolean => canonicalJson(a) === canonicalJson(b);
 
+/** The step of ending a season that a running flow is on (null when none runs). */
+export type Stage = 'seal' | 'reveal' | 'resolve' | null;
+
 export function useGame(id: number | null, signer: Signer | null) {
   const [view, setViewState] = useState<View | null>(null);
   const [before, setBefore] = useState<GameState | null>(null);
@@ -34,6 +37,8 @@ export function useGame(id: number | null, signer: Signer | null) {
   const [seals, setSeals] = useState(0);
   const [selected, setSelected] = useState<number | undefined>(undefined);
   const [busy, setBusyState] = useState(false);
+  // where the season's end has got to while a flow runs: for the turn stepper
+  const [stage, setStage] = useState<Stage>(null);
   const [status, setStatusState] = useState<Status>({ text: INTRO, tone: 'info' });
   // a sealed season this browser can't reveal: when the contract lets it settle without your orders
   const [forfeitAt, setForfeitAt] = useState<number | null>(null);
@@ -88,6 +93,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       say((e as Error).message, 'error');
     } finally {
       setBusy(false);
+      setStage(null);
     }
   }, []);
 
@@ -107,6 +113,7 @@ export function useGame(id: number | null, signer: Signer | null) {
 
   /** POSTs /reveal and resolves to the settled season, also when the connection dropped after the server settled. */
   const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View }> => {
+    setStage('resolve');
     try {
       return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
     } catch (e) {
@@ -207,6 +214,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       return;
     }
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
+      setStage('reveal');
       setBefore(v.state);
       let forfeited = false;
       if (v.player) {
@@ -343,6 +351,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     const v = viewRef.current;
     if (!v) return;
     await withBusy('Sealing: posting your hash and every AI ruler’s onchain…', async () => {
+      setStage('seal');
       const set: OrderSet = { realm: v.human, season: v.season, orders };
       // a seal the contract couldn't accept as a reveal would leave the season stuck
       if (!revealable(set)) throw new Error('The contract could not accept these orders as a reveal: they are too large, or hold a value it cannot store. Change them and seal again.');
@@ -467,7 +476,7 @@ export function useGame(id: number | null, signer: Signer | null) {
   };
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));
 
-  return { view, before, orders, orderEdits, marches, selections, seals, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
+  return { view, before, orders, stage, orderEdits, marches, selections, seals, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
 }
 
 export type Game = ReturnType<typeof useGame>;

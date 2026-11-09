@@ -13,6 +13,7 @@ import { findSecret } from '../secrets.ts';
 import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
+import { StandingBar, TurnSteps } from '../play/turn.tsx';
 import { Guide } from '../onboarding/Guide.tsx';
 
 /** The old address, /play.html?c=7, opens /play/7. */
@@ -111,6 +112,8 @@ export function Play() {
             head={(toggle) => (
               <>
                 <h2>{title}</h2>
+                <StandingBar v={v} />
+                <TurnSteps game={game} v={v} />
                 <StatusLine game={game} />
                 {toggle}
               </>
