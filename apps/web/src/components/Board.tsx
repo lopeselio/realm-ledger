@@ -1,9 +1,9 @@
 // One board, two ways to see it: the 3D war table (default where the browser can draw it)
 // and the 2D hex map (always available, and the fallback). Both draw imperatively; React
 // only owns the elements around them.
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import type { GameState } from '@realm-ledger/rules';
-import { renderMap, type Overlay } from '../map.ts';
+import { provinceCenter, renderMap, type Overlay } from '../map.ts';
 import type { Table3D } from '../table3d.ts';
 import { FRESH_MS, isEmpty, playOnMap, playSounds, type SeasonScript } from '../playback.ts';
 import { reducedMotion } from '../onboarding/storage.ts';
@@ -23,6 +23,15 @@ function canRender3D(): boolean {
   }
 }
 
+/** A phone or small tablet held by thumb: a narrow screen with a touch pointer. */
+export function isPhone(): boolean {
+  try {
+    return window.matchMedia('(max-width: 640px), (pointer: coarse) and (max-width: 900px)').matches;
+  } catch {
+    return false;
+  }
+}
+
 function initialMode(): Mode {
   try {
     const saved = localStorage.getItem(PREF);
@@ -30,8 +39,13 @@ function initialMode(): Mode {
   } catch {
     // no storage: fall through to the default
   }
-  return canRender3D() ? '3d' : '2d';
+  // the flat map by default on a phone: lighter, and its hexes take a thumb once zoomed
+  return canRender3D() && !isPhone() ? '3d' : '2d';
 }
+
+/** The flat map's zoom and pan: scale about the top left, then shift (in CSS pixels). */
+type View2D = { k: number; x: number; y: number };
+const MAX_ZOOM = 4;
 
 export interface BoardProps {
   state: GameState;
@@ -60,6 +74,71 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
+
+  // ---- the flat map's pinch, pan and zoom buttons ----
+  const [zoom, setZoom] = useState<View2D>({ k: 1, x: 0, y: 0 });
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ start: View2D; dist: number; mid: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
+  // a drag that moved the map is not a tap on a province
+  const dragged = useRef(false);
+  /** Keeps the zoomed map covering the frame (no empty edge pulled into view). */
+  const clamp = (z: View2D): View2D => {
+    const svg = svgRef.current;
+    const w = svg?.clientWidth ?? 0;
+    const h = svg?.clientHeight ?? 0;
+    const k = Math.min(MAX_ZOOM, Math.max(1, z.k));
+    return { k, x: Math.min(0, Math.max(w - w * k, z.x)), y: Math.min(0, Math.max(h - h * k, z.y)) };
+  };
+  /** Zooms by `factor` about a point of the frame (CSS pixels from its top left). */
+  const zoomAbout = (factor: number, px: number, py: number, from = zoomRef.current): void => {
+    const k = Math.min(MAX_ZOOM, Math.max(1, from.k * factor));
+    const f = k / from.k;
+    setZoom(clamp({ k, x: px - (px - from.x) * f, y: py - (py - from.y) * f }));
+  };
+  const zoomCentre = (factor: number): void => {
+    const svg = svgRef.current;
+    if (svg) zoomAbout(factor, svg.clientWidth / 2, svg.clientHeight / 2);
+  };
+  const local = (e: { clientX: number; clientY: number }): { x: number; y: number } => {
+    const r = svgRef.current!.parentElement!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const onPointerDown = (e: PointerEvent): void => {
+    if (e.pointerType === 'mouse' && zoomRef.current.k === 1) return;
+    pointers.current.set(e.pointerId, local(e));
+    dragged.current = false;
+    const ps = [...pointers.current.values()];
+    const mid = ps.length === 2 ? { x: (ps[0]!.x + ps[1]!.x) / 2, y: (ps[0]!.y + ps[1]!.y) / 2 } : ps[0]!;
+    gesture.current = { start: zoomRef.current, dist: ps.length === 2 ? Math.hypot(ps[0]!.x - ps[1]!.x, ps[0]!.y - ps[1]!.y) : 0, mid, at: mid };
+  };
+  const onPointerMove = (e: PointerEvent): void => {
+    if (!pointers.current.has(e.pointerId) || !gesture.current) return;
+    pointers.current.set(e.pointerId, local(e));
+    const ps = [...pointers.current.values()];
+    const g = gesture.current;
+    if (ps.length >= 2 && g.dist > 0) {
+      const mid = { x: (ps[0]!.x + ps[1]!.x) / 2, y: (ps[0]!.y + ps[1]!.y) / 2 };
+      const factor = Math.hypot(ps[0]!.x - ps[1]!.x, ps[0]!.y - ps[1]!.y) / g.dist;
+      const k = Math.min(MAX_ZOOM, Math.max(1, g.start.k * factor));
+      const f = k / g.start.k;
+      // pinch about the fingers' midpoint, and follow it as it moves
+      setZoom(clamp({ k, x: mid.x - (g.mid.x - g.start.x) * f, y: mid.y - (g.mid.y - g.start.y) * f }));
+      dragged.current = true;
+    } else if (ps.length === 1 && g.start.k > 1) {
+      const dx = ps[0]!.x - g.at.x;
+      const dy = ps[0]!.y - g.at.y;
+      if (Math.hypot(dx, dy) > 6) dragged.current = true;
+      if (dragged.current) setZoom(clamp({ ...g.start, x: g.start.x + dx, y: g.start.y + dy }));
+    }
+  };
+  const onPointerEnd = (e: PointerEvent): void => {
+    pointers.current.delete(e.pointerId);
+    const left = [...pointers.current.values()];
+    // one finger lifted from a pinch: carry on panning from here with the other
+    gesture.current = left.length ? { start: zoomRef.current, dist: 0, mid: left[0]!, at: left[0]! } : null;
+  };
 
   // the 3D table calls back long after it is created: always reach the latest handlers
   const handlers = useRef({ tipHtml, onPick });
@@ -115,6 +194,27 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
 
   // free the GPU when the page goes away
   useEffect(() => (table ? () => table.dispose() : undefined), [table]);
+
+  // on a phone, open the flat map zoomed in on your own realm, once per map
+  const focusedFor = useRef<string | null>(null);
+  const focus = overlay?.focus;
+  useLayoutEffect(() => {
+    const key = `${state.seed}:${state.map.provinces.length}`;
+    if (mode !== '2d' || focusedFor.current === key) return;
+    focusedFor.current = key;
+    const svg = svgRef.current;
+    if (!svg || focus === undefined || !isPhone()) return setZoom({ k: 1, x: 0, y: 0 });
+    // after the map has drawn (its viewBox sets its size)
+    requestAnimationFrame(() => {
+      const vb = svg.viewBox.baseVal;
+      if (!vb.width) return;
+      const [cx, cy] = provinceCenter(state, focus);
+      const px = ((cx - vb.x) / vb.width) * svg.clientWidth;
+      const py = ((cy - vb.y) / vb.height) * svg.clientHeight;
+      const k = 2.4;
+      setZoom(clamp({ k, x: svg.clientWidth / 2 - px * k, y: svg.clientHeight / 2 - py * k }));
+    });
+  }, [mode, state, focus]);
 
   const three = mode === '3d' && !!table;
   useEffect(() => {
@@ -199,8 +299,22 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
           ref={svgRef}
           role="img"
           aria-label="Hex map"
-          style={{ display: three ? 'none' : 'block' }}
+          style={{
+            display: three ? 'none' : 'block',
+            transform: zoom.k > 1 ? `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.k})` : undefined,
+            transformOrigin: '0 0',
+            // the page scrolls by a finger until the map is zoomed; then a finger pans the map
+            touchAction: zoom.k > 1 ? 'none' : 'pan-y',
+          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerEnd}
+          onPointerCancel={onPointerEnd}
           onClick={(e) => {
+            if (dragged.current) {
+              dragged.current = false;
+              return;
+            }
             const p = provinceAt(e);
             if (p !== null) onPick?.(p);
           }}
@@ -210,6 +324,21 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
           }}
           onMouseLeave={() => showTip(null, 0, 0)}
         />
+        {!three && (
+          <div className="zoom-tools" aria-label="Map zoom">
+            <button type="button" aria-label="Zoom in" onClick={() => zoomCentre(1.5)} disabled={zoom.k >= MAX_ZOOM}>
+              +
+            </button>
+            <button type="button" aria-label="Zoom out" onClick={() => zoomCentre(1 / 1.5)} disabled={zoom.k <= 1}>
+              −
+            </button>
+            {zoom.k > 1 && (
+              <button type="button" aria-label="Show the whole map" onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>
+                ⤢
+              </button>
+            )}
+          </div>
+        )}
         <div ref={containerRef} className="table3d" hidden={mode !== '3d'} />
         <div ref={tipRef} className="tip" hidden />
       </div>
