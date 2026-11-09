@@ -391,7 +391,8 @@ export function useGame(id: number | null, signer: Signer | null) {
     }, true);
     // reveals only if the season is sealed, even when the seal call itself errored; the steps
     // stay lit in between, and go out once it's done
-    if (viewRef.current?.phase === 'sealed') setStage({ campaign: viewRef.current.id, step: 'reveal' });
+    // (the campaign that was sealed: if you opened another meanwhile, reveal() leaves it alone)
+    if (viewRef.current?.id === v.id && viewRef.current.phase === 'sealed') setStage({ campaign: v.id, step: 'reveal' });
     try {
       await reveal();
     } finally {
