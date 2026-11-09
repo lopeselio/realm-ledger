@@ -6,6 +6,7 @@ export { generateMap, type MapOptions } from './map.ts';
 export { newCampaign, distancesFrom, RULES_VERSION, type CampaignOptions } from './setup.ts';
 export { priceFor, sellPrice, newMarket } from './market.ts';
 export { fight, defenceBonus, type BattleSide, type BattleResult } from './battle.ts';
+export { forecastMarch, type Forecast, type ForecastSide } from './forecast.ts';
 export * from './state.ts';
 export { resolveSeason, type ResolveOptions, type SeasonResult } from './resolve.ts';
 export { decideOrders } from './ai.ts';
