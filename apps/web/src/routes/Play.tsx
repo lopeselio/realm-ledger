@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { visibleProvinces } from '@realm-ledger/rules';
 import { provinceTip } from '../map.ts';
-import { Board, type BoardOverlay } from '../components/Board.tsx';
+import { Board, usePhone, type BoardOverlay } from '../components/Board.tsx';
 import { ChronicleLines } from '../components/ChronicleLines.tsx';
 import { Footer } from '../components/Footer.tsx';
 import { api, type CampaignSummary } from '../api.ts';
@@ -34,6 +34,8 @@ export function Play() {
   const navigate = useNavigate();
   const [signer, setSigner] = useState<Signer | null>(null);
   const game = useGame(id, signer);
+  // the thumb dock exists only on a phone (on wider screens the orders panel sits by the map)
+  const phone = usePhone();
   const { view: v, selected, orders } = game;
 
   useEffect(() => {
@@ -184,7 +186,7 @@ export function Play() {
       <Footer>
         <Link to="/">Watch AI-only campaigns</Link>
       </Footer>
-      {v && <PhoneDock game={game} v={v} selection={<Selection game={game} v={v} />} />}
+      {v && phone && <PhoneDock game={game} v={v} selection={<Selection game={game} v={v} />} />}
     </>
   );
 }
