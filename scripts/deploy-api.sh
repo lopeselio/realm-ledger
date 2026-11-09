@@ -6,7 +6,9 @@ set -euo pipefail
 RG=${RG:-realm-ledger}
 APP=${APP:-realm-ledger-api}
 ACR=${ACR:-$(az acr list -g "$RG" --query '[0].name' -o tsv)}
-TAG=${TAG:-$(git rev-parse --short HEAD)}
+# Unique per deploy (so the wait can't pass against the old container), and marked when the tree has
+# uncommitted changes (the image is built from the working tree, not the commit).
+TAG=${TAG:-$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . 2>/dev/null || echo "-dirty")-$(date -u +%Y%m%d%H%M%S)}
 cd "$(dirname "$0")/.."
 az acr build -r "$ACR" -t "realm-ledger-server:$TAG" --build-arg "APP_VERSION=$TAG" .
 az webapp config container set -g "$RG" -n "$APP" --container-image-name "$ACR.azurecr.io/realm-ledger-server:$TAG" -o none
