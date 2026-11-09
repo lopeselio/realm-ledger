@@ -11,7 +11,7 @@ export interface TourStep<S> {
   title: string;
   body: ReactNode;
   /** moves on by itself when this says the player did what the step asks, comparing the
-   * signals since the last render (or since the step was reached) with now */
+   * signals as they were when the step was reached with now */
   acted?: (before: S, now: S) => boolean;
   /** what the player can do to move on, shown under the text */
   hint?: string;
@@ -56,9 +56,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   shown.current = i;
   // the element that had focus when the tour last moved on by itself: the button the player
   // pressed, whose arrows still drive the tour
-  const pressed = useRef<Element | null>(null);
-  // `presentNow` mirrors `present` for moves decided between renders
-  const presentNow = useRef<boolean[]>(present);
+  const pressed = useRef<{ el: Element; at: number } | null>(null);
   /** Moves one step (to the next one on the page, as the buttons show it). `by` says why: the
    *  player (the card takes focus), their action on the page (focus stays on what they pressed),
    *  or the target going away (nothing was pressed). */
@@ -68,8 +66,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       if (shown.current !== i) return;
       // which steps are on the page right now (a campaign that just opened mounts the table's
       // steps in the same moment), and the buttons follow the same answer
-      const p = steps.map((s, k) => k === i || !!find(s.target));
-      presentNow.current = p;
+      const p = presentOnPage(steps, i);
       setPresent(p);
       const n = nextPresent(p, i + dir, dir);
       // nothing earlier to go back to: stay put
@@ -77,7 +74,8 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       shown.current = n;
       focusCard.current = by === 'player';
       const a = document.activeElement;
-      pressed.current = by === 'action' && (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement) ? a : null;
+      // (only on the step the tour moved to: tabbing back to it later is just a button again)
+      pressed.current = by === 'action' && (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement) ? { el: a, at: n } : null;
       setI(n);
     },
     [i, steps],
@@ -104,8 +102,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     // step only: if something else moved it meanwhile, this does nothing
     const skip = (): void => go(1, 'gone');
     const updatePresent = (): void => {
-      const p = steps.map((s, k) => k === i || !!find(s.target));
-      presentNow.current = p;
+      const p = presentOnPage(steps, i);
       setPresent((old) => (old.length === p.length && old.every((x, k) => x === p[k]) ? old : p));
     };
     // a target missing for a moment (laying out, re-rendering, the 2D/3D switch) isn't gone: it
@@ -119,12 +116,13 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     const look = (): void => {
         const now = find(step.target);
         if (!now) {
+          // (the light keeps its last place meanwhile, so a blip doesn't flash)
           if (missingSince === null) {
             missingSince = Date.now();
+            window.clearTimeout(graceTimer);
             graceTimer = window.setTimeout(look, 410);
           }
           if (Date.now() - missingSince >= 400) skip();
-          else setBox(null);
           return;
         }
         missingSince = null;
@@ -184,7 +182,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       // arrows still drive the tour (no other control's do)
       const onControl = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const arrow = e.key === 'ArrowRight' || e.key === 'ArrowLeft';
-      const justPressed = !!target && target === pressed.current;
+      const justPressed = !!target && target === pressed.current?.el && pressed.current.at === shown.current;
       if (e.key === 'Escape') onClose();
       else if (!ours && !(arrow && justPressed)) return;
       else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !onControl)) go(1);
@@ -243,6 +241,11 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       </div>
     </div>
   );
+}
+
+/** Which steps' elements are on the page (the current one counts while it lays out). */
+function presentOnPage<S>(steps: TourStep<S>[], current: number): boolean[] {
+  return steps.map((s, k) => k === current || !!find(s.target));
 }
 
 /** The index of the first step from `from` (going `dir`) marked present; -1 or the length if none. */
