@@ -47,7 +47,7 @@ const STEPS: TourStep<GuideSignals>[] = [
     title: 'Give orders',
     body: (
       <p>
-        With your army selected, click a highlighted province to march. With one of your provinces selected, fortify, raise levies or build here. Orders list here; ✕ takes one back.
+        With your army selected, click a highlighted province, or one of the forecasts listed here, to march; each forecast gives your odds against what stands there. With one of your provinces selected, fortify, raise levies or build here. Orders list here; ✕ takes one back.
       </p>
     ),
     hint: 'Add or change an order to go on (or Next if you already have).',
@@ -71,7 +71,7 @@ const STEPS: TourStep<GuideSignals>[] = [
         When you’re ready, seal. Your browser hashes your orders with a secret salt and only the hash goes onchain. Every AI ruler seals at the same moment, so nobody moves first.
       </p>
     ),
-    hint: 'Press Seal orders to go on, or Next to look around first.',
+    hint: 'Press End season to go on, or Next to look around first.',
     // the player sealed (not the view clearing, a season turning, or the campaign ending)
     acted: (before, now) => now.seals > before.seals,
   },
