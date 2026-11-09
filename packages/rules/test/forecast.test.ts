@@ -76,5 +76,33 @@ describe('march forecast', () => {
     expect(into.get(2)).toEqual(t(6));
     expect(into.get(0)).toEqual(t(0, 4));
   });
+
+  it('counts levies and recruits raised this season in the army that marches', () => {
+    const s = lineWorld(5);
+    s.owner[1] = 0;
+    s.towns[1] = true;
+    const into = plannedMarches(s, 0, [
+      { kind: 'march', from: 1, to: 2 },
+      { kind: 'levy', province: 1 },
+      { kind: 'recruit', province: 1, count: 2 },
+    ]);
+    expect(into.get(2)).toMatchObject({ regulars: 2 });
+    expect(into.get(2)!.levies).toBeGreaterThan(0);
+  });
+
+  it('never reads 100% for a battle that can be lost, nor 0% for one that can be won', () => {
+    const s = lineWorld(5);
+    s.owner[2] = 0;
+    s.owner[3] = 1;
+    s.armies = [{ realm: 1, province: 3, ...t(6) }];
+    for (let n = 1; n <= 40; n++) {
+      const f = forecastMarch(s, 0, t(n), 3);
+      const [me, them] = f.sides;
+      const canLose = me!.power[0] <= them!.power[1];
+      const canWin = me!.power[1] > them!.power[0];
+      if (canLose) expect(f.winPct).toBeLessThan(100);
+      if (canWin) expect(f.winPct).toBeGreaterThan(0);
+    }
+  });
 });
 
