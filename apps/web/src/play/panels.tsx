@@ -5,6 +5,7 @@ import { API, PUBLIC_API, type View } from '../api.ts';
 import { REALM_COLORS } from '../map.ts';
 import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
+import { forecastText, marchForecast, MarchTargets } from './turn.tsx';
 
 const planningOf = (g: Game): boolean => !!g.view && g.view.phase === 'planning' && !g.busy;
 
@@ -22,8 +23,13 @@ function Selection({ game, v }: { game: Game; v: View }) {
     <>
       <p>
         <strong>{p.name}</strong>{' '}
-        {army ? `Your army: ${army.levies} levies, ${army.regulars} regulars. Click a highlighted province to march.` : mine ? 'Your province.' : ''}
+        {army
+          ? `Your army: ${army.levies} levies, ${army.regulars} regulars${army.mercs ? `, ${army.mercs} mercenaries` : ''}. March to a highlighted province, or pick one here:`
+          : mine
+            ? 'Your province.'
+            : ''}
       </p>
+      {army && <MarchTargets game={game} v={v} from={sel} />}
       {mine && (
         <div className="actions">
           {s.forts[sel]! < 3 && (
@@ -63,14 +69,17 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
       <div className="selection">{v.phase === 'planning' && <Selection game={game} v={v} />}</div>
       <ol className="orders">
         {game.orders.length ? (
-          game.orders.map((o, i) => (
-            <li key={i}>
-              {describeOrder(v.state, o)}{' '}
-              <button type="button" className="x" aria-label="Remove" onClick={() => game.removeOrder(i)}>
-                ✕
-              </button>
-            </li>
-          ))
+          game.orders.map((o, i) => {
+            const f = marchForecast(v, o);
+            return (
+              <li key={i}>
+                {describeOrder(v.state, o)} {f && <span className="fine forecast">({forecastText(v.state, f)})</span>}{' '}
+                <button type="button" className="x" aria-label="Remove" onClick={() => game.removeOrder(i)}>
+                  ✕
+                </button>
+              </li>
+            );
+          })
         ) : (
           <li className="fine">{v.phase === 'planning' ? 'No orders yet. Sealing with none is allowed.' : 'Waiting…'}</li>
         )}
@@ -100,8 +109,8 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
       <p className="purse" data-tour="purse">
         Treasury: {me.purse.crowns} crowns · {GOODS.map((g) => `${me.purse[g]} ${g}`).join(' · ')}
       </p>
-      <button type="button" className="primary wide" data-tour="seal" disabled={!planning} onClick={() => void game.seal()}>
-        Seal orders
+      <button type="button" className="primary wide end-season" data-tour="seal" disabled={!planning} onClick={() => void game.seal()}>
+        {game.busy && game.stage ? 'Ending the season…' : `End season: seal ${game.orders.length === 1 ? '1 order' : `${game.orders.length} orders`}`}
       </button>
       <p className="fine">Your browser hashes your orders with a secret salt. Only the hash goes onchain until every ruler has sealed.</p>
       {v.phase === 'sealed' && game.forfeitAt !== null && <ForfeitButton game={game} at={game.forfeitAt} />}
