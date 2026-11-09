@@ -72,7 +72,8 @@ export function Play() {
     if (!seenAt.current.has(replayKey)) seenAt.current.set(replayKey, Date.now());
     // only what your realm could see at the start of the season or can see now (so your own
     // losses far from home still play); the whole map once the campaign is over
-    const seen = v.phase === 'over' ? undefined : new Set([...visibleProvinces(before, v.human), ...visibleProvinces(v.state, v.human)]);
+    // the server's own record of what you saw (the chronicle is filtered by it too); older servers send none
+    const seen = v.phase === 'over' ? undefined : new Set(v.lastSeen ?? [...visibleProvinces(before, v.human), ...visibleProvinces(v.state, v.human)]);
     return { key: replayKey, at: seenAt.current.get(replayKey)!, script: scriptFor(v.lastEvents, seen, v.human) };
     // v is read for the season it settled; later views of the same season don't change the replay
   }, [replayKey, before]);
