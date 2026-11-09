@@ -221,13 +221,11 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   scene.add(board, pieces, marks, effects);
   type Effect = { start: number; end: number; step: (k: number) => void; done: () => void };
   let running: Effect[] = [];
-  // battle flashes: a few lights always in the scene, dark until a clash. Adding and removing
-  // lights would recompile every lit material on the table mid-playback
-  const flashes = Array.from({ length: 3 }, () => {
-    const l = new THREE.PointLight('#ffcf7a', 0, 6, 1.5);
-    effects.add(l);
-    return l;
-  });
+  // the battle flash: one light always in the scene, dark until a clash (adding and removing a
+  // light would recompile every lit material on the table mid-playback); it lights the first
+  // battle, the others flash by their rings alone
+  const flash = new THREE.PointLight('#ffcf7a', 0, 6, 1.5);
+  effects.add(flash);
 
   let pickTiles: THREE.Mesh[] = [];
   const tileProvince = new Map<THREE.Object3D, number>();
@@ -547,9 +545,10 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
         },
         [mat],
       );
-      const flash = flashes[sc.battles.indexOf(p) % flashes.length]!;
-      flash.position.set(x, top(p) + 0.8, z);
-      running.push({ start: now + TIMING.battle, end: now + TIMING.battle + TIMING.battleFor, step: (k) => (flash.intensity = 30 * (1 - k)), done: () => (flash.intensity = 0) });
+      if (p === sc.battles[0]) {
+        flash.position.set(x, top(p) + 0.8, z);
+        running.push({ start: now + TIMING.battle, end: now + TIMING.battle + TIMING.battleFor, step: (k) => (flash.intensity = 30 * (1 - k)), done: () => (flash.intensity = 0) });
+      }
     }
     // the beaten fall back; the destroyed sink into the table
     for (const m of sc.retreats) march(m.realm, m.from, m.to, TIMING.retreat, TIMING.retreatFor);
