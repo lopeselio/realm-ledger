@@ -58,7 +58,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
   const planning = planningOf(game);
   const me = v.state.realms[v.human]!;
   return (
-    <section className="panel">
+    <section className="panel" data-tour="orders">
       <h2>Your orders</h2>
       <div className="selection">{v.phase === 'planning' && <Selection game={game} v={v} />}</div>
       <ol className="orders">
@@ -97,10 +97,10 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
           Add trade
         </button>
       </div>
-      <p className="purse">
+      <p className="purse" data-tour="purse">
         Treasury: {me.purse.crowns} crowns · {GOODS.map((g) => `${me.purse[g]} ${g}`).join(' · ')}
       </p>
-      <button type="button" className="primary wide" disabled={!planning} onClick={() => void game.seal()}>
+      <button type="button" className="primary wide" data-tour="seal" disabled={!planning} onClick={() => void game.seal()}>
         Seal orders
       </button>
       <p className="fine">Your browser hashes your orders with a secret salt. Only the hash goes onchain until every ruler has sealed.</p>
@@ -254,7 +254,7 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
   };
 
   return (
-    <section className="panel">
+    <section className="panel" data-tour="envoys">
       <h2>Envoys</h2>
       <form className="envoy" onSubmit={(e) => void submit(e)}>
         <select value={to} onChange={(e) => setTo(Number(e.target.value))} aria-label="Send to">

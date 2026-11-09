@@ -142,11 +142,11 @@ export function Play() {
 
       {v && (
         <section className="proof">
-          <div className="panel">
+          <div className="panel" data-tour="realms">
             <h2>Realms</h2>
             <RealmList v={v} />
           </div>
-          <div className="panel">
+          <div className="panel" data-tour="proof">
             <h2>The proof</h2>
             <Proof v={v} />
           </div>
@@ -208,7 +208,7 @@ function Continue({ signer }: { signer: Signer | null }) {
 
 function StatusLine({ game }: { game: Game }) {
   return (
-    <p className={`status ${game.status.tone}`} role="status">
+    <p className={`status ${game.status.tone}`} role="status" data-tour="status">
       {game.status.text}
     </p>
   );
@@ -218,7 +218,7 @@ function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number,
   const [realms, setRealms] = useState(4);
   const [seasons, setSeasons] = useState(12);
   return (
-    <div className="controls">
+    <div className="controls" data-tour="start">
       <label>
         Rivals
         <select value={realms} onChange={(e) => setRealms(Number(e.target.value))}>
@@ -269,7 +269,7 @@ function Account({ game, signer, setSigner }: { game: Game; signer: Signer | nul
       game.say('Signed out. New campaigns use a guest seat.');
     });
   return (
-    <div className="account">
+    <div className="account" data-tour="account">
       {signer ? (
         <>
           <span className="who-am-i" title="Your NEAR testnet account">
