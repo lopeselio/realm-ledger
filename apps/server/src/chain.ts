@@ -5,7 +5,7 @@ import { config, privateKey } from './config.ts';
 // their nonces never collide; different accounts run in parallel.
 
 // several public testnet RPCs (docs.near.org/api/rpc/providers); on a failure the next one is used
-const RPCS = [config.rpcUrl, 'https://near-testnet.drpc.org', 'https://testnet-rpc.intea.rs'].filter((u, i, a) => a.indexOf(u) === i);
+export const RPCS = [config.rpcUrl, 'https://near-testnet.drpc.org', 'https://testnet-rpc.intea.rs'].filter((u, i, a) => a.indexOf(u) === i);
 const provider = withRealErrors(new FailoverRpcProvider(RPCS.map((url) => new JsonRpcProvider({ url }))));
 
 // near-api-js's failover tries the next RPC on any error and, once all have failed, throws
