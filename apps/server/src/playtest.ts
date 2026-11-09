@@ -19,7 +19,7 @@ async function api<T>(path: string, body?: object): Promise<T> {
   return data;
 }
 
-type View = { id: number; season: number; phase: string; state: GameState; envoysLeft: number; winner: number | null };
+type View = { id: number; season: number; phase: string; state: GameState; envoysLeft: number; winner: number | null; lastEvents: { kind: string }[] };
 const t0 = Date.now();
 const lap = (): string => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
@@ -53,13 +53,14 @@ for (let i = 0; i < seasons; i++) {
     console.log(`  (connection dropped after sealing; the server had sealed, continuing)`);
   });
   console.log(`season ${v.season}: sealed ${orders.orders.length} orders (${lap()})`);
-  const r = await api<{ events: { kind: string }[]; view: View }>(`/campaigns/${v.id}/reveal`, { orders, salt }).catch(async (e: Error) => {
+  const r = await api<{ view: View }>(`/campaigns/${v.id}/reveal`, { orders, salt }).catch(async (e: Error) => {
     const now = await api<View>(`/campaigns/${v.id}`);
     if (now.season === v.season) throw e;
     console.log(`  (connection dropped after revealing; the server had settled, continuing)`);
-    return { events: [] as { kind: string }[], view: now };
+    return { view: now };
   });
-  const count = (k: string): number => r.events.filter((e) => e.kind === k).length;
+  // the season as the player saw it (the reply carries it in the view)
+  const count = (k: string): number => r.view.lastEvents.filter((e) => e.kind === k).length;
   console.log(`season ${v.season}: revealed and settled; ${count('battle')} battles, ${count('captured')} captures (${lap()})`);
   v = r.view;
 }
