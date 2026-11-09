@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { COST, GOODS, type GameState, type Good, type Treaty } from '@realm-ledger/rules';
 import { API, PUBLIC_API, type View } from '../api.ts';
-import { REALM_COLORS } from '../map.ts';
+import { colorOf } from '../map.ts';
 import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
 import { forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
@@ -296,7 +296,7 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
           .reverse()
           .map(({ e, i }) => (
             <li key={i}>
-              <span className="who" style={{ color: REALM_COLORS[e.to] }}>
+              <span className="who" style={{ color: colorOf(e.to) }}>
                 {s.realms[e.to]!.name}
               </span>{' '}
               {e.proposal && (
@@ -330,7 +330,7 @@ export function RealmList({ v }: { v: View }) {
         const treaties = s.treaties.filter((t) => t.realms.includes(r.id) && t.realms.includes(v.human)).map((t) => t.kind);
         return (
           <li key={r.id} className={r.alive ? '' : 'fallen'}>
-            <span className="dot" style={{ background: REALM_COLORS[r.id] }} />
+            <span className="dot" style={{ background: colorOf(r.id) }} />
             <span className="name">
               {r.name}
               {r.id === v.human ? ' (you)' : ''}

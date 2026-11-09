@@ -13,7 +13,7 @@ import {
   type GameState,
 } from '@realm-ledger/rules';
 import { campaigns, CONTRACT, type ChainCampaign } from '../chain.ts';
-import { provinceTip, REALM_COLORS } from '../map.ts';
+import { provinceTip, colorOf } from '../map.ts';
 import { Board } from '../components/Board.tsx';
 import { ChronicleLines } from '../components/ChronicleLines.tsx';
 import { Footer } from '../components/Footer.tsx';
@@ -211,7 +211,7 @@ function RealmScores({ s }: { s: GameState }) {
         const p = r.personality;
         return (
           <li key={r.id} className={r.alive ? '' : 'fallen'}>
-            <span className="dot" style={{ background: REALM_COLORS[r.id] }} />
+            <span className="dot" style={{ background: colorOf(r.id) }} />
             <span className="name">
               {r.name}
               {s.winner === r.id ? ' ♛' : ''}
