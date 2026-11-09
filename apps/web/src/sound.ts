@@ -4,6 +4,8 @@
 const PREF = 'realm-ledger:sound';
 
 let ctx: AudioContext | null = null;
+// everything plays through this, so muting silences sounds already scheduled too
+let master: GainNode | null = null;
 let muted = readMuted();
 const listeners = new Set<(muted: boolean) => void>();
 
@@ -18,7 +20,12 @@ function readMuted(): boolean {
 /** Creates or wakes the audio context; call from a click or tap. */
 export function unlockSound(): void {
   try {
-    ctx ??= new AudioContext();
+    if (!ctx) {
+      ctx = new AudioContext();
+      master = ctx.createGain();
+      master.gain.value = muted ? 0 : 1;
+      master.connect(ctx.destination);
+    }
     if (ctx.state === 'suspended') void ctx.resume();
   } catch {
     ctx = null;
@@ -29,6 +36,7 @@ export const isMuted = (): boolean => muted;
 
 export function setMuted(m: boolean): void {
   muted = m;
+  if (ctx && master) master.gain.setValueAtTime(m ? 0 : 1, ctx.currentTime);
   try {
     localStorage.setItem(PREF, m ? 'off' : 'on');
   } catch {
@@ -51,8 +59,13 @@ function live(play: (c: AudioContext) => void): void {
   const c = ctx;
   if (muted || !c || c.state === 'closed') return;
   if (c.state === 'running') return play(c);
+  // wait a moment for it to wake, no longer: a sound that would land long after its moment
+  // (the next tap minutes later) is dropped
+  const asked = performance.now();
   c.resume()
-    .then(() => !muted && play(c))
+    .then(() => {
+      if (!muted && performance.now() - asked < 300) play(c);
+    })
     .catch(() => undefined);
 }
 
@@ -61,7 +74,7 @@ function envelope(c: AudioContext, at: number, peak: number, attack: number, dec
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(peak, at + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay);
-  g.connect(c.destination);
+  g.connect(master ?? c.destination);
   return g;
 }
 
