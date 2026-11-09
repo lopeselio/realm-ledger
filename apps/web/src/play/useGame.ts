@@ -1,7 +1,7 @@
 // The game against the AI rulers: the campaign view from the server, your draft orders, and
 // the flows that seal, reveal, hire and send envoys. Flows run one at a time (`busy`).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt, ORDERS_REFUSED } from '@realm-ledger/rules';
+import { canonicalJson, newSalt, sealOrders, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt, ORDERS_REFUSED } from '@realm-ledger/rules';
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { sealSound, unlockSound } from '../sound.ts';
