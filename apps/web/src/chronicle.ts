@@ -22,7 +22,8 @@ export function chronicle(before: GameState, events: GameEvent[]): Line[] {
         big.push({ tone: 'big', text: `${realm(e.realm)} falls. ${realm(e.by)} holds its capital.` });
         break;
       case 'treaty-broken':
-        big.push({ tone: 'big', text: `${realm(e.realm)} breaks its ${e.treaty} with ${realm(e.against)}, marching on ${place(e.province)}.` });
+        // (where is told only if you saw it)
+        big.push({ tone: 'big', text: `${realm(e.realm)} breaks its ${e.treaty} with ${realm(e.against)}${e.province >= 0 ? `, marching on ${place(e.province)}` : ''}.` });
         break;
       case 'battle': {
         const [w, ...rest] = [...e.sides].sort((a, b) => (a.realm === e.winner ? -1 : b.realm === e.winner ? 1 : 0));
