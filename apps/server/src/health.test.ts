@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { assessHealth, healthMonitor, readAccount, seatAccounts, type AccountRead } from './health.ts';
+import { allSeatAccounts } from './config.ts';
+import { assessHealth, healthMonitor, readAccount, type AccountRead } from './health.ts';
 
 const acct = (over: Partial<AccountRead> = {}): AccountRead => ({ account: 'x.testnet', balance: 1, storageBytes: 0, allowance: 0.5, ...over });
-const ids = seatAccounts('realm-ledger.testnet');
+const ids = allSeatAccounts();
 const seats = ids.map((account) => acct({ account, balance: 0.25, allowance: 0.5 }));
 
 describe('health', () => {
@@ -25,23 +26,57 @@ describe('health', () => {
     expect(h.level).toBe('alert');
     expect(h.checks[0]!.subject).toBe(ids[2]);
   });
-  it('reads balances and allowances from plain view RPCs, and caches', async () => {
-    let calls = 0;
-    const f = (async (_u: string, init: any) => {
-      calls++;
+  it('review: an unreadable contract is an alert, an unreadable seat a warning', () => {
+    expect(assessHealth(1, null, acct({ balance: 3.6 }), seats, ids).level).toBe('alert');
+    const missing: (AccountRead | null)[] = [...seats];
+    missing[3] = null;
+    const h = assessHealth(1, acct({ balance: 9 }), acct({ balance: 3.6 }), missing, ids);
+    expect(h.level).toBe('warn');
+    expect(h.checks[0]!.subject).toBe(ids[3]);
+  });
+
+  const rpcFake = (keys: object[]) => {
+    const calls: string[] = [];
+    const f = (async (url: string, init: any) => {
+      calls.push(url);
+      if (url === 'https://down.example') throw new Error('ECONNREFUSED');
       const p = JSON.parse(init.body).params;
-      const result = p.request_type === 'view_account'
-        ? { amount: '6220800000000000000000000', storage_usage: 374675 }
-        : { keys: [{ access_key: { permission: { FunctionCall: { allowance: '500000000000000000000000', receiver_id: 'realm-ledger.testnet', method_names: [] } } } }] };
+      const result = p.request_type === 'view_account' ? { amount: '6220800000000000000000000', storage_usage: 374675 } : { keys };
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: 'health', result }));
     }) as typeof fetch;
-    expect(await readAccount('a.testnet', f)).toEqual({ account: 'a.testnet', balance: 6.2208, storageBytes: 374675, allowance: 0.5 });
+    return { f, calls };
+  };
+  const fcKey = (pk: string, allowance: string) => ({ public_key: pk, access_key: { permission: { FunctionCall: { allowance, receiver_id: 'realm-ledger.testnet', method_names: [] } } } });
+
+  it('review: fails over to the next RPC, and reads the allowance of the key the server signs with', async () => {
+    const { f, calls } = rpcFake([fcKey('ed25519:old', '1000000000000000000000'), fcKey('ed25519:mine', '500000000000000000000000')]);
+    const r = await readAccount('a.testnet', { withKey: true, urls: ['https://down.example', 'https://up.example'], fetch: f, signer: () => 'ed25519:mine' });
+    expect(r).toEqual({ account: 'a.testnet', balance: 6.2208, storageBytes: 374675, allowance: 0.5 });
+    expect(calls).toContain('https://down.example');
+    // Without a known signing key, the largest allowance stands in.
+    const r2 = await readAccount('a.testnet', { withKey: true, urls: ['https://up.example'], fetch: f, signer: () => null });
+    expect(r2!.allowance).toBe(0.5);
+  });
+
+  it('review: answers from cache at once and refreshes in the background', async () => {
+    const { f, calls } = rpcFake([fcKey('ed25519:mine', '500000000000000000000000')]);
     let t = 0;
-    const h = healthMonitor(60_000, f, () => t);
-    await h();
-    const n = calls;
+    const h = healthMonitor({ ttlMs: 60_000, urls: ['https://up.example'], fetch: f, now: () => t, signer: () => 'ed25519:mine' });
+    expect((await h()).level).toBe('ok');
+    const n = calls.length;
     t = 30_000;
     await h();
-    expect(calls).toBe(n); // served from cache
+    expect(calls.length).toBe(n); // fresh: served from cache
+    t = 120_000;
+    const stale = await h(); // stale: served at once, refresh starts behind it
+    expect(stale.at).toBe(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls.length).toBeGreaterThan(n);
+  });
+
+  it('review: the first request waits only so long, then says it is still checking', async () => {
+    const slow = (() => new Promise(() => {})) as unknown as typeof fetch;
+    const h = healthMonitor({ urls: ['https://slow.example'], fetch: slow, firstWaitMs: 20 });
+    expect((await h()).level).toBe('checking');
   });
 });
