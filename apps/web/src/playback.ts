@@ -32,30 +32,27 @@ export const TIMING = {
 /** How long after a season settles its playback may still start (a 3D table that loads later skips it). */
 export const FRESH_MS = 4000;
 
-export function scriptFor(events: GameEvent[]): SeasonScript {
+/**
+ * The season's events as a playback. With `visible` (the provinces your realm sees), only what
+ * happens there is shown: a march seen leaving or arriving, battles, losses and captures in sight.
+ */
+export function scriptFor(events: GameEvent[], visible?: Set<number>): SeasonScript {
   const sc: SeasonScript = { moves: [], battles: [], retreats: [], losses: [], captures: [] };
   const battles = new Set<number>();
+  const seen = (...ps: number[]): boolean => !visible || ps.some((p) => visible.has(p));
   for (const e of events) {
-    if (e.kind === 'moved') sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
+    if (e.kind === 'moved') seen(e.from, e.to) && sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
     // a border clash (two armies swapping provinces) flashes at the province it was named for
-    else if (e.kind === 'battle') battles.add(e.province);
-    else if (e.kind === 'retreated') sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
-    else if (e.kind === 'destroyed') sc.losses.push({ realm: e.realm, province: e.province });
-    else if (e.kind === 'captured') sc.captures.push({ realm: e.realm, province: e.province });
+    else if (e.kind === 'battle') seen(e.province) && battles.add(e.province);
+    else if (e.kind === 'retreated') seen(e.from, e.to) && sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
+    else if (e.kind === 'destroyed') seen(e.province) && sc.losses.push({ realm: e.realm, province: e.province });
+    else if (e.kind === 'captured') seen(e.province) && sc.captures.push({ realm: e.realm, province: e.province });
   }
   sc.battles = [...battles];
   return sc;
 }
 
 export const isEmpty = (sc: SeasonScript): boolean => !sc.moves.length && !sc.battles.length && !sc.retreats.length && !sc.losses.length && !sc.captures.length;
-
-export function reducedMotion(): boolean {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    return false;
-  }
-}
 
 /** The season's sounds, on the same clock as the pictures. */
 export function playSounds(sc: SeasonScript): void {
@@ -75,11 +72,17 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
   layer.setAttribute('viewBox', svg.getAttribute('viewBox') ?? '');
   layer.setAttribute('class', 'playback');
   layer.setAttribute('aria-hidden', 'true');
-  // laid exactly over the map, inside the same positioned wrapper
-  const box = svg.getBoundingClientRect();
+  // laid exactly over the map, inside the same positioned wrapper, and kept there if the page reflows
   const wrap = svg.parentElement!;
-  const parent = wrap.getBoundingClientRect();
-  Object.assign(layer.style, { left: `${box.left - parent.left - wrap.clientLeft}px`, top: `${box.top - parent.top - wrap.clientTop}px`, width: `${box.width}px`, height: `${box.height}px` });
+  const place = (): void => {
+    const box = svg.getBoundingClientRect();
+    const parent = wrap.getBoundingClientRect();
+    Object.assign(layer.style, { left: `${box.left - parent.left - wrap.clientLeft}px`, top: `${box.top - parent.top - wrap.clientTop}px`, width: `${box.width}px`, height: `${box.height}px` });
+  };
+  place();
+  const follow = new ResizeObserver(place);
+  follow.observe(svg);
+  follow.observe(wrap);
   svg.after(layer);
   const add = (tag: string, attrs: Record<string, string | number>, text?: string): SVGElement => {
     const el = document.createElementNS(SVG, tag);
@@ -142,9 +145,11 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
       { duration: TIMING.captureFor, delay: TIMING.capture, easing: 'ease-out', fill: 'both' },
     );
   }
-  const timer = window.setTimeout(() => layer.remove(), TIMING.capture + TIMING.captureFor + 100);
-  return () => {
+  const stop = (): void => {
     window.clearTimeout(timer);
+    follow.disconnect();
     layer.remove();
   };
+  const timer = window.setTimeout(stop, TIMING.capture + TIMING.captureFor + 100);
+  return stop;
 }

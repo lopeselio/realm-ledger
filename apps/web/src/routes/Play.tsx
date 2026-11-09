@@ -69,7 +69,8 @@ export function Play() {
     if (!v || !before || before.season !== v.state.season - 1) return null;
     const key = `${v.id}:${v.state.season}`;
     if (!seenAt.current.has(key)) seenAt.current.set(key, Date.now());
-    return { key, at: seenAt.current.get(key)!, script: scriptFor(v.lastEvents) };
+    // only what your realm can see plays out (the whole map once the campaign is over)
+    return { key, at: seenAt.current.get(key)!, script: scriptFor(v.lastEvents, v.phase === 'over' ? undefined : visibleProvinces(v.state, v.human)) };
   }, [v, before]);
 
   // what the walkthrough watches, rebuilt only when one of them changes
