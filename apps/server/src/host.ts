@@ -235,7 +235,7 @@ export function reconcileAll(): void {
 }
 
 /** Seasons the sweep failed to settle: how often, and whether it gave up on them. */
-const sweepFailures = new Map<string, { tries: number; notKept: number; givenUp: boolean }>();
+const sweepFailures = new Map<string, { tries: number; notKept: number; attempts: number; givenUp: boolean }>();
 let sweepRunning = false;
 
 /**
@@ -257,9 +257,11 @@ export async function sweepAbandoned(): Promise<void> {
       if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailures.delete(k);
     }
     let guestsTried = 0;
-    // guests with the fewest failed tries first, so a few that keep failing can't crowd out the rest
-    const tries = (h: Hosted): number => sweepFailures.get(`${h.id}:${h.state.season}`)?.tries ?? 0;
-    const order = [...campaigns.values()].sort((a, b) => (a.player || b.player ? 0 : tries(a) - tries(b)));
+    // wallets, then guests with the fewest failed attempts (of any kind) first, so a few that keep
+    // failing can't crowd out the rest
+    const attempts = (h: Hosted): number => sweepFailures.get(`${h.id}:${h.state.season}`)?.attempts ?? 0;
+    const all = [...campaigns.values()];
+    const order = [...all.filter((h) => h.player), ...all.filter((h) => !h.player).sort((a, b) => attempts(a) - attempts(b))];
     for (const h of order) {
       if (h.phase !== 'sealed') continue;
       const season = h.state.season;
@@ -293,15 +295,17 @@ export async function sweepAbandoned(): Promise<void> {
         } else {
           // a guest seat whose player never came back: settled with the orders the server kept,
           // or without them, as the contract allows
-          // (an attempt uses a slot whether or not it settles: each can cost the referee gas)
-          guestsTried += 1;
+          // (an attempt uses a slot whether or not it settles, since each can cost the referee gas;
+          // recording a season the chain already settled costs nothing)
+          if (!moved) guestsTried += 1;
           console.log(`campaign ${h.id}: settling guest season ${season}, left sealed well past its reveal window`);
           await revealSeason(h.id, null, null, true, season);
         }
         sweepFailures.delete(key);
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
-        const f = sweepFailures.get(key) ?? { tries: 0, notKept: 0, givenUp: false };
+        const f = sweepFailures.get(key) ?? { tries: 0, notKept: 0, attempts: 0, givenUp: false };
+        f.attempts += 1;
         // an outage says nothing about the season: it doesn't count towards giving up
         if (!isNetworkError(e) && !/try again in a moment/.test(msg)) {
           f.tries += 1;
