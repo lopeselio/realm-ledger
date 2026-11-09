@@ -14,4 +14,7 @@ COPY apps/server apps/server
 ENV NODE_ENV=production PORT=8080 DATA_DIR=/home/data
 EXPOSE 8080
 WORKDIR /app/apps/server
+# The image tag this was built as (scripts/deploy-api.sh waits for /api/health to report it).
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 CMD ["node_modules/.bin/tsx", "src/main.ts"]
