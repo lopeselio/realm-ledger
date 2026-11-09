@@ -12,7 +12,7 @@ const saved = (id: number, player?: string, phase = 'planning') => ({
   phase,
   state: { season: 2, maxSeasons: 12, winner: null, realms: [] },
   pending: { ai: [] },
-  bundle: {},
+  bundle: { options: { seed: 's', realms: 3, human: 0, maxSeasons: 12 } },
   createdAt: id,
   ...(player ? { player } : {}),
 });
@@ -51,6 +51,12 @@ describe('campaign list', () => {
     expect(host.list({ ids: [1, 3], player: 'alice.testnet' }).map((c) => c.id)).toEqual([3, 2, 1]);
     expect(host.list({ ids: [1, 2] }).map((c) => c.id)).toEqual([2, 1]);
     expect(host.list({ ids: [] })).toEqual([]);
+  });
+
+  it('stamps a campaign from before rules versions with version 1, in memory and on disk', async () => {
+    const { readFileSync } = await import('node:fs');
+    expect(host.proof(3).options.rulesVersion).toBe(1);
+    expect(JSON.parse(readFileSync(join(dir, 'campaign-3.json'), 'utf8')).bundle.options.rulesVersion).toBe(1);
   });
 
   it('reports progress and the ruling account', () => {

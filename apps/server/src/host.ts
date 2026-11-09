@@ -325,6 +325,7 @@ export async function sweepAbandoned(): Promise<void> {
 }
 
 export async function loadAll(): Promise<number> {
+  const stamped: Hosted[] = [];
   let files: string[];
   try {
     files = await readdir(config.dataDir);
@@ -344,7 +345,7 @@ export async function loadAll(): Promise<number> {
     try {
       const h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
       const id = Number(name[1]);
-      if (h?.id !== id || !Array.isArray(h.state?.realms) || typeof h.phase !== 'string' || !h.pending || !h.bundle) throw new Error('not a campaign save');
+      if (h?.id !== id || !Array.isArray(h.state?.realms) || typeof h.phase !== 'string' || !h.pending || !h.bundle?.options) throw new Error('not a campaign save');
       // campaigns from before the agent market
       h.plans ??= [];
       h.reports ??= [];
@@ -352,9 +353,13 @@ export async function loadAll(): Promise<number> {
       h.pending.deals ??= [];
       h.pending.jobs ??= [];
       h.intents ??= [];
-      // a campaign from before rules versions is version 1 (no agent market); say so in its proof,
-      // so seasons this server settles later don't make it read as version 2
-      if (h.bundle.options) h.bundle.options.rulesVersion ??= h.state.companies ? RULES_VERSION : 1;
+      // a campaign from before rules versions says which it plays by in its proof (1 before the
+      // agent market, 2 for the first market servers), so seasons this server settles later
+      // don't change what it reads as; saved at once, so the file says it too
+      if (h.bundle.options.rulesVersion === undefined) {
+        h.bundle.options.rulesVersion = h.state.companies ? 2 : 1;
+        stamped.push(h);
+      }
       for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
       campaigns.set(h.id, h);
     } catch (e) {
@@ -362,6 +367,7 @@ export async function loadAll(): Promise<number> {
       console.error(`load ${f}: ${(e as Error).message}; skipped`);
     }
   }
+  for (const h of stamped) await save(h).catch((e: unknown) => console.error(`stamp ${h.id}: ${(e as Error).message}`));
   return campaigns.size;
 }
 
