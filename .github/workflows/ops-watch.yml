@@ -25,11 +25,13 @@ jobs:
         run: |
           if ! curl -fsS --retry 3 --max-time 30 "$URL/api/health" > health.json; then
             echo "- **alert** api: $URL/api/health didn't answer" > findings.md
+          elif ! jq -e . health.json >/dev/null 2>&1; then
+            echo "- **alert** api: $URL/api/health answered with something that isn't JSON (an error page?)" > findings.md
           else
             cat health.json; echo
-            jq -r 'if (.level // "unknown") == "ok" then empty
-                   elif (.checks // []) == [] then "- **\(.level // "unknown")** health: no checks reported"
-                   else .checks[] | "- **\(.level)** \(.subject): \(.text)" end' health.json > findings.md
+            # ok, still "checking" right after a restart, or a server too old to report a level: nothing to raise.
+            jq -r 'if (.level // "ok") == "ok" or .level == "checking" then empty
+                   else (.checks // [])[] | "- **\(.level)** \(.subject): \(.text)" end' health.json > findings.md
           fi
           cat findings.md
           echo "found=$( [ -s findings.md ] && echo 1 || echo 0 )" >> "$GITHUB_OUTPUT"
