@@ -56,7 +56,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       // nothing earlier to go back to: stay put
       if (dir === -1 && n < 0) return;
       focusCard.current = manual;
-      setI(n);
+      setI((cur) => (cur === i ? n : cur));
     },
     [steps, i],
   );
@@ -81,10 +81,17 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   // bring the target into view, then follow it as the page moves
   useLayoutEffect(() => {
     if (!step) return;
+    // a target that's gone (a campaign closed, a phase changed) moves the tour on, from this
+    // step only: if something else moved it meanwhile, this does nothing
+    const skip = (): void => setI((cur) => (cur === i ? firstPresent(steps, i + 1, 1) : cur));
     const el = find(step.target);
     if (!el) {
       setBox(null);
-      return;
+      // it may only be laying out (the 3D table): give it a moment before skipping
+      const t = window.setTimeout(() => {
+        if (!find(step.target)) skip();
+      }, 400);
+      return () => window.clearTimeout(t);
     }
     const r = el.getBoundingClientRect();
     setBox({ top: r.top, left: r.left, width: r.width, height: r.height });
@@ -96,9 +103,8 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const now = find(step.target);
-        // a target that vanished (a campaign closed, a phase changed) moves the tour on
         if (!now) {
-          setI((cur) => firstPresent(steps, cur + 1, 1));
+          skip();
           return;
         }
         const b = now.getBoundingClientRect();
@@ -121,7 +127,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       window.removeEventListener('resize', measure);
       window.clearInterval(t);
     };
-  }, [step, steps]);
+  }, [i, step, steps]);
 
   // Esc closes the tour from anywhere but a field; the arrows and Enter move it only when focus
   // is on the card or on nothing in particular, so the rest of the page keeps its keys
@@ -132,9 +138,12 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       if (e.defaultPrevented || typingIn(e.target)) return;
       const target = e.target as Node | null;
       const ours = target === document.body || target === document.documentElement || (!!target && !!card.current?.contains(target));
+      // buttons and links don't use the arrows, and after the tour moves on by itself focus
+      // stays on the one the player pressed
       const onControl = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
+      const arrow = e.key === 'ArrowRight' || e.key === 'ArrowLeft';
       if (e.key === 'Escape') onClose();
-      else if (!ours) return;
+      else if (!ours && !(arrow && onControl)) return;
       else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !onControl)) go(1);
       else if (e.key === 'ArrowLeft') go(-1);
       else return;
@@ -227,8 +236,9 @@ function placeCard(box: Box | null): CSSProperties {
   const left = Math.min(Math.max(16, box.left), vw - width - 16);
   if (box.top + box.height + PAD + CARD_ROOM < vh) return { left, top: box.top + box.height + PAD + 10, width };
   if (box.top - PAD > CARD_ROOM) return { left, bottom: vh - box.top + PAD + 10, width };
-  const top = Math.min(Math.max(16, box.top), vh - CARD_ROOM - 16);
+  const top = Math.max(16, Math.min(box.top, vh - CARD_ROOM - 16));
   if (vw - (box.left + box.width + PAD) > width + 32) return { left: box.left + box.width + PAD + 16, top, width };
   if (box.left - PAD > width + 32) return { left: box.left - PAD - 16 - width, top, width };
-  return awayFromTarget(vw - width - 16);
+  // a target filling the screen (the map): the bottom-right corner, clear of the header's controls
+  return { left: vw - width - 16, bottom: 16, width };
 }

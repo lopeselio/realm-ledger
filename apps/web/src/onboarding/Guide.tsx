@@ -10,9 +10,8 @@ import { Welcome } from './Welcome.tsx';
 export interface GuideSignals {
   campaign: number | null;
   selected: number | undefined;
-  orders: number;
-  /** the orders themselves, so a changed order counts as acting even when the count doesn't change */
-  ordersKey: string;
+  /** the draft orders (the same array until they change) */
+  orders: readonly unknown[];
   phase: string | null;
 }
 
@@ -34,9 +33,14 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Click one of your provinces or your army.',
-    watch: (s) => s.selected,
-    // selecting something, not deselecting (or a season turn clearing the selection)
-    moved: (from, to) => to !== undefined && to !== from,
+    watch: (s) => [s.selected, s.orders] as const,
+    // selecting something (not deselecting, or a season turn clearing the selection), or
+    // giving an order straight away (a march clears the selection)
+    moved: (from, to) => {
+      const [sa, oa] = from as readonly [number | undefined, readonly unknown[]];
+      const [sb, ob] = to as readonly [number | undefined, readonly unknown[]];
+      return (sb !== undefined && sb !== sa) || (ob !== oa && ob.length >= oa.length);
+    },
   },
   {
     target: '[data-tour="orders"]',
@@ -47,13 +51,9 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Add an order to go on.',
-    watch: (s) => `${s.orders}|${s.ordersKey}`,
+    watch: (s) => s.orders,
     // an order added or changed, not one taken back
-    moved: (from, to) => {
-      const [a, ka] = String(from).split(/\|(.*)/s);
-      const [b, kb] = String(to).split(/\|(.*)/s);
-      return Number(b) >= Number(a) && kb !== ka;
-    },
+    moved: (from, to) => to !== from && (to as readonly unknown[]).length >= (from as readonly unknown[]).length,
   },
   {
     target: '[data-tour="purse"]',
