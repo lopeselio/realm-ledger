@@ -14,6 +14,8 @@ export interface TourStep<S> {
   watch?: (signals: S) => unknown;
   /** what the player can do to move on, shown under the text */
   hint?: string;
+  /** the Next button's label on this step */
+  next?: string;
 }
 
 interface Box {
@@ -174,7 +176,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
             </button>
           )}
           <button type="button" className="primary" onClick={() => go(1)}>
-            {firstPresent(steps, i + 1, 1) >= steps.length ? 'Done' : 'Next'}
+            {firstPresent(steps, i + 1, 1) >= steps.length ? 'Done' : (step.next ?? 'Next')}
           </button>
         </div>
       </div>
