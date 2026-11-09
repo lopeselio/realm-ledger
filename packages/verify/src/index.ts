@@ -203,7 +203,10 @@ export function verifyBundle(b: ProofBundle): Check[] {
  * no version (version 2); newer ones say so.
  */
 export function rulesVersionOf(b: ProofBundle): number {
-  return b.options.rulesVersion ?? (b.seasons.some((s) => 'deals' in s) ? 2 : 1);
+  // a campaign from before the agent market has no deals in its first season; a newer server
+  // that later settled more seasons of it writes deals into those, which says nothing about the
+  // rules it was created under
+  return b.options.rulesVersion ?? (b.seasons[0] && 'deals' in b.seasons[0] ? 2 : 1);
 }
 
 /** Replays a bundle's seasons and returns the final state (no checks). */

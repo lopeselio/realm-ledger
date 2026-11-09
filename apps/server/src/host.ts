@@ -352,6 +352,9 @@ export async function loadAll(): Promise<number> {
       h.pending.deals ??= [];
       h.pending.jobs ??= [];
       h.intents ??= [];
+      // a campaign from before rules versions is version 1 (no agent market); say so in its proof,
+      // so seasons this server settles later don't make it read as version 2
+      if (h.bundle.options) h.bundle.options.rulesVersion ??= h.state.companies ? RULES_VERSION : 1;
       for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
       campaigns.set(h.id, h);
     } catch (e) {
