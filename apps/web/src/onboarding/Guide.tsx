@@ -70,9 +70,9 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Press Seal orders to go on, or Next to look around first.',
-    // sealed: planning when the step was reached, and past it now (not the view clearing while
-    // another campaign loads, or a season turning back to planning)
-    acted: (before, now) => before.phase === 'planning' && now.phase !== null && now.phase !== 'planning',
+    // sealed: planning when the step was reached and sealed now (not the view clearing while
+    // another campaign loads, a season turning, or the campaign ending)
+    acted: (before, now) => before.phase === 'planning' && now.phase === 'sealed',
   },
   {
     target: '[data-tour="status"]',

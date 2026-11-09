@@ -38,7 +38,9 @@ function find(sel: string): HTMLElement | null {
 export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; signals: S; onClose: () => void }) {
   const [present, setPresent] = useState<boolean[]>(() => steps.map((s) => !!find(s.target)));
   const [i, setI] = useState(() => nextPresent(present, 0, 1));
-  const [box, setBox] = useState<Box | null>(null);
+  // the light's box, and the step it was measured for: kept through a blip on that step, never
+  // shown on another
+  const [box, setBox] = useState<(Box & { at: number }) | null>(null);
   // (`present`: which steps' elements are on the page; the current one counts while it lays out)
   const card = useRef<HTMLDivElement>(null);
   const step = i >= 0 && i < steps.length ? steps[i] : undefined;
@@ -80,6 +82,13 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     },
     [i, steps],
   );
+
+  // a change in the game (a campaign opening, a phase turning) mounts or removes steps' elements:
+  // the buttons follow at once rather than at the next tick
+  useLayoutEffect(() => {
+    const p = presentOnPage(steps, i);
+    setPresent((old) => (old.length === p.length && old.every((x, k) => x === p[k]) ? old : p));
+  }, [signals, steps, i]);
 
   // move on when the player does what the step asks
   const start = useRef<{ i: number; signals: S | undefined }>({ i: -1, signals: undefined });
@@ -140,7 +149,9 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
         }
         const b = now.getBoundingClientRect();
         setBox((old) =>
-          old && old.top === b.top && old.left === b.left && old.width === b.width && old.height === b.height ? old : { top: b.top, left: b.left, width: b.width, height: b.height },
+          old && old.at === i && old.top === b.top && old.left === b.left && old.width === b.width && old.height === b.height
+            ? old
+            : { at: i, top: b.top, left: b.left, width: b.width, height: b.height },
         );
     };
     const measure = (): void => {
@@ -208,7 +219,8 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
 
   if (!step) return null;
   // keep the light's edge on screen when the target is bigger than the window (the map)
-  const light = box && clampToView(box);
+  const here = box && box.at === i ? box : null;
+  const light = here && clampToView(here);
   const count = present.filter(Boolean).length;
   const at = present.slice(0, i + 1).filter(Boolean).length;
   const hasBack = present.slice(0, i).some(Boolean);
@@ -217,7 +229,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   return (
     <div className="ob-tour">
       {light && <div className="ob-light" aria-hidden="true" style={light} />}
-      <div ref={card} className="ob-card ob-mark" style={placeCard(box)} role="dialog" aria-modal="false" aria-labelledby="ob-mark-title" tabIndex={-1}>
+      <div ref={card} className="ob-card ob-mark" style={placeCard(here)} role="dialog" aria-modal="false" aria-labelledby="ob-mark-title" tabIndex={-1}>
         <p className="ob-kicker">
           Walkthrough · {at} of {count}
         </p>
@@ -277,10 +289,13 @@ function placeCard(box: Box | null): CSSProperties {
   const centred = (vw - width) / 2;
   if (!box) return { left: centred, bottom: 16, width };
   // a narrow screen: full width, at the top or bottom, away from the target
-  // (at the top, below the header's controls)
-  // (but never so low the card runs off the screen, where a tall wrapped header would put it)
-  const headerBottom = Math.max(16, Math.min((document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8, vh - CARD_ROOM - 16));
-  const awayFromTarget = (left: number): CSSProperties => (box.top + box.height / 2 > vh / 2 ? { left, top: headerBottom, width } : { left, bottom: 16, width });
+  // at the top below the header's controls (but never so low the card runs off the screen, where a
+  // tall wrapped header would put it), or at the bottom; the header is only measured when needed
+  const awayFromTarget = (left: number): CSSProperties => {
+    if (box.top + box.height / 2 <= vh / 2) return { left, bottom: 16, width };
+    const headerBottom = Math.max(16, Math.min((document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8, vh - CARD_ROOM - 16));
+    return { left, top: headerBottom, width };
+  };
   if (vw < 560) return awayFromTarget(centred);
   const left = Math.min(Math.max(16, box.left), vw - width - 16);
   if (box.top + box.height + PAD + CARD_ROOM < vh) return { left, top: box.top + box.height + PAD + 10, width };
