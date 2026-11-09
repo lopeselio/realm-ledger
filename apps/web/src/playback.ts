@@ -1,7 +1,7 @@
 // A settled season, played out on the board: armies march, battles flash, the beaten fall back
 // or fall, and captured provinces raise their new colours. The board already shows the season's
 // end; this is a short replay over it, timed the same on the 3D table and the flat map, with sound.
-import { seesEvent, type GameEvent, type GameState } from '@realm-ledger/rules';
+import type { GameEvent, GameState } from '@realm-ledger/rules';
 import { colorOf, provinceCenter } from './map.ts';
 import { captureSound, clashSound, marchSound } from './sound.ts';
 
@@ -33,19 +33,18 @@ export const TIMING = {
 export const FRESH_MS = 4000;
 
 /**
- * The season's events as a playback. With `visible` (the provinces your realm `me` saw), only
- * what it saw plays, by the same rule as the chronicle (`seesEvent`). Elements wait hidden until
- * their moment (fill 'forwards', not 'both').
+ * The season's events as a playback. They come from the server already as your realm saw them
+ * (where a rival came from out of the fog is -1: it appears where it arrives). Elements wait
+ * hidden until their moment (fill 'forwards', not 'both').
  */
-export function scriptFor(events: GameEvent[], visible?: Set<number>, me = -2): SeasonScript {
+export function scriptFor(events: GameEvent[]): SeasonScript {
   const sc: SeasonScript = { moves: [], battles: [], retreats: [], losses: [], captures: [] };
   const battles = new Set<number>();
   for (const e of events) {
-    if (visible && !seesEvent(e, me, visible)) continue;
-    if (e.kind === 'moved') sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
+    if (e.kind === 'moved') sc.moves.push({ realm: e.realm, from: e.from < 0 ? e.to : e.from, to: e.to });
     // a border clash (two armies swapping provinces) flashes at the province it was named for
     else if (e.kind === 'battle') battles.add(e.province);
-    else if (e.kind === 'retreated') sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
+    else if (e.kind === 'retreated') sc.retreats.push({ realm: e.realm, from: e.from < 0 ? e.to : e.from, to: e.to });
     else if (e.kind === 'destroyed') sc.losses.push({ realm: e.realm, province: e.province });
     else if (e.kind === 'captured') sc.captures.push({ realm: e.realm, province: e.province });
   }

@@ -58,8 +58,6 @@ export interface View {
   winner: number | null;
   /** your sealed orders for the last settled season were never revealed, so they were forfeited */
   lastForfeited?: boolean;
-  /** the provinces you saw of the last settled season (its start, its end, your spies); null once over */
-  lastSeen?: number[] | null;
   scores: number[];
   companies: Company[];
   plans: ChancellorTask[];
