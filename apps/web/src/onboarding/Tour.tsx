@@ -77,7 +77,10 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       // nothing earlier to go back to: stay put (the refresh above hides the Back button)
       if (dir === -1 && n < 0) return;
       shown.current = n;
-      focusCard.current = by === 'player';
+      // the card takes focus when the player moved the tour, or when the element that had focus
+      // went away with the step (focus fell back to the page, so the new step would go unannounced)
+      const lost = document.activeElement === document.body || document.activeElement === null;
+      focusCard.current = by === 'player' || (by === 'gone' && lost);
       setI(n);
     },
     [i, steps],
