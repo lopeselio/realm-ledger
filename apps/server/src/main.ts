@@ -5,8 +5,9 @@ import type { Goal } from '@realm-ledger/rules';
 import { confirmTreaty, createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 import { healthMonitor } from './health.ts';
+import { RPCS } from './chain.ts';
 
-const health = healthMonitor();
+const health = healthMonitor({ urls: RPCS });
 
 // Small JSON API for the game. No framework: a handful of routes.
 //   GET  /api/health
