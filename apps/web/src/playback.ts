@@ -46,7 +46,7 @@ export function scriptFor(events: GameEvent[], visible?: Set<number>, me?: numbe
   for (const e of events) {
     if (e.kind === 'moved') arrives(e.realm, e.to) && sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
     // a border clash (two armies swapping provinces) flashes at the province it was named for
-    else if (e.kind === 'battle') seen(e.province) && battles.add(e.province);
+    else if (e.kind === 'battle') seen(e.province, ...(e.border ?? [])) && battles.add(e.province);
     else if (e.kind === 'retreated') arrives(e.realm, e.to) && sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
     else if (e.kind === 'destroyed') seen(e.province) && sc.losses.push({ realm: e.realm, province: e.province });
     else if (e.kind === 'captured') seen(e.province) && sc.captures.push({ realm: e.realm, province: e.province });
