@@ -91,6 +91,9 @@ pnpm install
 - **Server:** `.env` needs `NEARAI_API_KEY`. Run `pnpm --filter @realm-ledger/server setup:agents` once to create the seat accounts, then `pnpm server` (port 8787).
 - **Web app:** `pnpm web`. The dev server proxies `/api` to the local game server on port 8787; set `API_TARGET=<url>` to use another one. On Vercel, `vercel.json` proxies `/api/*` to the Azure server, so the browser only talks to its own origin.
 - **Docker:** the `Dockerfile` builds the server image used on Azure.
+- **Deploy the server:** `scripts/deploy-api.sh` builds the image in Azure Container Registry, points the App Service at it, and waits until `/api/health` reports the new version (the commit). Vercel deploys the web app by itself on each push to main.
+- **Is the hosted game healthy?** Open `/api/health`. You should see `level` (`ok`, `warn` or `alert`) and `contractFree`: the NEAR the contract has left for storage. The contract pays for every campaign's storage, about 2 KB each, and below 1 NEAR free it warns. The report also checks the referee's NEAR and every seat's gas (its NEAR and its key's allowance) and lists anything low under `checks`. It's read from the chain at most every 5 minutes. Every 3 hours the `ops-watch` GitHub workflow reads it and opens an issue labelled `ops` (or comments on the open one) if it isn't `ok` or doesn't answer.
+- **Backups:** App Service takes an automatic snapshot of the server's disk (campaign saves and proofs in `/home/data`) every hour. `az webapp config snapshot list -g realm-ledger -n realm-ledger-api` lists them, and `az webapp config snapshot restore … --time <snapshot time>` restores one.
 
 Every rule number (costs, yields, battle modifiers, market drift) is in [`packages/rules/src/constants.ts`](./packages/rules/src/constants.ts).
 
