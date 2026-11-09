@@ -29,6 +29,12 @@ export type Stage = { campaign: number; step: 'seal' | 'reveal' | 'resolve' } | 
 export function useGame(id: number | null, signer: Signer | null) {
   const [view, setViewState] = useState<View | null>(null);
   const [before, setBefore] = useState<GameState | null>(null);
+  // a flow ending the season is running: if it fails, the state it started from is dropped
+  const endingRef = useRef(false);
+  const endSeasonFrom = (s: GameState): void => {
+    endingRef.current = true;
+    setBefore(s);
+  };
   const [orders, setOrders] = useState<Order[]>([]);
   // orders the player added or changed (never a reset or a removal): for the walkthrough
   const [orderEdits, setOrderEdits] = useState(0);
@@ -93,9 +99,11 @@ export function useGame(id: number | null, signer: Signer | null) {
       await fn();
     } catch (e) {
       say((e as Error).message, 'error');
-      // a flow that failed settled nothing here, so no season it was about to show plays back later
-      setBefore(null);
+      // a season-ending flow that failed settled nothing here, so the season it was about to
+      // show doesn't play back later; other flows leave the chronicle's labels alone
+      if (endingRef.current) setBefore(null);
     } finally {
+      endingRef.current = false;
       setBusy(false);
       if (!keepStage) setStage(null);
     }
@@ -121,15 +129,8 @@ export function useGame(id: number | null, signer: Signer | null) {
     try {
       return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
     } catch (e) {
-      // not settled here: the season this browser was about to show isn't one to play back later
-      const now = await recheck(v, e).catch((x: unknown) => {
-        setBefore(null);
-        throw x;
-      });
-      if (now.season === v.season) {
-        setBefore(null);
-        throw e;
-      }
+      const now = await recheck(v, e);
+      if (now.season === v.season) throw e;
       // settled, maybe by another browser: lastForfeited says whether your orders counted,
       // but only if nothing settled since
       return { events: now.lastEvents, view: now.season === v.season + 1 ? now : { ...now, lastForfeited: false } };
@@ -196,7 +197,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       if (declared && !revealed) {
         // your wallet already forfeited (from another browser): finish settling without them
         await withBusy('Your wallet forfeited these orders; settling the season without them…', async () => {
-          setBefore(v.state);
+          endSeasonFrom(v.state);
           showSettled(await settle(v, { forfeit: true }), true);
         });
         return;
@@ -205,7 +206,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         // revealed onchain from another browser: the contract keeps those orders until the
         // season settles, so the server can finish it without them being here
         await withBusy('Your orders are revealed onchain; settling the season with them…', async () => {
-          setBefore(v.state);
+          endSeasonFrom(v.state);
           showSettled(await settle(v, {}));
         });
         return;
@@ -226,7 +227,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     }
     await withBusy('Revealing every ruler’s orders; the contract checks each against its seal…', async () => {
       setStage({ campaign: v.id, step: 'reveal' });
-      setBefore(v.state);
+      endSeasonFrom(v.state);
       let forfeited = false;
       if (v.player) {
         let state = await onChain(v);
@@ -273,7 +274,7 @@ export function useGame(id: number | null, signer: Signer | null) {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
     await withBusy('Settling the season without your orders; every AI ruler reveals…', async () => {
-      setBefore(v.state);
+      endSeasonFrom(v.state);
       let revealedElsewhere = false;
       if (v.player) {
         // only your wallet can give up your orders; the contract then blocks their reveal.
