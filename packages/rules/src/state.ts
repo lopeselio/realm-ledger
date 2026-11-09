@@ -101,8 +101,7 @@ export function viewFor(s: GameState, realm: number): GameState {
  * border in sight; builds, losses and captures in sight. Other realms' harvest, upkeep and
  * rejected orders never (they reveal treasuries and plans). Public news always: trades on the
  * shared market, prices, tribute, fallen realms, victory, and broken treaties (betrayals are
- * public; where one happened is told only if seen, see `eventsFor`). Any other kind: never.
- * The chronicle (server) and the season's playback (web) both use this.
+ * public; where one happened is told only if seen, see `eventFor`). Any other kind: never.
  */
 export function seesEvent(e: GameEvent, realm: number, seen: Set<number>): boolean {
   const sees = (...ps: (number | undefined)[]): boolean => ps.some((p) => p !== undefined && seen.has(p));
@@ -137,11 +136,21 @@ export function seesEvent(e: GameEvent, realm: number, seen: Set<number>): boole
   }
 }
 
-/** The season's events as one realm saw them (see `seesEvent`); a broken treaty out of sight loses its place (-1). The proof bundle keeps them all. */
+/**
+ * One event as `realm` saw it, or null if it didn't (see `seesEvent`). What it couldn't see is
+ * masked to -1: where a betrayal out of sight happened, and where a rival came from out of the
+ * fog (a retreat into sight would otherwise place an unseen battle).
+ */
+export function eventFor(e: GameEvent, realm: number, seen: Set<number>): GameEvent | null {
+  if (!seesEvent(e, realm, seen)) return null;
+  if (e.kind === 'treaty-broken' && e.realm !== realm && e.against !== realm && !seen.has(e.province)) return { ...e, province: -1 };
+  if ((e.kind === 'moved' || e.kind === 'retreated') && e.realm !== realm && !seen.has(e.from)) return { ...e, from: -1 };
+  return e;
+}
+
+/** The season's events as one realm saw them (see `eventFor`). The proof bundle keeps them all. */
 export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>): GameEvent[] {
-  return events
-    .filter((e) => seesEvent(e, realm, seen))
-    .map((e) => (e.kind === 'treaty-broken' && e.realm !== realm && e.against !== realm && !seen.has(e.province) ? { ...e, province: -1 } : e));
+  return events.flatMap((e) => eventFor(e, realm, seen) ?? []);
 }
 
 /** Campaign score: treasury (goods at what they'd sell for) plus land, towns and forts. */
