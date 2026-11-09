@@ -26,6 +26,9 @@ export function useGame(id: number | null, signer: Signer | null) {
   // orders the player added or changed (never a reset or a removal): for the walkthrough
   const [orderEdits, setOrderEdits] = useState(0);
   const [marches, setMarches] = useState(0);
+  // the player's own selections and seals, counted the same way (for the walkthrough)
+  const [selections, setSelections] = useState(0);
+  const [seals, setSeals] = useState(0);
   const [selected, setSelected] = useState<number | undefined>(undefined);
   const [busy, setBusyState] = useState(false);
   const [status, setStatusState] = useState<Status>({ text: INTRO, tone: 'info' });
@@ -368,6 +371,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       }
       adopt(after);
       // the server keeps a seal an earlier attempt already put onchain
+      setSeals((n) => n + 1);
       if (posted || (after.yourSeal && after.yourSeal !== hash)) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
       else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
@@ -436,7 +440,9 @@ export function useGame(id: number | null, signer: Signer | null) {
       setOrders((os) => [...os.filter((o) => !(o.kind === 'march' && o.from === from)), { kind: 'march', from, to: p }]);
       setSelected(undefined);
     } else {
-      setSelected(selected === p ? undefined : p);
+      const next = selected === p ? undefined : p;
+      if (next !== undefined) setSelections((n) => n + 1);
+      setSelected(next);
     }
   };
 
@@ -453,7 +459,7 @@ export function useGame(id: number | null, signer: Signer | null) {
   };
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));
 
-  return { view, before, orders, orderEdits, marches, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
+  return { view, before, orders, orderEdits, marches, selections, seals, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
 }
 
 export type Game = ReturnType<typeof useGame>;

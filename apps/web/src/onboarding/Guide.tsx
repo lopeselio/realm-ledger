@@ -14,6 +14,10 @@ export interface GuideSignals {
   orderEdits: number;
   /** how many marches the player has ordered on the map (a market trade doesn't count) */
   marches: number;
+  /** how many times the player has selected a province or army */
+  selections: number;
+  /** how many times the player has sealed */
+  seals: number;
   phase: string | null;
 }
 
@@ -36,9 +40,9 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Click one of your provinces or your army.',
-    // a selection (not deselecting, or a season turn clearing it), or an order straight away (a
-    // march clears the selection)
-    acted: (before, now) => (now.selected !== undefined && now.selected !== before.selected) || now.marches > before.marches,
+    // the player selected something, or gave a march straight away (which clears the selection);
+    // deselecting, a season turn or a reload doesn't count
+    acted: (before, now) => now.selections > before.selections || now.marches > before.marches,
   },
   {
     target: '[data-tour="orders"]',
@@ -70,9 +74,8 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Press Seal orders to go on, or Next to look around first.',
-    // sealed: planning when the step was reached and sealed now (not the view clearing while
-    // another campaign loads, a season turning, or the campaign ending)
-    acted: (before, now) => before.phase === 'planning' && now.phase === 'sealed',
+    // the player sealed (not the view clearing, a season turning, or the campaign ending)
+    acted: (before, now) => now.seals > before.seals,
   },
   {
     target: '[data-tour="status"]',

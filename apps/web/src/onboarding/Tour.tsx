@@ -86,8 +86,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   // a change in the game (a campaign opening, a phase turning) mounts or removes steps' elements:
   // the buttons follow at once rather than at the next tick
   useLayoutEffect(() => {
-    const p = presentOnPage(steps, i);
-    setPresent((old) => (old.length === p.length && old.every((x, k) => x === p[k]) ? old : p));
+    setPresent((old) => sameOr(old, presentOnPage(steps, i)));
   }, [signals, steps, i]);
 
   // move on when the player does what the step asks
@@ -110,10 +109,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     // a target that's gone (a campaign closed, a phase changed) moves the tour on, from this
     // step only: if something else moved it meanwhile, this does nothing
     const skip = (): void => go(1, 'gone');
-    const updatePresent = (): void => {
-      const p = presentOnPage(steps, i);
-      setPresent((old) => (old.length === p.length && old.every((x, k) => x === p[k]) ? old : p));
-    };
+    const updatePresent = (): void => setPresent((old) => sameOr(old, presentOnPage(steps, i)));
     // a target missing for a moment (laying out, re-rendering, the 2D/3D switch) isn't gone: it
     // is skipped only once it has been missing for 400ms
     let missingSince: number | null = null;
@@ -158,9 +154,8 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(look);
     };
-    // the new step's box (and which steps are on the page) before the first paint, so nothing
-    // is drawn where the last one was
-    updatePresent();
+    // the new step's box before the first paint, so nothing is drawn where the last one was
+    // (which steps are on the page was just refreshed by the effect above)
     look();
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
@@ -255,6 +250,11 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   );
 }
 
+/** `old` if `next` says the same, so an unchanged answer doesn't re-render. */
+function sameOr(old: boolean[], next: boolean[]): boolean[] {
+  return old.length === next.length && old.every((x, k) => x === next[k]) ? old : next;
+}
+
 /** Which steps' elements are on the page (the current one counts while it lays out). */
 function presentOnPage<S>(steps: TourStep<S>[], current: number): boolean[] {
   return steps.map((s, k) => k === current || !!find(s.target));
@@ -300,7 +300,9 @@ function placeCard(box: Box | null): CSSProperties {
   const left = Math.min(Math.max(16, box.left), vw - width - 16);
   if (box.top + box.height + PAD + CARD_ROOM < vh) return { left, top: box.top + box.height + PAD + 10, width };
   if (box.top - PAD > CARD_ROOM) return { left, bottom: vh - box.top + PAD + 10, width };
-  const top = Math.max(16, Math.min(box.top, vh - CARD_ROOM - 16));
+  // (beside the target, but never over the header's controls)
+  const below = Math.max(16, (document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8);
+  const top = Math.max(below, Math.min(box.top, vh - CARD_ROOM - 16));
   if (vw - (box.left + box.width + PAD) > width + 32) return { left: box.left + box.width + PAD + 16, top, width };
   if (box.left - PAD > width + 32) return { left: box.left - PAD - 16 - width, top, width };
   // a target filling the screen (the map): the bottom-right corner, clear of the header's controls
