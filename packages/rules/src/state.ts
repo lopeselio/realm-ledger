@@ -13,6 +13,16 @@ export const addTroops = (a: Troops, b: Troops): Troops => ({
 });
 export const pickTroops = (t: Troops): Troops => ({ levies: t.levies, regulars: t.regulars, mercs: t.mercs });
 
+/** The troops a march order takes from `army`: what it asks for (all of it by default), whole and at most what is there. */
+export function marchingTroops(army: Troops, asked?: Partial<Troops>): Troops {
+  const want = { ...pickTroops(army), ...(asked ?? {}) };
+  return {
+    levies: Math.max(0, Math.min(army.levies, Math.floor(want.levies))),
+    regulars: Math.max(0, Math.min(army.regulars, Math.floor(want.regulars))),
+    mercs: Math.max(0, Math.min(army.mercs, Math.floor(want.mercs))),
+  };
+}
+
 export const armyAt = (s: GameState, realm: number, province: number): Army | undefined =>
   s.armies.find((a) => a.realm === realm && a.province === province);
 
