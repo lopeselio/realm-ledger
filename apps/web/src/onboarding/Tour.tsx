@@ -250,6 +250,13 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   );
 }
 
+/** Just below the header's controls, but never so low a card would run off the screen (a tall
+ *  wrapped header on a short window). Measured only when a placement needs it. */
+function belowHeader(vh: number): number {
+  const header = (document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8;
+  return Math.max(16, Math.min(header, vh - CARD_ROOM - 16));
+}
+
 /** `old` if `next` says the same, so an unchanged answer doesn't re-render. */
 function sameOr(old: boolean[], next: boolean[]): boolean[] {
   return old.length === next.length && old.every((x, k) => x === next[k]) ? old : next;
@@ -289,20 +296,14 @@ function placeCard(box: Box | null): CSSProperties {
   const centred = (vw - width) / 2;
   if (!box) return { left: centred, bottom: 16, width };
   // a narrow screen: full width, at the top or bottom, away from the target
-  // at the top below the header's controls (but never so low the card runs off the screen, where a
-  // tall wrapped header would put it), or at the bottom; the header is only measured when needed
-  const awayFromTarget = (left: number): CSSProperties => {
-    if (box.top + box.height / 2 <= vh / 2) return { left, bottom: 16, width };
-    const headerBottom = Math.max(16, Math.min((document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8, vh - CARD_ROOM - 16));
-    return { left, top: headerBottom, width };
-  };
-  if (vw < 560) return awayFromTarget(centred);
+  // at the top below the header's controls, or at the bottom: away from the target
+  const awayFromTarget = (): CSSProperties => (box.top + box.height / 2 <= vh / 2 ? { left: centred, bottom: 16, width } : { left: centred, top: belowHeader(vh), width });
+  if (vw < 560) return awayFromTarget();
   const left = Math.min(Math.max(16, box.left), vw - width - 16);
   if (box.top + box.height + PAD + CARD_ROOM < vh) return { left, top: box.top + box.height + PAD + 10, width };
   if (box.top - PAD > CARD_ROOM) return { left, bottom: vh - box.top + PAD + 10, width };
-  // (beside the target, but never over the header's controls)
-  const below = Math.max(16, (document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8);
-  const top = Math.max(below, Math.min(box.top, vh - CARD_ROOM - 16));
+  // (beside the target, below the header's controls, and on screen)
+  const top = Math.max(belowHeader(vh), Math.min(box.top, vh - CARD_ROOM - 16));
   if (vw - (box.left + box.width + PAD) > width + 32) return { left: box.left + box.width + PAD + 16, top, width };
   if (box.left - PAD > width + 32) return { left: box.left - PAD - 16 - width, top, width };
   // a target filling the screen (the map): the bottom-right corner, clear of the header's controls

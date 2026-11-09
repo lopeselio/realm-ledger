@@ -9,7 +9,6 @@ import { Welcome } from './Welcome.tsx';
 /** What the walkthrough watches to move on when the player acts. */
 export interface GuideSignals {
   campaign: number | null;
-  selected: number | undefined;
   /** how many orders the player has added or changed (a reset or a removal doesn't count) */
   orderEdits: number;
   /** how many marches the player has ordered on the map (a market trade doesn't count) */
@@ -18,7 +17,6 @@ export interface GuideSignals {
   selections: number;
   /** how many times the player has sealed */
   seals: number;
-  phase: string | null;
 }
 
 const STEPS: TourStep<GuideSignals>[] = [

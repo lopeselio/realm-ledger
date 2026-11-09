@@ -61,8 +61,8 @@ export function Play() {
 
   // what the walkthrough watches, rebuilt only when one of them changes
   const guideSignals = useMemo(
-    () => ({ campaign: v?.id ?? null, selected, orderEdits: game.orderEdits, marches: game.marches, selections: game.selections, seals: game.seals, phase: v?.phase ?? null }),
-    [v?.id, selected, game.orderEdits, game.marches, game.selections, game.seals, v?.phase],
+    () => ({ campaign: v?.id ?? null, orderEdits: game.orderEdits, marches: game.marches, selections: game.selections, seals: game.seals }),
+    [v?.id, game.orderEdits, game.marches, game.selections, game.seals],
   );
 
   if (params.id !== undefined && id === null) return <Navigate to="/play" replace />;

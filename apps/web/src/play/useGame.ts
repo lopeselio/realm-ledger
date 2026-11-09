@@ -369,9 +369,9 @@ export function useGame(id: number | null, signer: Signer | null) {
         after = await recheck(v, e);
         if (after.phase !== 'sealed') throw e;
       }
-      adopt(after);
+      // (counted only for the campaign on screen)
+      if (adopt(after)) setSeals((n) => n + 1);
       // the server keeps a seal an earlier attempt already put onchain
-      setSeals((n) => n + 1);
       if (posted || (after.yourSeal && after.yourSeal !== hash)) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
       else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
     });
@@ -441,7 +441,8 @@ export function useGame(id: number | null, signer: Signer | null) {
       setSelected(undefined);
     } else {
       const next = selected === p ? undefined : p;
-      if (next !== undefined) setSelections((n) => n + 1);
+      // (the player's own province or army: what the walkthrough asks them to pick)
+      if (next !== undefined && (view.state.owner[p] === view.human || armyAt(p))) setSelections((n) => n + 1);
       setSelected(next);
     }
   };
