@@ -5,9 +5,9 @@ import * as THREE from 'three/webgpu';
 import { color, mix, positionWorld, sin, time, vec3 } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { NEUTRAL, troopCount, type GameState } from '@realm-ledger/rules';
-import { REALM_COLORS, type Overlay } from './map.ts';
-import { TIMING, colorOf, type SeasonScript } from './playback.ts';
+import { troopCount, type GameState } from '@realm-ledger/rules';
+import { colorOf, type Overlay } from './map.ts';
+import { TIMING, type SeasonScript } from './playback.ts';
 
 const SQRT3 = Math.sqrt(3);
 const toXZ = (q: number, r: number): [number, number] => [SQRT3 * (q + r / 2), 1.5 * r];
@@ -221,12 +221,21 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   scene.add(board, pieces, marks, effects);
   type Effect = { start: number; end: number; step: (k: number) => void; done: () => void };
   let running: Effect[] = [];
+  // battle flashes: a few lights always in the scene, dark until a clash. Adding and removing
+  // lights would recompile every lit material on the table mid-playback
+  const flashes = Array.from({ length: 3 }, () => {
+    const l = new THREE.PointLight('#ffcf7a', 0, 6, 1.5);
+    effects.add(l);
+    return l;
+  });
 
   let pickTiles: THREE.Mesh[] = [];
   const tileProvince = new Map<THREE.Object3D, number>();
   let boardKey = '';
   let tileByProvince = new Map<number, THREE.Mesh>();
   let baseColors = new Map<number, THREE.Color>();
+  /** the height of a province's tile top, where pieces stand */
+  const top = (id: number): number => (tileByProvince.get(id)?.userData.top as number | undefined) ?? 0.2;
 
   function buildBoard(s: GameState): void {
     board.clear();
@@ -376,7 +385,6 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
 
     clearOwned(pieces);
     clearOwned(marks);
-    const top = (id: number): number => (tileByProvince.get(id)?.userData.top as number | undefined) ?? 0.2;
     const at = (id: number): [number, number] => {
       const p = s.map.provinces[id]!;
       return toXZ(p.q, p.r);
@@ -387,7 +395,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       const [x, z] = at(p.id);
       const y = top(p.id);
       const owner = s.owner[p.id]!;
-      const hex = owner >= 0 ? REALM_COLORS[owner % REALM_COLORS.length]! : '#9a8f80';
+      const hex = owner >= 0 ? colorOf(owner) : '#9a8f80';
       if (owner >= 0) {
         const r = new THREE.Mesh(ring, ringMat(hex));
         r.position.set(x, y + 0.01, z);
@@ -426,7 +434,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       const [x, z] = at(pid);
       const y = top(pid);
       armies.forEach((a, i) => {
-        const hex = a.realm === NEUTRAL ? '#8a8073' : REALM_COLORS[a.realm % REALM_COLORS.length]!;
+        const hex = colorOf(a.realm);
         const n = troopCount(a);
         const figures = Math.min(3, Math.max(1, Math.ceil(n / 4)));
         const ox = 0.3 + (i - (armies.length - 1) / 2) * 0.5;
@@ -487,7 +495,6 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   const bannerGeo = new THREE.PlaneGeometry(0.5, 0.32);
   function play(s: GameState, sc: SeasonScript): void {
     const now = performance.now();
-    const top = (id: number): number => (tileByProvince.get(id)?.userData.top as number | undefined) ?? 0.2;
     const at = (id: number): [number, number] => {
       const p = s.map.provinces[id]!;
       return toXZ(p.q, p.r);
@@ -508,20 +515,21 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
         },
       });
     };
-    for (const m of sc.moves) {
-      const [x1, z1] = at(m.from);
-      const [x2, z2] = at(m.to);
-      const y1 = top(m.from);
-      const y2 = top(m.to);
-      const fig = painted(models.soldier, colorOf(m.realm), enamelCache);
+    const march = (realm: number, from: number, to: number, startMs: number, forMs: number): void => {
+      const [x1, z1] = at(from);
+      const [x2, z2] = at(to);
+      const y1 = top(from);
+      const y2 = top(to);
+      const fig = painted(models.soldier, colorOf(realm), enamelCache);
       fig.scale.setScalar(1.7);
       fig.rotation.y = Math.atan2(x2 - x1, z2 - z1);
-      add(fig, TIMING.march, TIMING.marchFor, (k) => {
+      add(fig, startMs, forMs, (k) => {
         const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
         // a little hop with each stride
         fig.position.set(x1 + (x2 - x1) * e, y1 + (y2 - y1) * e + Math.abs(Math.sin(k * Math.PI * 4)) * 0.18, z1 + (z2 - z1) * e);
       });
-    }
+    };
+    for (const m of sc.moves) march(m.realm, m.from, m.to, TIMING.march, TIMING.marchFor);
     for (const p of sc.battles) {
       const [x, z] = at(p);
       const mat = new THREE.MeshBasicMaterial({ color: '#f5d76e', transparent: true, side: THREE.DoubleSide, depthWrite: false });
@@ -539,9 +547,22 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
         },
         [mat],
       );
-      const flash = new THREE.PointLight('#ffcf7a', 0, 6, 1.5);
+      const flash = flashes[sc.battles.indexOf(p) % flashes.length]!;
       flash.position.set(x, top(p) + 0.8, z);
-      add(flash, TIMING.battle, TIMING.battleFor, (k) => (flash.intensity = 30 * (1 - k)));
+      running.push({ start: now + TIMING.battle, end: now + TIMING.battle + TIMING.battleFor, step: (k) => (flash.intensity = 30 * (1 - k)), done: () => (flash.intensity = 0) });
+    }
+    // the beaten fall back; the destroyed sink into the table
+    for (const m of sc.retreats) march(m.realm, m.from, m.to, TIMING.retreat, TIMING.retreatFor);
+    for (const l of sc.losses) {
+      const [x, z] = at(l.province);
+      const y = top(l.province);
+      const fig = painted(models.soldier, colorOf(l.realm), enamelCache);
+      fig.scale.setScalar(1.7);
+      fig.position.set(x + 0.2, y, z + 0.2);
+      add(fig, TIMING.loss, TIMING.lossFor, (k) => {
+        fig.rotation.z = (k * Math.PI) / 2;
+        fig.position.y = y - k * 0.35;
+      });
     }
     for (const c of sc.captures) {
       const [x, z] = at(c.province);
@@ -650,6 +671,9 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     onPick: (cb) => (pickCb = cb),
     onHover: (cb) => (hoverCb = cb),
     dispose: () => {
+      // a playback cut short still frees what it made
+      for (const e of running) e.done();
+      running = [];
       observer.disconnect();
       renderer.setAnimationLoop(null);
       renderer.dispose();
