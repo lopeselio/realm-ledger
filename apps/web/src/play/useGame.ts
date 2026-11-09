@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { canonicalJson, newSalt, sealOrders, type GameEvent, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt, ORDERS_REFUSED } from '@realm-ledger/rules';
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
+import { sealSound, unlockSound } from '../sound.ts';
 import { capitalize } from '../format.ts';
 import { rememberCampaign } from '../recent.ts';
 import { findSecret, isRefused, keepSecret, markRefused } from '../secrets.ts';
@@ -352,6 +353,8 @@ export function useGame(id: number | null, signer: Signer | null) {
     const v = viewRef.current;
     // another flow is running: leave it, and its steps, alone
     if (!v || busyRef.current) return;
+    unlockSound();
+    sealSound();
     await withBusy('Sealing: posting your hash and every AI ruler’s onchain…', async () => {
       setStage({ campaign: v.id, step: 'seal' });
       const set: OrderSet = { realm: v.human, season: v.season, orders };

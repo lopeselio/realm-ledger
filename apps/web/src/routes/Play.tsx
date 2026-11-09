@@ -14,6 +14,7 @@ import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
 import { StandingBar, TurnSteps } from '../play/turn.tsx';
+import { scriptFor } from '../playback.ts';
 import { Guide } from '../onboarding/Guide.tsx';
 
 /** The old address, /play.html?c=7, opens /play/7. */
@@ -59,6 +60,13 @@ export function Play() {
     };
     // armyAt reads the view, which is a dependency already
   }, [v, selected, orders]);
+
+  // the season that just settled here (not one read on load): played over the board once
+  const before = game.before;
+  const replay = useMemo(
+    () => (v && before && before.season === v.state.season - 1 ? { key: `${v.id}:${v.state.season}`, script: scriptFor(v.lastEvents) } : null),
+    [v, before],
+  );
 
   // what the walkthrough watches, rebuilt only when one of them changes
   const guideSignals = useMemo(
@@ -109,6 +117,7 @@ export function Play() {
             overlay={overlay}
             tipHtml={(p) => provinceTip(v.state, p)}
             onPick={game.clickProvince}
+            replay={replay}
             head={(toggle) => (
               <>
                 <h2>{title}</h2>
