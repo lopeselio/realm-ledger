@@ -198,12 +198,14 @@ export function verifyBundle(b: ProofBundle): Check[] {
 }
 
 /**
- * Which rules a bundle plays by. Bundles from before the agent market carry no version
- * and no market deals (version 1); bundles from the first market servers carry deals but
- * no version (version 2); newer ones say so.
+ * Which rules a bundle plays by: the version it states (servers stamp it, old campaigns too
+ * once loaded), else read from its first season. A campaign from before the agent market has
+ * no `deals` in its first season (version 1); one from the first market servers has (version 2).
+ * Only the first season counts: a newer server that settled later seasons of an old campaign
+ * writes `deals` into those, which says nothing about the rules it was created under.
  */
 export function rulesVersionOf(b: ProofBundle): number {
-  return b.options.rulesVersion ?? (b.seasons.some((s) => 'deals' in s) ? 2 : 1);
+  return b.options.rulesVersion ?? (b.seasons[0] && 'deals' in b.seasons[0] ? 2 : 1);
 }
 
 /** Replays a bundle's seasons and returns the final state (no checks). */

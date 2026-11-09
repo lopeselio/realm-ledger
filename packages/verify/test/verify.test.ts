@@ -13,7 +13,7 @@ import {
   type GameState,
 } from '@realm-ledger/rules';
 import { describe, expect, it } from 'vitest';
-import { checkReply, recoverSigner, verifyBundle, type ProofBundle, type SignedReply } from '../src/index.ts';
+import { checkReply, recoverSigner, rulesVersionOf, verifyBundle, type ProofBundle, type SignedReply } from '../src/index.ts';
 
 const fx = (f: string): string => readFileSync(join(import.meta.dirname, 'fixtures', f), 'utf8');
 
@@ -146,5 +146,20 @@ describe('verifyBundle', () => {
     const b = bundleFor('verify', 1);
     b.attestation!.report.model_attestations = [{ signing_address: '0x0000000000000000000000000000000000000002' }];
     expect(verifyBundle(b).some((c) => !c.ok && c.name.includes('attested TEE key'))).toBe(true);
+  });
+});
+
+describe('rules version of a bundle', () => {
+  const bundle = (seasons: object[], rulesVersion?: number) =>
+    ({ options: { seed: 's', realms: 3, human: 0, maxSeasons: 4, ...(rulesVersion ? { rulesVersion } : {}) }, seasons }) as unknown as ProofBundle;
+
+  it('is version 1 for a campaign from before the agent market, even after a newer server settles more seasons', () => {
+    expect(rulesVersionOf(bundle([{ season: 0 }, { season: 1 }]))).toBe(1);
+    expect(rulesVersionOf(bundle([{ season: 0 }, { season: 1, deals: [] }]))).toBe(1);
+  });
+
+  it('is version 2 when the first season carries deals, and whatever the bundle says when it says', () => {
+    expect(rulesVersionOf(bundle([{ season: 0, deals: [] }]))).toBe(2);
+    expect(rulesVersionOf(bundle([{ season: 0 }], 2))).toBe(2);
   });
 });

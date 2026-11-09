@@ -37,7 +37,7 @@ import {
   type OrderSet,
   type Treaty,
 } from '@realm-ledger/rules';
-import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
+import { checkReply, rulesVersionOf, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
 import { accountExists, call, isNetworkError, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
 import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
@@ -352,6 +352,13 @@ export async function loadAll(): Promise<number> {
       h.pending.deals ??= [];
       h.pending.jobs ??= [];
       h.intents ??= [];
+      // a campaign from before rules versions says which it plays by in its proof, by the
+      // verifier's own rule; with no season settled yet, by whether it has companies (the first
+      // market server gave old campaigns an empty list, so only a filled one counts). Written to
+      // disk with the campaign's next save; rewriting every file at startup would race the old
+      // container during a deploy
+      if (h.bundle.options && h.bundle.options.rulesVersion === undefined)
+        h.bundle.options.rulesVersion = h.bundle.seasons?.length ? rulesVersionOf(h.bundle) : h.state.companies?.length ? 2 : 1;
       for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
       campaigns.set(h.id, h);
     } catch (e) {

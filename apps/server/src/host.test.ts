@@ -7,12 +7,12 @@ const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-'));
 process.env.DATA_DIR = dir;
 
 // just enough of a saved campaign for loadAll and list
-const saved = (id: number, player?: string, phase = 'planning') => ({
+const saved = (id: number, player?: string, phase = 'planning', extra: { companies?: unknown[]; seasons?: object[] } = {}) => ({
   id,
   phase,
-  state: { season: 2, maxSeasons: 12, winner: null, realms: [] },
+  state: { season: 2, maxSeasons: 12, winner: null, realms: [], ...(extra.companies ? { companies: extra.companies } : {}) },
   pending: { ai: [] },
-  bundle: {},
+  bundle: { options: { seed: 's', realms: 3, human: 0, maxSeasons: 12 }, seasons: extra.seasons ?? [] },
   createdAt: id,
   ...(player ? { player } : {}),
 });
@@ -23,6 +23,10 @@ describe('campaign list', () => {
     writeFileSync(join(dir, 'campaign-1.json'), JSON.stringify(saved(1, undefined, 'over')));
     writeFileSync(join(dir, 'campaign-2.json'), JSON.stringify(saved(2, 'alice.testnet')));
     writeFileSync(join(dir, 'campaign-3.json'), JSON.stringify(saved(3)));
+    // from before rules versions: a first-market campaign, and an old one the first market server
+    // gave an empty company list and later settled a season of
+    writeFileSync(join(dir, 'campaign-6.json'), JSON.stringify(saved(6, undefined, 'over', { companies: [{ id: 0 }] })));
+    writeFileSync(join(dir, 'campaign-7.json'), JSON.stringify(saved(7, undefined, 'over', { companies: [], seasons: [{ season: 0 }, { season: 1, deals: [] }] })));
     // a write that died before its rename, long ago: deleted
     writeFileSync(join(dir, 'campaign-4.json.old.tmp'), '{"id":4,');
     utimesSync(join(dir, 'campaign-4.json.old.tmp'), new Date(0), new Date(0));
@@ -34,13 +38,13 @@ describe('campaign list', () => {
     writeFileSync(join(dir, 'campaign-8.json'), '{"id":8,"pending":{},"bundle":{}}');
     writeFileSync(join(dir, 'campaign-9.json'), JSON.stringify(saved(2)));
     host = await import('./host.ts');
-    expect(await host.loadAll()).toBe(3);
+    expect(await host.loadAll()).toBe(5);
     expect(existsSync(join(dir, 'campaign-4.json.old.tmp'))).toBe(false);
     expect(existsSync(join(dir, 'campaign-5.json.new.tmp'))).toBe(true);
   });
 
   it('lists everything, newest first, without a filter', () => {
-    expect(host.list().map((c) => c.id)).toEqual([3, 2, 1]);
+    expect(host.list().map((c) => c.id)).toEqual([7, 6, 3, 2, 1]);
   });
 
   it('narrows to the ids a browser played or the campaigns a wallet rules', () => {
@@ -51,6 +55,12 @@ describe('campaign list', () => {
     expect(host.list({ ids: [1, 3], player: 'alice.testnet' }).map((c) => c.id)).toEqual([3, 2, 1]);
     expect(host.list({ ids: [1, 2] }).map((c) => c.id)).toEqual([2, 1]);
     expect(host.list({ ids: [] })).toEqual([]);
+  });
+
+  it('stamps campaigns from before rules versions with the rules they were created under', () => {
+    expect(host.proof(3).options.rulesVersion).toBe(1);
+    expect(host.proof(6).options.rulesVersion).toBe(2);
+    expect(host.proof(7).options.rulesVersion).toBe(1);
   });
 
   it('reports progress and the ruling account', () => {
