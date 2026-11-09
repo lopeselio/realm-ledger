@@ -11,9 +11,9 @@ import { seasonTitle } from '../format.ts';
 import { recentCampaigns } from '../recent.ts';
 import { findSecret } from '../secrets.ts';
 import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
-import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
+import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList, Selection } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
-import { StandingBar, TurnSteps } from '../play/turn.tsx';
+import { PhoneDock, StandingBar, TurnSteps } from '../play/turn.tsx';
 import { scriptFor } from '../playback.ts';
 import { Guide } from '../onboarding/Guide.tsx';
 
@@ -184,6 +184,7 @@ export function Play() {
       <Footer>
         <Link to="/">Watch AI-only campaigns</Link>
       </Footer>
+      {v && <PhoneDock game={game} v={v} selection={<Selection game={game} v={v} />} />}
     </>
   );
 }
