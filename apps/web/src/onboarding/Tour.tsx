@@ -36,10 +36,10 @@ function find(sel: string): HTMLElement | null {
 }
 
 export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; signals: S; onClose: () => void }) {
-  const [i, setI] = useState(() => firstPresent(steps, 0, 1));
-  const [box, setBox] = useState<Box | null>(null);
-  // which steps' elements are on the page (the current one counts while it lays out)
   const [present, setPresent] = useState<boolean[]>(() => steps.map((s) => !!find(s.target)));
+  const [i, setI] = useState(() => nextPresent(present, 0, 1));
+  const [box, setBox] = useState<Box | null>(null);
+  // (`present`: which steps' elements are on the page; the current one counts while it lays out)
   const card = useRef<HTMLDivElement>(null);
   const step = i >= 0 && i < steps.length ? steps[i] : undefined;
 
@@ -66,7 +66,12 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     (dir: 1 | -1, by: 'player' | 'action' | 'gone' = 'player') => {
       // decided on a step the tour has already left: ignore it
       if (shown.current !== i) return;
-      const n = nextPresent(presentNow.current, i + dir, dir);
+      // which steps are on the page right now (a campaign that just opened mounts the table's
+      // steps in the same moment), and the buttons follow the same answer
+      const p = steps.map((s, k) => k === i || !!find(s.target));
+      presentNow.current = p;
+      setPresent(p);
+      const n = nextPresent(p, i + dir, dir);
       // nothing earlier to go back to: stay put
       if (dir === -1 && n < 0) return;
       shown.current = n;
@@ -75,7 +80,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       pressed.current = by === 'action' && (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement) ? a : null;
       setI(n);
     },
-    [i],
+    [i, steps],
   );
 
   // move on when the player does what the step asks
@@ -87,9 +92,9 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       start.current = { i, signals };
       return;
     }
+    // compared with how things were when the step was reached (the counters only go up, so an
+    // order removed and added back still counts; a view reloading back to where it was doesn't)
     if (step?.acted?.(start.current.signals as S, signals)) go(1, 'action');
-    // keep following, so (say) an order removed and added back counts once
-    else start.current = { i, signals };
   }, [i, step, signals, go]);
 
   // bring the target into view, then follow it as the page moves
@@ -106,6 +111,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     // a target missing for a moment (laying out, re-rendering, the 2D/3D switch) isn't gone: it
     // is skipped only once it has been missing for 400ms
     let missingSince: number | null = null;
+    let graceTimer = 0;
     let scrolled = false;
     let observed: Element | null = null;
     const ro = new ResizeObserver(() => measure());
@@ -113,7 +119,10 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     const look = (): void => {
         const now = find(step.target);
         if (!now) {
-          missingSince ??= Date.now();
+          if (missingSince === null) {
+            missingSince = Date.now();
+            graceTimer = window.setTimeout(look, 410);
+          }
           if (Date.now() - missingSince >= 400) skip();
           else setBox(null);
           return;
@@ -154,6 +163,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     }, 300);
     return () => {
       cancelAnimationFrame(frame);
+      window.clearTimeout(graceTimer);
       ro.disconnect();
       window.removeEventListener('scroll', measure, true);
       window.removeEventListener('resize', measure);
@@ -241,11 +251,6 @@ function nextPresent(present: boolean[], from: number, dir: 1 | -1): number {
   return dir === 1 ? present.length : -1;
 }
 
-/** The index of the first step from `from` (going `dir`) whose element is on the page; -1 or steps.length if none. */
-function firstPresent<S>(steps: TourStep<S>[], from: number, dir: 1 | -1): number {
-  for (let k = from; k >= 0 && k < steps.length; k += dir) if (find(steps[k]!.target)) return k;
-  return dir === 1 ? steps.length : -1;
-}
 
 /** The target's box plus padding, cut to the window with a small margin. */
 function clampToView(b: Box): CSSProperties {
@@ -270,7 +275,8 @@ function placeCard(box: Box | null): CSSProperties {
   if (!box) return { left: centred, bottom: 16, width };
   // a narrow screen: full width, at the top or bottom, away from the target
   // (at the top, below the header's controls)
-  const headerBottom = Math.max(16, (document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8);
+  // (but never so low the card runs off the screen, where a tall wrapped header would put it)
+  const headerBottom = Math.max(16, Math.min((document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8, vh - CARD_ROOM - 16));
   const awayFromTarget = (left: number): CSSProperties => (box.top + box.height / 2 > vh / 2 ? { left, top: headerBottom, width } : { left, bottom: 16, width });
   if (vw < 560) return awayFromTarget(centred);
   const left = Math.min(Math.max(16, box.left), vw - width - 16);
