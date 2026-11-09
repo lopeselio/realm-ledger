@@ -33,18 +33,21 @@ export const TIMING = {
 export const FRESH_MS = 4000;
 
 /**
- * The season's events as a playback. With `visible` (the provinces your realm sees), only what
- * happens there is shown: a march seen leaving or arriving, battles, losses and captures in sight.
+ * The season's events as a playback. With `visible` (the provinces your realm `me` sees), only
+ * what happens there is shown: your own marches, others' marches that arrive in sight (one seen
+ * leaving into the fog isn't drawn, so its destination stays hidden), and battles, losses and
+ * captures in sight. Elements wait hidden until their moment (fill 'forwards', not 'both').
  */
-export function scriptFor(events: GameEvent[], visible?: Set<number>): SeasonScript {
+export function scriptFor(events: GameEvent[], visible?: Set<number>, me?: number): SeasonScript {
   const sc: SeasonScript = { moves: [], battles: [], retreats: [], losses: [], captures: [] };
   const battles = new Set<number>();
   const seen = (...ps: number[]): boolean => !visible || ps.some((p) => visible.has(p));
+  const arrives = (realm: number, to: number): boolean => realm === me || seen(to);
   for (const e of events) {
-    if (e.kind === 'moved') seen(e.from, e.to) && sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
+    if (e.kind === 'moved') arrives(e.realm, e.to) && sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
     // a border clash (two armies swapping provinces) flashes at the province it was named for
     else if (e.kind === 'battle') seen(e.province) && battles.add(e.province);
-    else if (e.kind === 'retreated') seen(e.from, e.to) && sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
+    else if (e.kind === 'retreated') arrives(e.realm, e.to) && sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
     else if (e.kind === 'destroyed') seen(e.province) && sc.losses.push({ realm: e.realm, province: e.province });
     else if (e.kind === 'captured') seen(e.province) && sc.captures.push({ realm: e.realm, province: e.province });
   }
@@ -100,7 +103,7 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
         { transform: `translate(${(x1 + x2) / 2}px, ${(y1 + y2) / 2 - 6}px)`, opacity: 0.95, offset: 0.5 },
         { transform: `translate(${x2}px, ${y2 + 5}px)`, opacity: 0 },
       ],
-      { duration, delay, easing: 'ease-in-out', fill: 'both' },
+      { duration, delay, easing: 'ease-in-out', fill: 'forwards' },
     );
   };
   for (const m of sc.moves) travel(m.realm, m.from, m.to, TIMING.march, TIMING.marchFor);
@@ -114,12 +117,12 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
         { transform: 'scale(0.3)', opacity: 1 },
         { transform: 'scale(1.6)', opacity: 0 },
       ],
-      { duration: TIMING.battleFor, delay: TIMING.battle, easing: 'ease-out', fill: 'both' },
+      { duration: TIMING.battleFor, delay: TIMING.battle, easing: 'ease-out', fill: 'forwards' },
     );
     add('text', { x, y: y + 6, 'text-anchor': 'middle', 'font-size': 18, opacity: 0 }, '⚔').animate([{ opacity: 1 }, { opacity: 1, offset: 0.6 }, { opacity: 0 }], {
       duration: TIMING.battleFor + 300,
       delay: TIMING.battle,
-      fill: 'both',
+      fill: 'forwards',
     });
   }
   for (const r of sc.retreats) travel(r.realm, r.from, r.to, TIMING.retreat, TIMING.retreatFor);
@@ -130,7 +133,7 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
         { opacity: 0.95, transform: 'translateY(0)' },
         { opacity: 0, transform: 'translateY(6px)' },
       ],
-      { duration: TIMING.lossFor, delay: TIMING.loss, easing: 'ease-in', fill: 'both' },
+      { duration: TIMING.lossFor, delay: TIMING.loss, easing: 'ease-in', fill: 'forwards' },
     );
   }
   for (const c of sc.captures) {
@@ -142,7 +145,7 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
         { transform: 'translateY(0)', opacity: 1, offset: 0.8 },
         { transform: 'translateY(0)', opacity: 0 },
       ],
-      { duration: TIMING.captureFor, delay: TIMING.capture, easing: 'ease-out', fill: 'both' },
+      { duration: TIMING.captureFor, delay: TIMING.capture, easing: 'ease-out', fill: 'forwards' },
     );
   }
   const stop = (): void => {
