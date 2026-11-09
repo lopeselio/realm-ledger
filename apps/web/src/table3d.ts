@@ -232,6 +232,11 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   let boardKey = '';
   let tileByProvince = new Map<number, THREE.Mesh>();
   let baseColors = new Map<number, THREE.Color>();
+  /** where a province's centre sits on the board */
+  const provinceXZ = (s: GameState, id: number): [number, number] => {
+    const p = s.map.provinces[id]!;
+    return toXZ(p.q, p.r);
+  };
   /** the height of a province's tile top, where pieces stand */
   const top = (id: number): number => (tileByProvince.get(id)?.userData.top as number | undefined) ?? 0.2;
 
@@ -358,6 +363,9 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   function setState(s: GameState, overlay: Overlay & { visible?: Set<number>; focus?: number } = {}): void {
     const key = `${s.seed}:${s.map.provinces.length}`;
     if (key !== boardKey) {
+      // a playback of the old map ends with it
+      for (const e of running) e.done();
+      running = [];
       buildBoard(s);
       boardKey = key;
       // in play, start over the player's own capital
@@ -383,10 +391,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
 
     clearOwned(pieces);
     clearOwned(marks);
-    const at = (id: number): [number, number] => {
-      const p = s.map.provinces[id]!;
-      return toXZ(p.q, p.r);
-    };
+    const at = (id: number): [number, number] => provinceXZ(s, id);
     const capitals = new Map(s.realms.filter((r) => r.alive).map((r) => [r.capital, r.id]));
 
     for (const p of s.map.provinces) {
@@ -493,10 +498,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   const bannerGeo = new THREE.PlaneGeometry(0.5, 0.32);
   function play(s: GameState, sc: SeasonScript): void {
     const now = performance.now();
-    const at = (id: number): [number, number] => {
-      const p = s.map.provinces[id]!;
-      return toXZ(p.q, p.r);
-    };
+    const at = (id: number): [number, number] => provinceXZ(s, id);
     const add = (obj: THREE.Object3D, startMs: number, forMs: number, step: (k: number) => void, materials: THREE.Material[] = []): void => {
       obj.visible = false;
       effects.add(obj);
