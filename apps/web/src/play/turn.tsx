@@ -11,6 +11,9 @@ export function StandingBar({ v }: { v: View }) {
   const s = v.state;
   const left = Math.max(0, s.maxSeasons - s.season);
   const ranked = s.realms.map((r) => ({ r, score: v.scores[r.id] ?? 0 })).sort((a, b) => b.score - a.score || a.r.id - b.r.id);
+  // the winner once there is one; before that, the realm the last winter would crown (the best
+  // score among the living, ties to the lower realm id, as in the rules)
+  const leader = v.winner ?? ranked.find((x) => x.r.alive)?.r.id ?? null;
   return (
     <div className="standing" role="group" aria-label="Standing">
       <span className="standing-season">
@@ -18,14 +21,14 @@ export function StandingBar({ v }: { v: View }) {
         {v.phase !== 'over' && <span className="fine"> · {left === 1 ? 'last season' : `${left} left`}</span>}
       </span>
       <ol className="standing-realms">
-        {ranked.map(({ r, score }, i) => (
+        {ranked.map(({ r, score }) => (
           <li key={r.id} className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`} title={`${r.name}: ${score} (treasury at market price, plus land, towns and forts)`}>
             <span className="chip" style={{ background: REALM_COLORS[r.id] }} aria-hidden="true" />
             <span className="standing-name">{r.id === v.human ? 'You' : r.name}</span>
             <strong>{r.alive ? score : 'fallen'}</strong>
             {/* the realm the last winter would crown: ties go to the lower realm id, as in the rules */}
-            {i === 0 && r.alive && (
-              <span className="lead" aria-label="leading">
+            {r.id === leader && (
+              <span className="lead" role="img" aria-label={v.winner === null ? 'leading' : 'winner'}>
                 ▲
               </span>
             )}
@@ -64,19 +67,24 @@ export function TurnSteps({ game, v }: { game: Game; v: View }) {
 /** A short reading of a forecast: the odds, the powers, and what helps the defender. */
 export function forecastText(s: GameState, f: Forecast): string {
   const [me, ...them] = f.sides;
+  // marching on a peace partner's land or army breaks the peace, guarded or not
+  const owner = s.owner[f.province]!;
+  const partners = new Set([owner, ...them.map((x) => x.realm)].filter((r) => r >= 0 && r !== me!.realm && treatyBetween(s, r, me!.realm, 'peace')));
+  const peace = partners.size ? ' · breaks your peace' : '';
   if (f.unopposed) {
-    const owner = s.owner[f.province]!;
     if (owner === me!.realm) return 'your own province';
     if (owner === -1) return 'unopposed: an empty province';
     if (friendly(s, owner, me!.realm)) return 'a friendly realm’s province: you pass through, it isn’t taken';
-    return treatyBetween(s, owner, me!.realm, 'peace') ? 'unguarded, but marching in breaks your peace with its ruler' : 'unguarded: taken if nobody else marches in';
+    // an ally standing there takes it instead if it is stronger
+    const rival = them.some((x) => x.ally) ? ', or by the stronger of you and your ally there' : '';
+    return `unguarded: taken if nobody else marches in${rival}${peace}`;
   }
   const d = f.defence;
   const why = [d.terrainBonus ? `${d.terrain} +${d.terrainBonus}` : '', d.fortBonus ? `fort +${d.fortBonus}` : '', d.riverBonus ? `river +${d.riverBonus}` : ''].filter(Boolean);
   const defender = f.sides.find((x) => x.defending);
   const supply = me!.outOfSupply ? ' · you are out of supply −2' : '';
   const range = (x: ForecastSide): string => `${x.ally ? 'ally ' : ''}${x.power[0]}–${x.power[1]}`;
-  return `${f.winPct}% to win · you ${range(me!)} vs ${them.map(range).join(', ')}${defender && why.length ? ` · ${defender === me ? 'you defend' : 'defender'} ${why.join(', ')}` : ''}${supply}`;
+  return `${f.winPct}% to win · you ${range(me!)} vs ${them.map(range).join(', ')}${defender && why.length ? ` · ${defender === me ? 'you defend' : 'defender'} ${why.join(', ')}` : ''}${supply}${peace}`;
 }
 
 /** What your march orders meet, by the province they march into (marches into one province fight together). */
