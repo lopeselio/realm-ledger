@@ -73,7 +73,7 @@ export function Play() {
     // only what your realm could see at the start of the season or can see now (so your own
     // losses far from home still play); the whole map once the campaign is over
     const seen = v.phase === 'over' ? undefined : new Set([...visibleProvinces(before, v.human), ...visibleProvinces(v.state, v.human)]);
-    return { key: replayKey, at: seenAt.current.get(replayKey)!, script: scriptFor(v.lastEvents, seen) };
+    return { key: replayKey, at: seenAt.current.get(replayKey)!, script: scriptFor(v.lastEvents, seen, v.human) };
     // v is read for the season it settled; later views of the same season don't change the replay
   }, [replayKey, before]);
 
