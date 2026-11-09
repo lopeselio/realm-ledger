@@ -47,12 +47,21 @@ describe('the season as one realm sees it: every kind', () => {
     [{ kind: 'upkeep', realm: 1, paid: zero, deserted: t, spoiled: { grain: 0, timber: 0, iron: 0, gold: 0 } }, false],
     [{ kind: 'tribute', from: 1, to: 2, amount: 3 }, true],
     [{ kind: 'price', good: 'iron', from: 8, to: 9 }, true],
-    [{ kind: 'treaty-broken', realm: 1, against: 2, treaty: 'passage', province: 9 }, false],
+    [{ kind: 'treaty-broken', realm: 1, against: 2, treaty: 'passage', province: 9 }, true],
+    [{ kind: 'moved', realm: 1, from: 3, to: 9, troops: t }, false],
+    [{ kind: 'retreated', realm: 1, from: 3, to: 9 }, false],
     [{ kind: 'treaty-broken', realm: 1, against: 0, treaty: 'peace', province: 9 }, true],
     [{ kind: 'treaty-broken', realm: 1, against: 2, treaty: 'peace', province: 3 }, true],
     [{ kind: 'victory', realm: 1, reason: 'last-winter', scores: [] }, true],
   ];
   it.each(cases)('%j: %s', (e, shown) => {
     expect(eventsFor([e], 0, seen)).toHaveLength(shown ? 1 : 0);
+  });
+
+  it('tells of a betrayal out of sight, but not where', () => {
+    const far: GameEvent = { kind: 'treaty-broken', realm: 1, against: 2, treaty: 'peace', province: 9 };
+    expect(eventsFor([far], 0, seen)).toEqual([{ ...far, province: -1 }]);
+    const near: GameEvent = { ...far, province: 3 };
+    expect(eventsFor([near], 0, seen)).toEqual([near]);
   });
 });
