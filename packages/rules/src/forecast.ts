@@ -27,7 +27,8 @@ export interface Forecast {
 }
 
 /**
- * What `troops` of `realm` marching into `to` meet if everyone there stays put. It builds the
+ * What `realm`'s `troops` in `to` (marching in plus any of its own staying there) meet if
+ * everyone else there stays put. It builds the
  * battle the way the season does (`battleSide`, `sidePower`, `byBattleRank`), so the only unknown
  * is the roll: a d6 per side from the season's committed seed. The odds count every combination.
  * Rivals' orders are sealed, so armies that move in or out this season aren't in it.
@@ -44,7 +45,8 @@ export function forecastMarch(s: GameState, realm: number, troops: Troops, to: n
   };
   const bonus = defenceBonus(s, to);
   const here = new Map<number, Troops>([[realm, troops]]);
-  for (const a of s.armies) if (a.province === to) here.set(a.realm, addTroops(here.get(a.realm) ?? noTroops(), pickTroops(a)));
+  // `troops` is all of yours there (plannedMarches adds what stays behind), so only others' armies are read
+  for (const a of s.armies) if (a.province === to && a.realm !== realm) here.set(a.realm, addTroops(here.get(a.realm) ?? noTroops(), pickTroops(a)));
   const sides = [...here.entries()]
     .sort((a, b) => Number(b[0] === realm) - Number(a[0] === realm) || a[0] - b[0])
     .map(([r, t]): ForecastSide => {
@@ -80,7 +82,10 @@ export function forecastMarch(s: GameState, realm: number, troops: Troops, to: n
 /**
  * The troops `realm`'s march orders send into each province, taken as the season takes them:
  * levies and recruits join their province's army first (counted as if paid for), then each march
- * in order takes from what earlier marches left, whole and capped at what is there.
+ * in order takes from what earlier marches left, whole and capped at what is there. Each total
+ * includes your troops that stay in that province. Not modelled: what the treasury can actually
+ * pay for, and towns or forts ordered this season (a recruit in a town built this season, a fort
+ * raised where you defend).
  */
 export function plannedMarches(s: GameState, realm: number, orders: Order[]): Map<number, Troops> {
   const left = new Map<number, Troops>();
@@ -102,6 +107,11 @@ export function plannedMarches(s: GameState, realm: number, orders: Order[]): Ma
     if (troopCount(t) === 0) continue;
     left.set(o.from, { levies: army.levies - t.levies, regulars: army.regulars - t.regulars, mercs: army.mercs - t.mercs });
     into.set(o.to, addTroops(into.get(o.to) ?? noTroops(), t));
+  }
+  // marchers fight beside what of yours stays in the province, not beside an army ordered out
+  for (const [to, t] of into) {
+    const stays = left.get(to) ?? s.armies.find((a) => a.realm === realm && a.province === to);
+    if (stays) into.set(to, addTroops(t, pickTroops(stays)));
   }
   return into;
 }

@@ -104,5 +104,23 @@ describe('march forecast', () => {
       if (canWin) expect(f.winPct).toBeGreaterThan(0);
     }
   });
+
+  it('marches in beside what stays, not beside an army ordered out', () => {
+    const s = lineWorld(5);
+    s.owner[1] = 0;
+    s.owner[2] = 0;
+    s.armies = [
+      { realm: 0, province: 1, ...t(2) },
+      { realm: 0, province: 2, ...t(9) },
+      { realm: 1, province: 2, ...t(4) },
+    ];
+    const away = plannedMarches(s, 0, [
+      { kind: 'march', from: 1, to: 2 },
+      { kind: 'march', from: 2, to: 3 },
+    ]);
+    expect(away.get(2)).toEqual(t(2));
+    const stay = plannedMarches(s, 0, [{ kind: 'march', from: 1, to: 2 }]);
+    expect(stay.get(2)).toEqual(t(11));
+  });
 });
 
