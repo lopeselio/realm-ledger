@@ -42,7 +42,7 @@ export function HelpSheet({ onClose, onWelcome, onTour }: { onClose: () => void;
             <strong>Plan:</strong> give orders, send envoys, give the Chancellor a task.
           </li>
           <li>
-            <strong>Seal:</strong> press <em>Seal orders</em>. Only a hash of your orders and a secret salt goes onchain.
+            <strong>Seal:</strong> press <em>End season</em>. Only a hash of your orders and a secret salt goes onchain.
           </li>
           <li>
             <strong>Reveal:</strong> every ruler opens their orders and the contract checks each against its seal. Keep this tab open until the season turns; if you close it, the reveal
