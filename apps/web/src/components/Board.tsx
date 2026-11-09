@@ -136,7 +136,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend }: BoardPr
   return (
     <section className="board" aria-label="War table">
       <div className="board-head">{head(toggle)}</div>
-      <div className="map-wrap" ref={wrapRef}>
+      <div className="map-wrap" ref={wrapRef} data-tour="map">
         <svg
           id="map"
           ref={svgRef}
