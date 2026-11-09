@@ -1,6 +1,6 @@
 import { NEUTRAL, SCORE, STRENGTH } from './constants.ts';
 import { sellPrice } from './market.ts';
-import { GOODS, type Army, type GameState, type Treaty, type Troops } from './types.ts';
+import { GOODS, type Army, type GameEvent, type GameState, type Treaty, type Troops } from './types.ts';
 
 export const noTroops = (): Troops => ({ levies: 0, regulars: 0, mercs: 0 });
 export const troopCount = (t: Troops): number => t.levies + t.regulars + t.mercs;
@@ -92,6 +92,36 @@ export function viewFor(s: GameState, realm: number): GameState {
           },
     ),
   };
+}
+
+/**
+ * The season's events as one realm may see them: its own, and those in provinces it saw at the
+ * start or the end of the season (`seen`). Treasury-revealing events of other realms (harvest,
+ * upkeep, rejected orders) stay hidden; public ones (trades on the shared market, prices,
+ * tribute, broken treaties, fallen realms, victory) are kept. The proof bundle keeps them all.
+ */
+export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>): GameEvent[] {
+  const sees = (...ps: (number | undefined)[]): boolean => ps.some((p) => p !== undefined && seen.has(p));
+  return events.filter((e) => {
+    switch (e.kind) {
+      case 'rejected':
+      case 'harvest':
+      case 'upkeep':
+        return e.realm === realm;
+      case 'built':
+      case 'destroyed':
+        return e.realm === realm || sees(e.province);
+      case 'moved':
+      case 'retreated':
+        return e.realm === realm || sees(e.from, e.to);
+      case 'captured':
+        return e.realm === realm || e.from === realm || sees(e.province);
+      case 'battle':
+        return e.sides.some((x) => x.realm === realm) || sees(e.province, ...(e.border ?? []));
+      default:
+        return true;
+    }
+  });
 }
 
 /** Campaign score: treasury (goods at what they'd sell for) plus land, towns and forts. */
