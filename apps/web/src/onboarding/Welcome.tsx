@@ -44,11 +44,12 @@ const SLIDES: Slide[] = [
   },
   {
     kicker: 'Victory and fair play',
-    title: 'Hold the most crowns',
+    title: 'Have the highest score',
     body: (
       <>
         <p>
-          Win by holding the most crowns of land and treasury at the last season, or by taking every rival capital.
+          Win with the highest score (crowns, goods and land) when the last season turns, or be the last realm standing. A realm falls when its capital is taken, and the AI
+          rulers can topple each other too.
         </p>
         <p>
           NEAR keeps it fair. Seals posted onchain mean nobody can change an order after seeing yours. Battle rolls and every ruler’s agenda were committed before the first season, so
