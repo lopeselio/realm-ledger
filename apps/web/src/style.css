@@ -314,3 +314,4 @@ h3.sub { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem;
 
 /* ---- board tools: sound and view ---- */
 .board-tools { display: inline-flex; gap: 6px; }
+.map-wrap > svg.playback { position: absolute; pointer-events: none; }
