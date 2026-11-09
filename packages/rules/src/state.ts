@@ -95,46 +95,53 @@ export function viewFor(s: GameState, realm: number): GameState {
 }
 
 /**
- * The season's events as one realm may see them: its own, and those in provinces it saw at the
- * start or the end of the season (`seen`). Treasury-revealing events of other realms (harvest,
- * upkeep, rejected orders) stay hidden; public ones (trades on the shared market, prices,
- * tribute, fallen realms, victory) are kept, and a broken treaty if it involves this realm or
- * happened in sight. Any other kind is hidden. The proof bundle keeps them all.
+ * Whether `realm` sees an event of the season, given the provinces it saw (`seen`: at the
+ * season's start or end, and where its spies reported). Its own events; others' moves that end
+ * in sight (one leaving into the fog doesn't say where it went); battles on either side of a
+ * border in sight; builds, losses and captures in sight. Other realms' harvest, upkeep and
+ * rejected orders never (they reveal treasuries and plans). Public news always: trades on the
+ * shared market, prices, tribute, fallen realms, victory, and broken treaties (betrayals are
+ * public; where one happened is told only if seen, see `eventsFor`). Any other kind: never.
+ * The chronicle (server) and the season's playback (web) both use this.
  */
-export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>): GameEvent[] {
+export function seesEvent(e: GameEvent, realm: number, seen: Set<number>): boolean {
   const sees = (...ps: (number | undefined)[]): boolean => ps.some((p) => p !== undefined && seen.has(p));
-  return events.filter((e): boolean => {
-    switch (e.kind) {
-      case 'rejected':
-      case 'harvest':
-      case 'upkeep':
-        return e.realm === realm;
-      case 'built':
-      case 'destroyed':
-        return e.realm === realm || sees(e.province);
-      case 'moved':
-      case 'retreated':
-        return e.realm === realm || sees(e.from, e.to);
-      case 'captured':
-        return e.realm === realm || e.from === realm || sees(e.province);
-      case 'battle':
-        return e.sides.some((x) => x.realm === realm) || sees(e.province, ...(e.border ?? []));
-      // a betrayal is public (every ruler remembers it), but where it happened is only told if seen
-      case 'treaty-broken':
-        return e.realm === realm || e.against === realm || sees(e.province);
-      case 'trade':
-      case 'price':
-      case 'tribute':
-      case 'fallen':
-      case 'victory':
-        return true;
-      default: {
-        // a new kind of event is hidden until it is listed here (the compiler asks)
-        const unknown: never = e;
-        return unknown && false;
-      }
+  switch (e.kind) {
+    case 'rejected':
+    case 'harvest':
+    case 'upkeep':
+      return e.realm === realm;
+    case 'built':
+    case 'destroyed':
+      return e.realm === realm || sees(e.province);
+    case 'moved':
+    case 'retreated':
+      return e.realm === realm || sees(e.to);
+    case 'captured':
+      return e.realm === realm || e.from === realm || sees(e.province);
+    case 'battle':
+      return e.sides.some((x) => x.realm === realm) || sees(e.province, ...(e.border ?? []));
+    case 'treaty-broken':
+    case 'trade':
+    case 'price':
+    case 'tribute':
+    case 'fallen':
+    case 'victory':
+      return true;
+    default: {
+      // a new kind of event stays hidden until it is listed here (the compiler asks)
+      const exhaustive: never = e;
+      void exhaustive;
+      return false;
     }
-  });
+  }
+}
+
+/** The season's events as one realm saw them (see `seesEvent`); a broken treaty out of sight loses its place (-1). The proof bundle keeps them all. */
+export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>): GameEvent[] {
+  return events
+    .filter((e) => seesEvent(e, realm, seen))
+    .map((e) => (e.kind === 'treaty-broken' && e.realm !== realm && e.against !== realm && !seen.has(e.province) ? { ...e, province: -1 } : e));
 }
 
 /** Campaign score: treasury (goods at what they'd sell for) plus land, towns and forts. */
