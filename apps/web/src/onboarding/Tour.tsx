@@ -36,7 +36,7 @@ function find(sel: string): HTMLElement | null {
 }
 
 export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; signals: S; onClose: () => void }) {
-  const [present, setPresent] = useState<boolean[]>(() => steps.map((s) => !!find(s.target)));
+  const [present, setPresent] = useState<boolean[]>(() => presentOnPage(steps, -1));
   const [i, setI] = useState(() => nextPresent(present, 0, 1));
   // the light's box, and the step it was measured for: kept through a blip on that step, never
   // shown on another
@@ -59,6 +59,16 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   // the element that had focus when the tour last moved on by itself: the button the player
   // pressed, whose arrows still drive the tour
   const pressed = useRef<{ el: Element; at: number } | null>(null);
+  // the last button or link the player clicked on the page
+  const lastClicked = useRef<Element | null>(null);
+  useEffect(() => {
+    const onClick = (e: MouseEvent): void => {
+      const el = (e.target as Element | null)?.closest?.('button, a');
+      if (el && !card.current?.contains(el)) lastClicked.current = el;
+    };
+    window.addEventListener('click', onClick, true);
+    return () => window.removeEventListener('click', onClick, true);
+  }, []);
   /** Moves one step (to the next one on the page, as the buttons show it). `by` says why: the
    *  player (the card takes focus), their action on the page (focus stays on what they pressed),
    *  or the target going away (nothing was pressed). */
@@ -69,15 +79,16 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       // which steps are on the page right now (a campaign that just opened mounts the table's
       // steps in the same moment), and the buttons follow the same answer
       const p = presentOnPage(steps, i);
-      setPresent(p);
+      setPresent((old) => sameOr(old, p));
       const n = nextPresent(p, i + dir, dir);
-      // nothing earlier to go back to: stay put
+      // nothing earlier to go back to: stay put (the refresh above hides the Back button)
       if (dir === -1 && n < 0) return;
       shown.current = n;
       focusCard.current = by === 'player';
-      const a = document.activeElement;
-      // (only on the step the tour moved to: tabbing back to it later is just a button again)
-      pressed.current = by === 'action' && (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement) ? { el: a, at: n } : null;
+      // (the control the player actually clicked to act, not whatever has focus by the time a
+      // slow action like Seal finishes; and only on the step the tour moved to)
+      const a = lastClicked.current;
+      pressed.current = by === 'action' && a ? { el: a, at: n } : null;
       setI(n);
     },
     [i, steps],
@@ -295,8 +306,8 @@ function placeCard(box: Box | null): CSSProperties {
   const width = Math.min(360, vw - 32);
   const centred = (vw - width) / 2;
   if (!box) return { left: centred, bottom: 16, width };
-  // a narrow screen: full width, at the top or bottom, away from the target
-  // at the top below the header's controls, or at the bottom: away from the target
+  // a narrow screen: full width, at the top (below the header's controls) or the bottom, away
+  // from the target
   const awayFromTarget = (): CSSProperties => (box.top + box.height / 2 <= vh / 2 ? { left: centred, bottom: 16, width } : { left: centred, top: belowHeader(vh), width });
   if (vw < 560) return awayFromTarget();
   const left = Math.min(Math.max(16, box.left), vw - width - 16);

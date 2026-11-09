@@ -448,14 +448,18 @@ export function useGame(id: number | null, signer: Signer | null) {
   };
 
   const addOrder = (o: Order): void => {
+    // (the same order again adds a copy, but isn't a change the walkthrough counts)
+    if (!orders.some((x) => JSON.stringify(x) === JSON.stringify(o))) setOrderEdits((n) => n + 1);
     setOrders((os) => [...os, o]);
-    setOrderEdits((n) => n + 1);
   };
   /** The Chancellor's advice, added once. */
   const addAdvice = (o: Order): void => {
     const same = (x: Order): boolean => JSON.stringify(x) === JSON.stringify(o);
-    // advice already in the list adds nothing, and isn't an edit
-    if (!orders.some(same)) setOrderEdits((n) => n + 1);
+    // advice already in the list adds nothing, and isn't an edit; an advised march is a march
+    if (!orders.some(same)) {
+      setOrderEdits((n) => n + 1);
+      if (o.kind === 'march') setMarches((n) => n + 1);
+    }
     setOrders((os) => (os.some(same) ? os : [...os, o]));
   };
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));
