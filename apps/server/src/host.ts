@@ -793,9 +793,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           // only when the seat's key can't sign; anything else (a contract panic, a network
           // failure that was already retried and may still land, a stale nonce) is thrown, and
           // the next attempt picks it up
-          // (a seat's own account short of its storage stake counts as can't pay; the contract's doesn't)
-          const seatShort = errText(e).includes(`Account ${seatOf(h, x.realm)} lacks balance`);
-          if (!isKeyFailure(e) && !isMethodNotAllowed(e) && !cantPay(e) && !seatShort && !/AccessKeyDoesNotExist|does not exist/.test(errText(e))) throw e;
+          if (!isKeyFailure(e) && !isMethodNotAllowed(e) && !cantPay(e) && !/AccessKeyDoesNotExist|does not exist/.test(errText(e))) throw e;
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${String((e as Error)?.message ?? e).slice(0, 160)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${String((r as Error)?.message ?? r).slice(0, 160)}`);
