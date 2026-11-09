@@ -32,8 +32,6 @@ export const TIMING = {
 /** How long after a season settles its playback may still start (a 3D table that loads later skips it). */
 export const FRESH_MS = 4000;
 
-export { colorOf };
-
 export function scriptFor(events: GameEvent[]): SeasonScript {
   const sc: SeasonScript = { moves: [], battles: [], retreats: [], losses: [], captures: [] };
   const battles = new Set<number>();

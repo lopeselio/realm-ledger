@@ -1,5 +1,5 @@
 // "/play" and "/play/:id": rule one realm against the AI rulers.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { visibleProvinces } from '@realm-ledger/rules';
 import { provinceTip } from '../map.ts';
@@ -63,10 +63,14 @@ export function Play() {
 
   // the season that just settled here (not one read on load): played over the board once
   const before = game.before;
-  const replay = useMemo(
-    () => (v && before && before.season === v.state.season - 1 ? { key: `${v.id}:${v.state.season}`, at: Date.now(), script: scriptFor(v.lastEvents) } : null),
-    [v, before],
-  );
+  // when each season was first seen settled, so a later view (an envoy's reply) doesn't make it fresh again
+  const seenAt = useRef(new Map<string, number>());
+  const replay = useMemo(() => {
+    if (!v || !before || before.season !== v.state.season - 1) return null;
+    const key = `${v.id}:${v.state.season}`;
+    if (!seenAt.current.has(key)) seenAt.current.set(key, Date.now());
+    return { key, at: seenAt.current.get(key)!, script: scriptFor(v.lastEvents) };
+  }, [v, before]);
 
   // what the walkthrough watches, rebuilt only when one of them changes
   const guideSignals = useMemo(

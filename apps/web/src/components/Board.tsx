@@ -130,10 +130,14 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     playSounds(replay.script);
     if (reducedMotion()) return;
     if (three) table!.play(state, replay.script);
-    else if (svgRef.current) stopMap.current = playOnMap(svgRef.current, state, replay.script);
+    else if (svgRef.current) {
+      stopMap.current?.();
+      stopMap.current = playOnMap(svgRef.current, state, replay.script);
+    }
     // state and overlay are drawn by the effect above; this one only starts the playback
   }, [replay, mode, three, table]);
-  useEffect(() => () => stopMap.current?.(), []);
+  // the flat map's playback goes with it: switching to the 3D table or leaving ends it
+  useEffect(() => () => stopMap.current?.(), [mode]);
 
   const toggleMode = (): void => {
     const next: Mode = mode === '3d' ? '2d' : '3d';
@@ -176,8 +180,8 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   );
 
   return (
-    // browsers allow sound only after a touch or click on the page
-    <section className="board" aria-label="War table" onPointerDown={unlockSound}>
+    // browsers allow sound only after a click or tap (a touch counts once it ends, so not pointerdown)
+    <section className="board" aria-label="War table" onClick={unlockSound}>
       <div className="board-head">{head(toggle)}</div>
       <div className="map-wrap" ref={wrapRef} data-tour="map">
         <svg

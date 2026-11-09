@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { forecastMarch, friendly, pickTroops, treatyBetween, plannedMarches, type Forecast, type ForecastSide, type GameState, type Order } from '@realm-ledger/rules';
 import type { View } from '../api.ts';
-import { REALM_COLORS } from '../map.ts';
+import { colorOf } from '../map.ts';
 import type { Game } from './useGame.ts';
 
 /** Every realm's campaign score, leader first; the end of the campaign is always in sight. */
@@ -23,7 +23,7 @@ export function StandingBar({ v }: { v: View }) {
       <ol className="standing-realms">
         {ranked.map(({ r, score }) => (
           <li key={r.id} className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`} title={`${r.name}: ${score} (treasury at market price, plus land, towns and forts)`}>
-            <span className="chip" style={{ background: REALM_COLORS[r.id] }} aria-hidden="true" />
+            <span className="chip" style={{ background: colorOf(r.id) }} aria-hidden="true" />
             <span className="standing-name">{r.id === v.human ? 'You' : r.name}</span>
             <strong>{r.alive ? score : 'fallen'}</strong>
             {/* the realm the last winter would crown: ties go to the lower realm id, as in the rules */}

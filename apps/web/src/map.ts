@@ -75,7 +75,7 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
     const [x, y] = center(p.q, p.r);
     const owner = s.owner[p.id]!;
     const base = frost(TERRAIN[p.terrain]!, winter);
-    const color = owner >= 0 ? REALM_COLORS[owner % REALM_COLORS.length]! : 'none';
+    const color = owner >= 0 ? colorOf(owner) : 'none';
     parts.push(`<g class="province" data-id="${p.id}">`);
     parts.push(`<polygon points="${corners(x, y)}" fill="${base}" stroke="#2b2118" stroke-opacity="0.35" stroke-width="1"/>`);
     if (owner >= 0) parts.push(`<polygon class="owner" points="${corners(x, y, SIZE - 2.5)}" fill="${color}" fill-opacity="0.38" stroke="${color}" stroke-width="2.2"/>`);
