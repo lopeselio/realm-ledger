@@ -23,7 +23,8 @@ export function StandingBar({ v }: { v: View }) {
             <span className="chip" style={{ background: REALM_COLORS[r.id] }} aria-hidden="true" />
             <span className="standing-name">{r.id === v.human ? 'You' : r.name}</span>
             <strong>{r.alive ? score : 'fallen'}</strong>
-            {r.alive && score === ranked[0]!.score && (
+            {/* the realm the last winter would crown: ties go to the lower realm id, as in the rules */}
+            {i === 0 && r.alive && (
               <span className="lead" aria-label="leading">
                 ▲
               </span>
@@ -72,10 +73,10 @@ export function forecastText(s: GameState, f: Forecast): string {
   }
   const d = f.defence;
   const why = [d.terrainBonus ? `${d.terrain} +${d.terrainBonus}` : '', d.fortBonus ? `fort +${d.fortBonus}` : '', d.riverBonus ? `river +${d.riverBonus}` : ''].filter(Boolean);
-  const defender = them.find((x) => x.defending);
+  const defender = f.sides.find((x) => x.defending);
   const supply = me!.outOfSupply ? ' · you are out of supply −2' : '';
   const range = (x: ForecastSide): string => `${x.ally ? 'ally ' : ''}${x.power[0]}–${x.power[1]}`;
-  return `${f.winPct}% to win · you ${range(me!)} vs ${them.map(range).join(', ')}${defender && why.length ? ` · defender ${why.join(', ')}` : ''}${supply}`;
+  return `${f.winPct}% to win · you ${range(me!)} vs ${them.map(range).join(', ')}${defender && why.length ? ` · ${defender === me ? 'you defend' : 'defender'} ${why.join(', ')}` : ''}${supply}`;
 }
 
 /** What your march orders meet, by the province they march into (marches into one province fight together). */
