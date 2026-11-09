@@ -119,8 +119,15 @@ export function useGame(id: number | null, signer: Signer | null) {
     try {
       return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
     } catch (e) {
-      const now = await recheck(v, e);
-      if (now.season === v.season) throw e;
+      // not settled here: the season this browser was about to show isn't one to play back later
+      const now = await recheck(v, e).catch((x: unknown) => {
+        setBefore(null);
+        throw x;
+      });
+      if (now.season === v.season) {
+        setBefore(null);
+        throw e;
+      }
       // settled, maybe by another browser: lastForfeited says whether your orders counted,
       // but only if nothing settled since
       return { events: now.lastEvents, view: now.season === v.season + 1 ? now : { ...now, lastForfeited: false } };
@@ -354,7 +361,6 @@ export function useGame(id: number | null, signer: Signer | null) {
     // another flow is running: leave it, and its steps, alone
     if (!v || busyRef.current) return;
     unlockSound();
-    sealSound();
     await withBusy('Sealing: posting your hash and every AI ruler’s onchain…', async () => {
       setStage({ campaign: v.id, step: 'seal' });
       const set: OrderSet = { realm: v.human, season: v.season, orders };
@@ -388,6 +394,8 @@ export function useGame(id: number | null, signer: Signer | null) {
       }
       // (counted only for the campaign on screen)
       if (adopt(after)) setSeals((n) => n + 1);
+      // the seal is posted: now it sounds like one
+      sealSound();
       // the server keeps a seal an earlier attempt already put onchain
       if (posted || (after.yourSeal && after.yourSeal !== hash)) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
       else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);

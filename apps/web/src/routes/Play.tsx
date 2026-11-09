@@ -64,7 +64,7 @@ export function Play() {
   // the season that just settled here (not one read on load): played over the board once
   const before = game.before;
   const replay = useMemo(
-    () => (v && before && before.season === v.state.season - 1 ? { key: `${v.id}:${v.state.season}`, script: scriptFor(v.lastEvents) } : null),
+    () => (v && before && before.season === v.state.season - 1 ? { key: `${v.id}:${v.state.season}`, at: Date.now(), script: scriptFor(v.lastEvents) } : null),
     [v, before],
   );
 
