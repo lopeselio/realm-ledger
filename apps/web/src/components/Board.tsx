@@ -23,13 +23,34 @@ function canRender3D(): boolean {
   }
 }
 
-/** A phone or small tablet held by thumb: a narrow screen with a touch pointer. */
+/**
+ * A phone or small tablet held by thumb: a narrow screen, or a touch one up to tablet width.
+ * style.css repeats this query for the phone layout; change both together.
+ */
+export const PHONE_QUERY = '(max-width: 640px), (pointer: coarse) and (max-width: 900px)';
 export function isPhone(): boolean {
   try {
-    return window.matchMedia('(max-width: 640px), (pointer: coarse) and (max-width: 900px)').matches;
+    return window.matchMedia(PHONE_QUERY).matches;
   } catch {
     return false;
   }
+}
+
+/** isPhone, kept up to date as the window turns or resizes. */
+export function usePhone(): boolean {
+  const [phone, setPhone] = useState(isPhone);
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try {
+      mq = window.matchMedia(PHONE_QUERY);
+    } catch {
+      return;
+    }
+    const on = (): void => setPhone(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return phone;
 }
 
 function initialMode(): Mode {
@@ -106,15 +127,23 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
   const onPointerDown = (e: PointerEvent): void => {
-    if (e.pointerType === 'mouse' && zoomRef.current.k === 1) return;
-    pointers.current.set(e.pointerId, local(e));
     dragged.current = false;
+    if (e.pointerType === 'mouse' && zoomRef.current.k === 1) return;
+    // keep the gesture's pointer even if it leaves the map before it lifts
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      // not capturable: the pointerup/cancel handlers still end it
+    }
+    pointers.current.set(e.pointerId, local(e));
     const ps = [...pointers.current.values()];
     const mid = ps.length === 2 ? { x: (ps[0]!.x + ps[1]!.x) / 2, y: (ps[0]!.y + ps[1]!.y) / 2 } : ps[0]!;
     gesture.current = { start: zoomRef.current, dist: ps.length === 2 ? Math.hypot(ps[0]!.x - ps[1]!.x, ps[0]!.y - ps[1]!.y) : 0, mid, at: mid };
   };
   const onPointerMove = (e: PointerEvent): void => {
     if (!pointers.current.has(e.pointerId) || !gesture.current) return;
+    // a mouse with no button down is hovering, not dragging
+    if (e.pointerType === 'mouse' && e.buttons === 0) return onPointerEnd(e);
     pointers.current.set(e.pointerId, local(e));
     const ps = [...pointers.current.values()];
     const g = gesture.current;
@@ -195,32 +224,49 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   // free the GPU when the page goes away
   useEffect(() => (table ? () => table.dispose() : undefined), [table]);
 
-  // on a phone, open the flat map zoomed in on your own realm, once per map
+  const mapKey = `${state.seed}:${state.map.provinces.length}`;
+  // on a phone, open the flat map zoomed in on your own realm, once per map (done right after
+  // the map draws, below, since its viewBox comes from the drawing)
   const focusedFor = useRef<string | null>(null);
   const focus = overlay?.focus;
-  useLayoutEffect(() => {
-    const key = `${state.seed}:${state.map.provinces.length}`;
-    if (mode !== '2d' || focusedFor.current === key) return;
-    focusedFor.current = key;
-    const svg = svgRef.current;
-    if (!svg || focus === undefined || !isPhone()) return setZoom({ k: 1, x: 0, y: 0 });
-    // after the map has drawn (its viewBox sets its size)
-    requestAnimationFrame(() => {
-      const vb = svg.viewBox.baseVal;
-      if (!vb.width) return;
-      const [cx, cy] = provinceCenter(state, focus);
-      const px = ((cx - vb.x) / vb.width) * svg.clientWidth;
-      const py = ((cy - vb.y) / vb.height) * svg.clientHeight;
-      const k = 2.4;
-      setZoom(clamp({ k, x: svg.clientWidth / 2 - px * k, y: svg.clientHeight / 2 - py * k }));
-    });
-  }, [mode, state, focus]);
+  const focusOnRealm = (svg: SVGSVGElement): void => {
+    if (focusedFor.current === mapKey) return;
+    if (focus === undefined || !isPhone()) {
+      focusedFor.current = mapKey;
+      return setZoom({ k: 1, x: 0, y: 0 });
+    }
+    const vb = svg.viewBox.baseVal;
+    const w = svg.clientWidth;
+    const h = svg.clientHeight;
+    if (!vb.width || !w || !h) return; // not laid out yet: the next draw tries again
+    focusedFor.current = mapKey;
+    // the drawing is fitted inside the box (preserveAspectRatio meet), centred in the spare room
+    const fit = Math.min(w / vb.width, h / vb.height);
+    const [cx, cy] = provinceCenter(state, focus);
+    const px = (w - vb.width * fit) / 2 + (cx - vb.x) * fit;
+    const py = (h - vb.height * fit) / 2 + (cy - vb.y) * fit;
+    const k = 2.4;
+    setZoom(clamp({ k, x: w / 2 - px * k, y: h / 2 - py * k }));
+  };
 
   const three = mode === '3d' && !!table;
   useEffect(() => {
     if (three) table!.setState(state, overlay);
-    else if (svgRef.current) renderMap(svgRef.current, state, overlay);
+    else if (svgRef.current) {
+      renderMap(svgRef.current, state, overlay);
+      focusOnRealm(svgRef.current);
+    }
+    // focusOnRealm reads the same state and overlay
   }, [three, table, state, overlay]);
+
+  // a turned or resized phone: keep the zoomed map covering its frame
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const o = new ResizeObserver(() => setZoom((z) => (z.k > 1 ? clamp(z) : z)));
+    o.observe(svg);
+    return () => o.disconnect();
+  }, []);
 
   // play a settled season once, after the board shows how it ended. Only while it is fresh: a 3D
   // table that finishes loading seconds later doesn't start it out of the blue
@@ -241,7 +287,6 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     // state and overlay are drawn by the effect above; this one only starts the playback
   }, [replay, mode, three, table]);
   // a playback ends with its view: switching view, opening another map, or leaving ends it
-  const mapKey = `${state.seed}:${state.map.provinces.length}`;
   useEffect(
     () => () => {
       stopMap.current?.();
@@ -294,6 +339,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     <section className="board" aria-label="War table" onClick={unlockSound}>
       <div className="board-head">{head(toggle)}</div>
       <div className="map-wrap" ref={wrapRef} data-tour="map">
+        <div className="map-clip">
         <svg
           id="map"
           ref={svgRef}
@@ -324,6 +370,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
           }}
           onMouseLeave={() => showTip(null, 0, 0)}
         />
+        </div>
         {!three && (
           <div className="zoom-tools" aria-label="Map zoom">
             <button type="button" aria-label="Zoom in" onClick={() => zoomCentre(1.5)} disabled={zoom.k >= MAX_ZOOM}>
