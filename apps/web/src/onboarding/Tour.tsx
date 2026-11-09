@@ -28,7 +28,8 @@ interface Box {
 
 const PAD = 6;
 /** Controls that use the arrow keys themselves: the tour leaves those keys to them. */
-const ARROW_CONTROLS = 'select, input, textarea, canvas, [role="slider"], [role="listbox"], [role="tablist"], [role="menu"], [role="menubar"], [role="radiogroup"], [contenteditable]';
+// (fields are already left alone by typingIn)
+const ARROW_CONTROLS = 'select, canvas, [role="slider"], [role="listbox"], [role="tablist"], [role="menu"], [role="menubar"], [role="radiogroup"]';
 const CARD_ROOM = 230;
 
 function find(sel: string): HTMLElement | null {
@@ -57,7 +58,10 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   const focusCard = useRef(true);
   // the step shown now, for moves decided a moment earlier (a key, a timer, a watch)
   const shown = useRef(i);
-  shown.current = i;
+  // (set once a step is committed, not during a render React might throw away)
+  useLayoutEffect(() => {
+    shown.current = i;
+  }, [i]);
   /** Moves one step (to the next one on the page, as the buttons show it). `by` says why: the
    *  player (the card takes focus), their action on the page (focus stays on what they pressed),
    *  or the target going away (nothing was pressed). */
