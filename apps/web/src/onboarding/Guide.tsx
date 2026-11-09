@@ -19,7 +19,8 @@ const STEPS: TourStep<GuideSignals>[] = [
     target: '[data-tour="start"]',
     title: 'Start a campaign',
     body: <p>Pick how many AI rivals and how many seasons, then press New campaign. The campaign is created on the NEAR testnet contract.</p>,
-    hint: 'Press New campaign to go on.',
+    hint: 'Press New campaign: the rest of the tour needs an open campaign.',
+    next: 'Skip the table tour',
     watch: (s) => s.campaign,
   },
   {
