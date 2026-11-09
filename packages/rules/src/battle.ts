@@ -1,13 +1,13 @@
 import {
   FORT_DEFENCE,
   LOSER_LOSS_PCT,
+  NEUTRAL,
   OUT_OF_SUPPLY,
   RIVER_DEFENCE,
   TERRAIN_DEFENCE,
   WINNER_MAX_LOSS_PCT,
 } from './constants.ts';
 import { rng } from './rng.ts';
-import { NEUTRAL } from './constants.ts';
 import { strength } from './state.ts';
 import type { GameState, Troops } from './types.ts';
 
