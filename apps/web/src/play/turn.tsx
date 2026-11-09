@@ -1,7 +1,7 @@
 // The season at a glance: the standing of every realm, where ending the season has got to,
 // and what a march would meet.
 import { useMemo } from 'react';
-import { forecastMarch, friendly, pickTroops, plannedMarches, type Forecast, type ForecastSide, type GameState, type Order } from '@realm-ledger/rules';
+import { forecastMarch, friendly, pickTroops, treatyBetween, plannedMarches, type Forecast, type ForecastSide, type GameState, type Order } from '@realm-ledger/rules';
 import type { View } from '../api.ts';
 import { REALM_COLORS } from '../map.ts';
 import type { Game } from './useGame.ts';
@@ -23,7 +23,7 @@ export function StandingBar({ v }: { v: View }) {
             <span className="chip" style={{ background: REALM_COLORS[r.id] }} aria-hidden="true" />
             <span className="standing-name">{r.id === v.human ? 'You' : r.name}</span>
             <strong>{r.alive ? score : 'fallen'}</strong>
-            {i === 0 && r.alive && (
+            {r.alive && score === ranked[0]!.score && (
               <span className="lead" aria-label="leading">
                 ▲
               </span>
@@ -67,7 +67,8 @@ export function forecastText(s: GameState, f: Forecast): string {
     const owner = s.owner[f.province]!;
     if (owner === me!.realm) return 'your own province';
     if (owner === -1) return 'unopposed: an empty province';
-    return friendly(s, owner, me!.realm) ? 'a friendly realm’s province: you pass through, it isn’t taken' : 'unguarded: taken if nobody else marches in';
+    if (friendly(s, owner, me!.realm)) return 'a friendly realm’s province: you pass through, it isn’t taken';
+    return treatyBetween(s, owner, me!.realm, 'peace') ? 'unguarded, but marching in breaks your peace with its ruler' : 'unguarded: taken if nobody else marches in';
   }
   const d = f.defence;
   const why = [d.terrainBonus ? `${d.terrain} +${d.terrainBonus}` : '', d.fortBonus ? `fort +${d.fortBonus}` : '', d.riverBonus ? `river +${d.riverBonus}` : ''].filter(Boolean);
@@ -90,11 +91,17 @@ export function useMarchForecasts(v: View, orders: Order[]): Map<number, Forecas
 export function MarchTargets({ game, v, from }: { game: Game; v: View; from: number }) {
   const s = v.state;
   const army = game.armyAt(from);
-  // what this army would meet in each neighbour, marching alone; worked out once per army and state
-  const targets = useMemo(
-    () => (army ? s.map.provinces[from]!.neighbors.map((to) => ({ to, f: forecastMarch(s, v.human, pickTroops(army), to) })) : []),
-    [s, v.human, from, army],
-  );
+  const orders = game.orders;
+  // what this army would meet in each neighbour, together with your other marches there: as if
+  // this army's march went there instead of where it is ordered now
+  const targets = useMemo(() => {
+    if (!army) return [];
+    const others = orders.filter((o) => !(o.kind === 'march' && o.from === from));
+    return s.map.provinces[from]!.neighbors.map((to) => {
+      const into = plannedMarches(s, v.human, [...others, { kind: 'march', from, to }]);
+      return { to, f: forecastMarch(s, v.human, into.get(to) ?? pickTroops(army), to) };
+    });
+  }, [s, v.human, from, army, orders]);
   if (!army) return null;
   const off = v.phase !== 'planning' || game.busy;
   return (
