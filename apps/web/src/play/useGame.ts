@@ -124,16 +124,16 @@ export function useGame(id: number | null, signer: Signer | null) {
     });
 
   /** POSTs /reveal and resolves to the settled season, also when the connection dropped after the server settled. */
-  const settle = async (v: View, body: object): Promise<{ events: GameEvent[]; view: View }> => {
+  const settle = async (v: View, body: object): Promise<{ view: View }> => {
     setStage({ campaign: v.id, step: 'resolve' });
     try {
-      return await api<{ events: GameEvent[]; view: View }>(`/campaigns/${v.id}/reveal`, body);
+      return await api<{ view: View }>(`/campaigns/${v.id}/reveal`, body);
     } catch (e) {
       const now = await recheck(v, e);
       if (now.season === v.season) throw e;
       // settled, maybe by another browser: lastForfeited says whether your orders counted,
       // but only if nothing settled since
-      return { events: now.lastEvents, view: now.season === v.season + 1 ? now : { ...now, lastForfeited: false } };
+      return { view: now.season === v.season + 1 ? now : { ...now, lastForfeited: false } };
     }
   };
 

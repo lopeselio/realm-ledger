@@ -46,7 +46,8 @@ export function chronicle(before: GameState, events: GameEvent[]): Line[] {
         quiet.push({ tone: 'quiet', text: `${realm(e.realm)} ${e.side === 'buy' ? 'buys' : 'sells'} ${e.qty} ${e.good} at ${e.price}.` });
         break;
       case 'retreated':
-        quiet.push({ tone: 'quiet', text: `${realm(e.realm)} falls back from ${place(e.from)} to ${place(e.to)}.` });
+        // (from where only if you saw it)
+        quiet.push({ tone: 'quiet', text: `${realm(e.realm)} falls back ${e.from >= 0 ? `from ${place(e.from)} ` : ''}to ${place(e.to)}.` });
         break;
       case 'destroyed':
         if (e.realm !== NEUTRAL) normal.push({ tone: 'normal', text: `${realm(e.realm)}'s army at ${place(e.province)} is destroyed.` });
