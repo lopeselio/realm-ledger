@@ -37,7 +37,7 @@ import {
   type OrderSet,
   type Treaty,
 } from '@realm-ledger/rules';
-import { checkReply, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
+import { checkReply, rulesVersionOf, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
 import { accountExists, call, isNetworkError, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
 import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
@@ -325,7 +325,6 @@ export async function sweepAbandoned(): Promise<void> {
 }
 
 export async function loadAll(): Promise<number> {
-  const stamped: Hosted[] = [];
   let files: string[];
   try {
     files = await readdir(config.dataDir);
@@ -345,7 +344,7 @@ export async function loadAll(): Promise<number> {
     try {
       const h = JSON.parse(await readFile(path, 'utf8')) as Hosted;
       const id = Number(name[1]);
-      if (h?.id !== id || !Array.isArray(h.state?.realms) || typeof h.phase !== 'string' || !h.pending || !h.bundle?.options) throw new Error('not a campaign save');
+      if (h?.id !== id || !Array.isArray(h.state?.realms) || typeof h.phase !== 'string' || !h.pending || !h.bundle) throw new Error('not a campaign save');
       // campaigns from before the agent market
       h.plans ??= [];
       h.reports ??= [];
@@ -353,13 +352,13 @@ export async function loadAll(): Promise<number> {
       h.pending.deals ??= [];
       h.pending.jobs ??= [];
       h.intents ??= [];
-      // a campaign from before rules versions says which it plays by in its proof (1 before the
-      // agent market, 2 for the first market servers), so seasons this server settles later
-      // don't change what it reads as; saved at once, so the file says it too
-      if (h.bundle.options.rulesVersion === undefined) {
-        h.bundle.options.rulesVersion = h.state.companies ? 2 : 1;
-        stamped.push(h);
-      }
+      // a campaign from before rules versions says which it plays by in its proof, by the
+      // verifier's own rule; with no season settled yet, by whether it has companies (the first
+      // market server gave old campaigns an empty list, so only a filled one counts). Written to
+      // disk with the campaign's next save; rewriting every file at startup would race the old
+      // container during a deploy
+      if (h.bundle.options && h.bundle.options.rulesVersion === undefined)
+        h.bundle.options.rulesVersion = h.bundle.seasons?.length ? rulesVersionOf(h.bundle) : h.state.companies?.length ? 2 : 1;
       for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
       campaigns.set(h.id, h);
     } catch (e) {
@@ -367,7 +366,6 @@ export async function loadAll(): Promise<number> {
       console.error(`load ${f}: ${(e as Error).message}; skipped`);
     }
   }
-  for (const h of stamped) await save(h).catch((e: unknown) => console.error(`stamp ${h.id}: ${(e as Error).message}`));
   return campaigns.size;
 }
 
