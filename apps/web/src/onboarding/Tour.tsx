@@ -2,7 +2,7 @@
 // A step whose element isn't on the page is skipped. A step with `acted` also moves on by
 // itself when the player does the thing it asks for.
 // The light doesn't block the page, so the player can act on what it points at.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { reducedMotion, restoreFocus, typingIn } from './storage.ts';
 
 export interface TourStep<S> {
@@ -38,6 +38,8 @@ function find(sel: string): HTMLElement | null {
 export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; signals: S; onClose: () => void }) {
   const [i, setI] = useState(() => firstPresent(steps, 0, 1));
   const [box, setBox] = useState<Box | null>(null);
+  // which steps' elements are on the page (the current one counts while it lays out)
+  const [present, setPresent] = useState<boolean[]>(() => steps.map((s) => !!find(s.target)));
   const card = useRef<HTMLDivElement>(null);
   const step = i >= 0 && i < steps.length ? steps[i] : undefined;
 
@@ -64,7 +66,8 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       if (dir === -1 && n < 0) return;
       shown.current = n;
       focusCard.current = manual;
-      pressed.current = manual ? null : document.activeElement;
+      const a = document.activeElement;
+      pressed.current = !manual && (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement) ? a : null;
       setI(n);
     },
     [steps, i],
@@ -89,7 +92,14 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     if (!step) return;
     // a target that's gone (a campaign closed, a phase changed) moves the tour on, from this
     // step only: if something else moved it meanwhile, this does nothing
-    const skip = (): void => setI((cur) => (cur === i ? firstPresent(steps, i + 1, 1) : cur));
+    const skip = (): void => {
+      if (shown.current !== i) return;
+      const n = firstPresent(steps, i + 1, 1);
+      shown.current = n;
+      focusCard.current = false;
+      pressed.current = null;
+      setI(n);
+    };
     // a target missing for a moment (laying out, re-rendering, the 2D/3D switch) isn't gone: it
     // is skipped only once it has been missing for 400ms
     let missingSince: number | null = null;
@@ -97,9 +107,10 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     let observed: Element | null = null;
     const ro = new ResizeObserver(() => measure());
     let frame = 0;
-    const measure = (): void => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
+    const look = (): void => {
+        // which steps are on the page: kept up to date here, not looked up on every render
+        const p = steps.map((s, k) => k === i || !!find(s.target));
+        setPresent((old) => (old.length === p.length && old.every((x, k) => x === p[k]) ? old : p));
         const now = find(step.target);
         if (!now) {
           missingSince ??= Date.now();
@@ -124,9 +135,13 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
         setBox((old) =>
           old && old.top === b.top && old.left === b.left && old.width === b.width && old.height === b.height ? old : { top: b.top, left: b.left, width: b.width, height: b.height },
         );
-      });
     };
-    measure();
+    const measure = (): void => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(look);
+    };
+    // the new step's box before the first paint, so nothing is drawn where the last one was
+    look();
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
     // smooth scrolling and late layout (the 3D table loading) move things without events
@@ -177,15 +192,9 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   if (before.current === null) before.current = document.activeElement;
   useEffect(() => () => restoreFocus(before.current), []);
 
-  // which steps are on the page: looked up when the step or its box changes, not every render
-  // (a step that comes or goes elsewhere is picked up at the next measure)
-  const presentSteps = useMemo(() => steps.map((s, k) => k === i || !!find(s.target)), [steps, i, box]);
-
   if (!step) return null;
   // keep the light's edge on screen when the target is bigger than the window (the map)
   const light = box && clampToView(box);
-  // which steps' elements are on the page (the current one counts while it lays out)
-  const present = presentSteps;
   const count = present.filter(Boolean).length;
   const at = present.slice(0, i + 1).filter(Boolean).length;
   const hasBack = present.slice(0, i).some(Boolean);

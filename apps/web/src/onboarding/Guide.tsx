@@ -12,6 +12,8 @@ export interface GuideSignals {
   selected: number | undefined;
   /** how many orders the player has added or changed (a reset or a removal doesn't count) */
   orderEdits: number;
+  /** how many marches the player has ordered on the map (a market trade doesn't count) */
+  marches: number;
   phase: string | null;
 }
 
@@ -22,7 +24,8 @@ const STEPS: TourStep<GuideSignals>[] = [
     body: <p>Pick how many AI rivals and how many seasons, then press New campaign. The campaign is created on the NEAR testnet contract.</p>,
     hint: 'Press New campaign: the rest of the tour needs an open campaign.',
     next: 'Skip the table tour',
-    acted: (before, now) => now.campaign !== before.campaign,
+    // a campaign opened (not one closing, or the view clearing while it reloads)
+    acted: (before, now) => now.campaign !== null && now.campaign !== before.campaign,
   },
   {
     target: '[data-tour="map"]',
@@ -35,7 +38,7 @@ const STEPS: TourStep<GuideSignals>[] = [
     hint: 'Click one of your provinces or your army.',
     // a selection (not deselecting, or a season turn clearing it), or an order straight away (a
     // march clears the selection)
-    acted: (before, now) => (now.selected !== undefined && now.selected !== before.selected) || now.orderEdits > before.orderEdits,
+    acted: (before, now) => (now.selected !== undefined && now.selected !== before.selected) || now.marches > before.marches,
   },
   {
     target: '[data-tour="orders"]',

@@ -25,6 +25,10 @@ export function useGame(id: number | null, signer: Signer | null) {
   const [orders, setOrders] = useState<Order[]>([]);
   // orders the player added or changed (never a reset or a removal): for the walkthrough
   const [orderEdits, setOrderEdits] = useState(0);
+  const [marches, setMarches] = useState(0);
+  // the orders as last set, for checks between two updates in the same tick
+  const ordersNow = useRef<Order[]>([]);
+  ordersNow.current = orders;
   const [selected, setSelected] = useState<number | undefined>(undefined);
   const [busy, setBusyState] = useState(false);
   const [status, setStatusState] = useState<Status>({ text: INTRO, tone: 'info' });
@@ -429,6 +433,7 @@ export function useGame(id: number | null, signer: Signer | null) {
       const from = selected;
       setOrders((os) => [...os.filter((o) => !(o.kind === 'march' && o.from === from)), { kind: 'march', from, to: p }]);
       setOrderEdits((n) => n + 1);
+      setMarches((n) => n + 1);
       setSelected(undefined);
     } else {
       setSelected(selected === p ? undefined : p);
@@ -441,14 +446,16 @@ export function useGame(id: number | null, signer: Signer | null) {
   };
   /** The Chancellor's advice, added once. */
   const addAdvice = (o: Order): void => {
-    // advice already in the list adds nothing, and isn't an edit
-    if (orders.some((x) => JSON.stringify(x) === JSON.stringify(o))) return;
-    setOrders((os) => [...os, o]);
+    // advice already in the list adds nothing, and isn't an edit (checked against the latest
+    // orders, so the same advice twice in one tick is added once)
+    if (ordersNow.current.some((x) => JSON.stringify(x) === JSON.stringify(o))) return;
+    ordersNow.current = [...ordersNow.current, o];
+    setOrders(ordersNow.current);
     setOrderEdits((n) => n + 1);
   };
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));
 
-  return { view, before, orders, orderEdits, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
+  return { view, before, orders, orderEdits, marches, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
 }
 
 export type Game = ReturnType<typeof useGame>;
