@@ -70,7 +70,8 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Press Seal orders to go on, or Next to look around first.',
-    acted: (before, now) => now.phase !== before.phase,
+    // sealed (not the view clearing while another campaign loads)
+    acted: (before, now) => now.phase !== null && now.phase !== before.phase,
   },
   {
     target: '[data-tour="status"]',

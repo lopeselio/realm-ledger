@@ -57,20 +57,25 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   // the element that had focus when the tour last moved on by itself: the button the player
   // pressed, whose arrows still drive the tour
   const pressed = useRef<Element | null>(null);
+  // `presentNow` mirrors `present` for moves decided between renders
+  const presentNow = useRef<boolean[]>(present);
+  /** Moves one step (to the next one on the page, as the buttons show it). `by` says why: the
+   *  player (the card takes focus), their action on the page (focus stays on what they pressed),
+   *  or the target going away (nothing was pressed). */
   const go = useCallback(
-    (dir: 1 | -1, manual = true) => {
+    (dir: 1 | -1, by: 'player' | 'action' | 'gone' = 'player') => {
       // decided on a step the tour has already left: ignore it
       if (shown.current !== i) return;
-      const n = firstPresent(steps, i + dir, dir);
+      const n = nextPresent(presentNow.current, i + dir, dir);
       // nothing earlier to go back to: stay put
       if (dir === -1 && n < 0) return;
       shown.current = n;
-      focusCard.current = manual;
+      focusCard.current = by === 'player';
       const a = document.activeElement;
-      pressed.current = !manual && (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement) ? a : null;
+      pressed.current = by === 'action' && (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement) ? a : null;
       setI(n);
     },
-    [steps, i],
+    [i],
   );
 
   // move on when the player does what the step asks
@@ -82,7 +87,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       start.current = { i, signals };
       return;
     }
-    if (step?.acted?.(start.current.signals as S, signals)) go(1, false);
+    if (step?.acted?.(start.current.signals as S, signals)) go(1, 'action');
     // keep following, so (say) an order removed and added back counts once
     else start.current = { i, signals };
   }, [i, step, signals, go]);
@@ -92,13 +97,11 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     if (!step) return;
     // a target that's gone (a campaign closed, a phase changed) moves the tour on, from this
     // step only: if something else moved it meanwhile, this does nothing
-    const skip = (): void => {
-      if (shown.current !== i) return;
-      const n = firstPresent(steps, i + 1, 1);
-      shown.current = n;
-      focusCard.current = false;
-      pressed.current = null;
-      setI(n);
+    const skip = (): void => go(1, 'gone');
+    const updatePresent = (): void => {
+      const p = steps.map((s, k) => k === i || !!find(s.target));
+      presentNow.current = p;
+      setPresent((old) => (old.length === p.length && old.every((x, k) => x === p[k]) ? old : p));
     };
     // a target missing for a moment (laying out, re-rendering, the 2D/3D switch) isn't gone: it
     // is skipped only once it has been missing for 400ms
@@ -108,9 +111,6 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     const ro = new ResizeObserver(() => measure());
     let frame = 0;
     const look = (): void => {
-        // which steps are on the page: kept up to date here, not looked up on every render
-        const p = steps.map((s, k) => k === i || !!find(s.target));
-        setPresent((old) => (old.length === p.length && old.every((x, k) => x === p[k]) ? old : p));
         const now = find(step.target);
         if (!now) {
           missingSince ??= Date.now();
@@ -140,12 +140,18 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(look);
     };
-    // the new step's box before the first paint, so nothing is drawn where the last one was
+    // the new step's box (and which steps are on the page) before the first paint, so nothing
+    // is drawn where the last one was
+    updatePresent();
     look();
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
-    // smooth scrolling and late layout (the 3D table loading) move things without events
-    const t = window.setInterval(measure, 300);
+    // smooth scrolling and late layout (the 3D table loading) move things without events; which
+    // steps are on the page is checked here too, not on every scroll frame
+    const t = window.setInterval(() => {
+      updatePresent();
+      measure();
+    }, 300);
     return () => {
       cancelAnimationFrame(frame);
       ro.disconnect();
@@ -153,7 +159,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       window.removeEventListener('resize', measure);
       window.clearInterval(t);
     };
-  }, [i, step, steps]);
+  }, [i, step, steps, go]);
 
   // Esc closes the tour from anywhere but a field; the arrows and Enter move it only when focus
   // is on the card or on nothing in particular, so the rest of the page keeps its keys
@@ -229,6 +235,12 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   );
 }
 
+/** The index of the first step from `from` (going `dir`) marked present; -1 or the length if none. */
+function nextPresent(present: boolean[], from: number, dir: 1 | -1): number {
+  for (let k = from; k >= 0 && k < present.length; k += dir) if (present[k]) return k;
+  return dir === 1 ? present.length : -1;
+}
+
 /** The index of the first step from `from` (going `dir`) whose element is on the page; -1 or steps.length if none. */
 function firstPresent<S>(steps: TourStep<S>[], from: number, dir: 1 | -1): number {
   for (let k = from; k >= 0 && k < steps.length; k += dir) if (find(steps[k]!.target)) return k;
@@ -257,7 +269,9 @@ function placeCard(box: Box | null): CSSProperties {
   const centred = (vw - width) / 2;
   if (!box) return { left: centred, bottom: 16, width };
   // a narrow screen: full width, at the top or bottom, away from the target
-  const awayFromTarget = (left: number): CSSProperties => (box.top + box.height / 2 > vh / 2 ? { left, top: 16, width } : { left, bottom: 16, width });
+  // (at the top, below the header's controls)
+  const headerBottom = Math.max(16, (document.querySelector('.masthead')?.getBoundingClientRect().bottom ?? 0) + 8);
+  const awayFromTarget = (left: number): CSSProperties => (box.top + box.height / 2 > vh / 2 ? { left, top: headerBottom, width } : { left, bottom: 16, width });
   if (vw < 560) return awayFromTarget(centred);
   const left = Math.min(Math.max(16, box.left), vw - width - 16);
   if (box.top + box.height + PAD + CARD_ROOM < vh) return { left, top: box.top + box.height + PAD + 10, width };
