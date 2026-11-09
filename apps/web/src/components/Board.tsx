@@ -140,8 +140,15 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     }
     // state and overlay are drawn by the effect above; this one only starts the playback
   }, [replay, mode, three, table]);
-  // the flat map's playback goes with it: switching to the 3D table or leaving ends it
-  useEffect(() => () => stopMap.current?.(), [mode]);
+  // a playback ends with its view: switching view, opening another map, or leaving ends it
+  const mapKey = `${state.seed}:${state.map.provinces.length}`;
+  useEffect(
+    () => () => {
+      stopMap.current?.();
+      table?.stopPlayback();
+    },
+    [mode, mapKey, table],
+  );
 
   const toggleMode = (): void => {
     const next: Mode = mode === '3d' ? '2d' : '3d';

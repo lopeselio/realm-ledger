@@ -29,6 +29,8 @@ export interface Table3D {
   setState(s: GameState, overlay?: Overlay & { visible?: Set<number>; focus?: number }): void;
   /** plays a settled season over the board as it now stands */
   play(s: GameState, script: SeasonScript): void;
+  /** ends a playback early */
+  stopPlayback(): void;
   onPick(cb: (province: number) => void): void;
   onHover(cb: (province: number | null, x: number, y: number) => void): void;
   dispose(): void;
@@ -221,6 +223,10 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   scene.add(board, pieces, marks, effects);
   type Effect = { start: number; end: number; step: (k: number) => void; done: () => void };
   let running: Effect[] = [];
+  function stopPlayback(): void {
+    for (const e of running) e.done();
+    running = [];
+  }
   // the battle flash: one light always in the scene, dark until a clash (adding and removing a
   // light would recompile every lit material on the table mid-playback); it lights the first
   // battle, the others flash by their rings alone
@@ -364,8 +370,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     const key = `${s.seed}:${s.map.provinces.length}`;
     if (key !== boardKey) {
       // a playback of the old map ends with it
-      for (const e of running) e.done();
-      running = [];
+      stopPlayback();
       buildBoard(s);
       boardKey = key;
       // in play, start over the player's own capital
@@ -669,12 +674,13 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   return {
     setState,
     play,
+    stopPlayback,
     onPick: (cb) => (pickCb = cb),
     onHover: (cb) => (hoverCb = cb),
     dispose: () => {
       // a playback cut short still frees what it made
-      for (const e of running) e.done();
-      running = [];
+      stopPlayback();
+      for (const g of [clashGeo, poleGeo, bannerGeo]) g.dispose();
       observer.disconnect();
       renderer.setAnimationLoop(null);
       renderer.dispose();
