@@ -1,8 +1,8 @@
 // The walkthrough: coach-marks that light up real parts of the page, one at a time.
-// A step whose element isn't on the page is skipped. A step with `watch` also moves on by
-// itself when the player does the thing it asks for (the watched value changes).
+// A step whose element isn't on the page is skipped. A step with `acted` also moves on by
+// itself when the player does the thing it asks for.
 // The light doesn't block the page, so the player can act on what it points at.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { reducedMotion, restoreFocus, typingIn } from './storage.ts';
 
 export interface TourStep<S> {
@@ -10,10 +10,9 @@ export interface TourStep<S> {
   target: string;
   title: string;
   body: ReactNode;
-  /** moves on when this value changes while the step is shown */
-  watch?: (signals: S) => unknown;
-  /** whether a change of the watched value counts as doing what the step asks (default: any change) */
-  moved?: (from: unknown, to: unknown) => boolean;
+  /** moves on by itself when this says the player did what the step asks, comparing the
+   * signals since the last render (or since the step was reached) with now */
+  acted?: (before: S, now: S) => boolean;
   /** what the player can do to move on, shown under the text */
   hint?: string;
   /** the Next button's label on this step */
@@ -39,8 +38,6 @@ function find(sel: string): HTMLElement | null {
 export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; signals: S; onClose: () => void }) {
   const [i, setI] = useState(() => firstPresent(steps, 0, 1));
   const [box, setBox] = useState<Box | null>(null);
-  // bumped when a step's target shows up after the tour arrived
-  const [late, setLate] = useState(0);
   const card = useRef<HTMLDivElement>(null);
   const step = i >= 0 && i < steps.length ? steps[i] : undefined;
 
@@ -52,36 +49,40 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   // the card takes focus when the player moves the tour (and when it opens), not when it
   // moves on by itself after they acted, so focus stays on the map or the button they used
   const focusCard = useRef(true);
+  // the step shown now, for moves decided a moment earlier (a key, a timer, a watch)
+  const shown = useRef(i);
+  shown.current = i;
+  // the element that had focus when the tour last moved on by itself: the button the player
+  // pressed, whose arrows still drive the tour
+  const pressed = useRef<Element | null>(null);
   const go = useCallback(
     (dir: 1 | -1, manual = true) => {
+      // decided on a step the tour has already left: ignore it
+      if (shown.current !== i) return;
       const n = firstPresent(steps, i + dir, dir);
       // nothing earlier to go back to: stay put
       if (dir === -1 && n < 0) return;
-      setI((cur) => {
-        if (cur !== i) return cur; // decided on a step the tour has already left
-        focusCard.current = manual;
-        return n;
-      });
+      shown.current = n;
+      focusCard.current = manual;
+      pressed.current = manual ? null : document.activeElement;
+      setI(n);
     },
     [steps, i],
   );
 
   // move on when the player does what the step asks
-  const watched = step?.watch?.(signals);
-  const start = useRef<{ i: number; value: unknown }>({ i: -1, value: undefined });
+  const start = useRef<{ i: number; signals: S | undefined }>({ i: -1, signals: undefined });
   useEffect(() => {
-    // every arrival at a step (forwards or Back) takes a fresh starting point, so a change made
-    // before the player came back to it doesn't count
+    // every arrival at a step (forwards or Back) takes a fresh starting point, so something
+    // done before the player came back to it doesn't count
     if (start.current.i !== i) {
-      start.current = { i, value: watched };
+      start.current = { i, signals };
       return;
     }
-    if (!step?.watch) return;
-    const moved = step.moved ?? ((a: unknown, b: unknown) => !Object.is(a, b));
-    if (moved(start.current.value, watched)) go(1, false);
-    // keep following the value, so (say) an order removed and added back counts once
-    else start.current = { i, value: watched };
-  }, [i, step, watched, go]);
+    if (step?.acted?.(start.current.signals as S, signals)) go(1, false);
+    // keep following, so (say) an order removed and added back counts once
+    else start.current = { i, signals };
+  }, [i, step, signals, go]);
 
   // bring the target into view, then follow it as the page moves
   useLayoutEffect(() => {
@@ -89,29 +90,35 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     // a target that's gone (a campaign closed, a phase changed) moves the tour on, from this
     // step only: if something else moved it meanwhile, this does nothing
     const skip = (): void => setI((cur) => (cur === i ? firstPresent(steps, i + 1, 1) : cur));
-    const el = find(step.target);
-    if (!el) {
-      setBox(null);
-      // it may only be laying out (the 3D table): give it a moment before skipping
-      const t = window.setTimeout(() => {
-        if (!find(step.target)) skip();
-        else setLate((n) => n + 1); // it showed up: measure and follow it
-      }, 400);
-      return () => window.clearTimeout(t);
-    }
-    const r = el.getBoundingClientRect();
-    setBox({ top: r.top, left: r.left, width: r.width, height: r.height });
-    if (r.top < 0 || r.bottom > window.innerHeight) {
-      el.scrollIntoView({ block: r.height > window.innerHeight * 0.6 ? 'start' : 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
-    }
+    // a target missing for a moment (laying out, re-rendering, the 2D/3D switch) isn't gone: it
+    // is skipped only once it has been missing for 400ms
+    let missingSince: number | null = null;
+    let scrolled = false;
+    let observed: Element | null = null;
+    const ro = new ResizeObserver(() => measure());
     let frame = 0;
     const measure = (): void => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const now = find(step.target);
         if (!now) {
-          skip();
+          missingSince ??= Date.now();
+          if (Date.now() - missingSince >= 400) skip();
+          else setBox(null);
           return;
+        }
+        missingSince = null;
+        if (observed !== now) {
+          if (observed) ro.unobserve(observed);
+          ro.observe(now);
+          observed = now;
+        }
+        if (!scrolled) {
+          scrolled = true;
+          const r = now.getBoundingClientRect();
+          if (r.top < 0 || r.bottom > window.innerHeight) {
+            now.scrollIntoView({ block: r.height > window.innerHeight * 0.6 ? 'start' : 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+          }
         }
         const b = now.getBoundingClientRect();
         setBox((old) =>
@@ -120,8 +127,6 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       });
     };
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
     // smooth scrolling and late layout (the 3D table loading) move things without events
@@ -133,7 +138,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       window.removeEventListener('resize', measure);
       window.clearInterval(t);
     };
-  }, [i, step, steps, late]);
+  }, [i, step, steps]);
 
   // Esc closes the tour from anywhere but a field; the arrows and Enter move it only when focus
   // is on the card or on nothing in particular, so the rest of the page keeps its keys
@@ -144,14 +149,13 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       if (e.defaultPrevented || typingIn(e.target)) return;
       const target = e.target as Node | null;
       const ours = target === document.body || target === document.documentElement || (!!target && !!card.current?.contains(target));
-      // buttons and links don't use the arrows, and after the tour moves on by itself focus
-      // stays on the one the player pressed
+      // after the tour moves on by itself focus stays on the button the player pressed: its
+      // arrows still drive the tour (no other control's do)
       const onControl = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement;
       const arrow = e.key === 'ArrowRight' || e.key === 'ArrowLeft';
-      // (only a button or link inside what the step points at: the rest of the page keeps its keys)
-      const inTarget = !!target && !!step && !!find(step.target)?.contains(target);
+      const justPressed = !!target && target === pressed.current;
       if (e.key === 'Escape') onClose();
-      else if (!ours && !(arrow && onControl && inTarget)) return;
+      else if (!ours && !(arrow && justPressed)) return;
       else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !onControl)) go(1);
       else if (e.key === 'ArrowLeft') go(-1);
       else return;
@@ -159,7 +163,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go, onClose, step]);
+  }, [go, onClose]);
 
   // announce a step the player moved to by focusing the card
   useEffect(() => {
@@ -173,11 +177,15 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
   if (before.current === null) before.current = document.activeElement;
   useEffect(() => () => restoreFocus(before.current), []);
 
+  // which steps are on the page: looked up when the step or its box changes, not every render
+  // (a step that comes or goes elsewhere is picked up at the next measure)
+  const presentSteps = useMemo(() => steps.map((s, k) => k === i || !!find(s.target)), [steps, i, box]);
+
   if (!step) return null;
   // keep the light's edge on screen when the target is bigger than the window (the map)
   const light = box && clampToView(box);
-  // which steps' elements are on the page: looked up once per render
-  const present = steps.map((s, k) => k === i || !!find(s.target));
+  // which steps' elements are on the page (the current one counts while it lays out)
+  const present = presentSteps;
   const count = present.filter(Boolean).length;
   const at = present.slice(0, i + 1).filter(Boolean).length;
   const hasBack = present.slice(0, i).some(Boolean);
@@ -229,8 +237,9 @@ function clampToView(b: Box): CSSProperties {
 }
 
 /**
- * Below the target if there's room, else above it, else beside it, else at the screen edge
- * farther from the target's middle, so the card covers as little of what it points at as it can.
+ * Below the target if there's room, else above it, else beside it. Otherwise, on a narrow screen
+ * the edge away from the target's middle; on a wide one the bottom-right corner (a target that
+ * big is the map, and the top edge holds the header's controls).
  */
 function placeCard(box: Box | null): CSSProperties {
   const vh = window.innerHeight;

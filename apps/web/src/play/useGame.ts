@@ -441,7 +441,9 @@ export function useGame(id: number | null, signer: Signer | null) {
   };
   /** The Chancellor's advice, added once. */
   const addAdvice = (o: Order): void => {
-    setOrders((os) => (os.some((x) => JSON.stringify(x) === JSON.stringify(o)) ? os : [...os, o]));
+    // advice already in the list adds nothing, and isn't an edit
+    if (orders.some((x) => JSON.stringify(x) === JSON.stringify(o))) return;
+    setOrders((os) => [...os, o]);
     setOrderEdits((n) => n + 1);
   };
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));

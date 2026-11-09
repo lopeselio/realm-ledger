@@ -22,7 +22,7 @@ const STEPS: TourStep<GuideSignals>[] = [
     body: <p>Pick how many AI rivals and how many seasons, then press New campaign. The campaign is created on the NEAR testnet contract.</p>,
     hint: 'Press New campaign: the rest of the tour needs an open campaign.',
     next: 'Skip the table tour',
-    watch: (s) => s.campaign,
+    acted: (before, now) => now.campaign !== before.campaign,
   },
   {
     target: '[data-tour="map"]',
@@ -33,14 +33,9 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Click one of your provinces or your army.',
-    // a selection, or an order straight away (a march clears the selection); a primitive, so
-    // nothing changes between renders unless the player acted
-    watch: (s) => `${s.selected ?? ''}:${s.orderEdits}`,
-    moved: (from, to) => {
-      const [sa, ea] = String(from).split(':');
-      const [sb, eb] = String(to).split(':');
-      return (sb !== '' && sb !== sa) || Number(eb) > Number(ea);
-    },
+    // a selection (not deselecting, or a season turn clearing it), or an order straight away (a
+    // march clears the selection)
+    acted: (before, now) => (now.selected !== undefined && now.selected !== before.selected) || now.orderEdits > before.orderEdits,
   },
   {
     target: '[data-tour="orders"]',
@@ -51,8 +46,7 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Add or change an order to go on (or Next if you already have).',
-    watch: (s) => s.orderEdits,
-    moved: (from, to) => Number(to) > Number(from),
+    acted: (before, now) => now.orderEdits > before.orderEdits,
   },
   {
     target: '[data-tour="purse"]',
@@ -73,7 +67,7 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Press Seal orders to go on, or Next to look around first.',
-    watch: (s) => s.phase,
+    acted: (before, now) => now.phase !== before.phase,
   },
   {
     target: '[data-tour="status"]',
