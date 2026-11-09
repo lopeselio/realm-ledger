@@ -13,6 +13,7 @@ import { findSecret } from '../secrets.ts';
 import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
+import { Guide } from '../onboarding/Guide.tsx';
 
 /** The old address, /play.html?c=7, opens /play/7. */
 export function LegacyPlay() {
@@ -86,7 +87,10 @@ export function Play() {
           <p className="tagline">You rule the red realm. The others are AI rulers with their own NEAR accounts. Plan, talk, seal, and see who kept their word.</p>
         </div>
         <div className="header-right">
-          <Account game={game} signer={signer} setSigner={setSigner} />
+          <div className="header-tools">
+            <Guide signals={{ campaign: v?.id ?? null, selected, orders: orders.length, phase: v?.phase ?? null }} />
+            <Account game={game} signer={signer} setSigner={setSigner} />
+          </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s) => void start(r, s)} />}
         </div>
       </header>
