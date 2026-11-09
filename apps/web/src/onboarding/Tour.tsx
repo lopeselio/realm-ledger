@@ -3,7 +3,7 @@
 // itself when the player does the thing it asks for (the watched value changes).
 // The light doesn't block the page, so the player can act on what it points at.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { reducedMotion, typingIn } from './storage.ts';
+import { reducedMotion, restoreFocus, typingIn } from './storage.ts';
 
 export interface TourStep<S> {
   /** a CSS selector for the element to light up */
@@ -43,11 +43,15 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     if (!step) onClose();
   }, [step, onClose]);
 
+  // the card takes focus when the player moves the tour (and when it opens), not when it
+  // moves on by itself after they acted, so focus stays on the map or the button they used
+  const focusCard = useRef(true);
   const go = useCallback(
-    (dir: 1 | -1) => {
+    (dir: 1 | -1, manual = true) => {
       const n = firstPresent(steps, i + dir, dir);
       // nothing earlier to go back to: stay put
       if (dir === -1 && n < 0) return;
+      focusCard.current = manual;
       setI(n);
     },
     [steps, i],
@@ -71,15 +75,19 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
       start.current = { i, value: watched };
       return;
     }
-    if (!Object.is(start.current.value, watched)) go(1);
+    if (!Object.is(start.current.value, watched)) go(1, false);
   }, [i, step, watched, go]);
 
   // bring the target into view, then follow it as the page moves
   useLayoutEffect(() => {
     if (!step) return;
     const el = find(step.target);
-    if (!el) return;
+    if (!el) {
+      setBox(null);
+      return;
+    }
     const r = el.getBoundingClientRect();
+    setBox({ top: r.top, left: r.left, width: r.width, height: r.height });
     if (r.top < 0 || r.bottom > window.innerHeight) {
       el.scrollIntoView({ block: r.height > window.innerHeight * 0.6 ? 'start' : 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
     }
@@ -127,10 +135,17 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     return () => window.removeEventListener('keydown', onKey);
   }, [go, onClose]);
 
-  // announce each step to screen readers by moving focus to the card
+  // announce a step the player moved to by focusing the card
   useEffect(() => {
-    card.current?.focus({ preventScroll: true });
+    if (focusCard.current) card.current?.focus({ preventScroll: true });
+    focusCard.current = false;
   }, [i]);
+
+  // give focus back to what had it when the tour closes (Skip, Done or Esc); read at the
+  // first render, before the card takes focus
+  const before = useRef<Element | null>(null);
+  if (before.current === null) before.current = document.activeElement;
+  useEffect(() => () => restoreFocus(before.current), []);
 
   if (!step) return null;
   // keep the light's edge on screen when the target is bigger than the window (the map)
