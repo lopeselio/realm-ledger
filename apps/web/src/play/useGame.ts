@@ -19,10 +19,19 @@ export interface EnvoyDraft {
 
 const INTRO = 'Choose how many rivals and how long, then start. Each campaign is created onchain.';
 
+/** Whether two orders are the same order. */
+const sameOrder = (a: Order, b: Order): boolean => canonicalJson(a) === canonicalJson(b);
+
 export function useGame(id: number | null, signer: Signer | null) {
   const [view, setViewState] = useState<View | null>(null);
   const [before, setBefore] = useState<GameState | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  // orders the player added or changed (never a reset or a removal): for the walkthrough
+  const [orderEdits, setOrderEdits] = useState(0);
+  const [marches, setMarches] = useState(0);
+  // the player's own selections and seals, counted the same way (for the walkthrough)
+  const [selections, setSelections] = useState(0);
+  const [seals, setSeals] = useState(0);
   const [selected, setSelected] = useState<number | undefined>(undefined);
   const [busy, setBusyState] = useState(false);
   const [status, setStatusState] = useState<Status>({ text: INTRO, tone: 'info' });
@@ -363,7 +372,8 @@ export function useGame(id: number | null, signer: Signer | null) {
         after = await recheck(v, e);
         if (after.phase !== 'sealed') throw e;
       }
-      adopt(after);
+      // (counted only for the campaign on screen)
+      if (adopt(after)) setSeals((n) => n + 1);
       // the server keeps a seal an earlier attempt already put onchain
       if (posted || (after.yourSeal && after.yourSeal !== hash)) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
       else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);
@@ -425,19 +435,39 @@ export function useGame(id: number | null, signer: Signer | null) {
     if (!view || view.phase !== 'planning' || busyRef.current) return;
     if (selected !== undefined && armyAt(selected) && view.state.map.provinces[selected]!.neighbors.includes(p)) {
       const from = selected;
+      // the same march again changes nothing, and isn't an edit
+      if (!orders.some((o) => o.kind === 'march' && o.from === from && o.to === p)) {
+        setOrderEdits((n) => n + 1);
+        setMarches((n) => n + 1);
+      }
       setOrders((os) => [...os.filter((o) => !(o.kind === 'march' && o.from === from)), { kind: 'march', from, to: p }]);
       setSelected(undefined);
     } else {
-      setSelected(selected === p ? undefined : p);
+      const next = selected === p ? undefined : p;
+      // (the player's own province or army: what the walkthrough asks them to pick)
+      if (next !== undefined && (view.state.owner[p] === view.human || armyAt(p))) setSelections((n) => n + 1);
+      setSelected(next);
     }
   };
 
-  const addOrder = (o: Order): void => setOrders((os) => [...os, o]);
+  const addOrder = (o: Order): void => {
+    // (the same order again adds a copy, but isn't a change the walkthrough counts)
+    if (!orders.some((x) => sameOrder(x, o))) setOrderEdits((n) => n + 1);
+    setOrders((os) => [...os, o]);
+  };
   /** The Chancellor's advice, added once. */
-  const addAdvice = (o: Order): void => setOrders((os) => (os.some((x) => JSON.stringify(x) === JSON.stringify(o)) ? os : [...os, o]));
+  const addAdvice = (o: Order): void => {
+    const same = (x: Order): boolean => sameOrder(x, o);
+    // advice already in the list adds nothing, and isn't an edit; an advised march is a march
+    if (!orders.some(same)) {
+      setOrderEdits((n) => n + 1);
+      if (o.kind === 'march') setMarches((n) => n + 1);
+    }
+    setOrders((os) => (os.some(same) ? os : [...os, o]));
+  };
   const removeOrder = (i: number): void => setOrders((os) => os.filter((_, k) => k !== i));
 
-  return { view, before, orders, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
+  return { view, before, orders, orderEdits, marches, selections, seals, selected, busy, status, say, withBusy, armyAt, newCampaign, seal, forfeit, forfeitAt, giveTask, sendEnvoy, clickProvince, addOrder, addAdvice, removeOrder };
 }
 
 export type Game = ReturnType<typeof useGame>;

@@ -59,6 +59,12 @@ export function Play() {
     // armyAt reads the view, which is a dependency already
   }, [v, selected, orders]);
 
+  // what the walkthrough watches, rebuilt only when one of them changes
+  const guideSignals = useMemo(
+    () => ({ campaign: v?.id ?? null, orderEdits: game.orderEdits, marches: game.marches, selections: game.selections, seals: game.seals }),
+    [v?.id, game.orderEdits, game.marches, game.selections, game.seals],
+  );
+
   if (params.id !== undefined && id === null) return <Navigate to="/play" replace />;
 
   const title = !v
@@ -88,7 +94,7 @@ export function Play() {
         </div>
         <div className="header-right">
           <div className="header-tools">
-            <Guide signals={{ campaign: v?.id ?? null, selected, orders: orders.length, phase: v?.phase ?? null }} />
+            <Guide signals={guideSignals} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s) => void start(r, s)} />}

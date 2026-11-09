@@ -9,9 +9,14 @@ import { Welcome } from './Welcome.tsx';
 /** What the walkthrough watches to move on when the player acts. */
 export interface GuideSignals {
   campaign: number | null;
-  selected: number | undefined;
-  orders: number;
-  phase: string | null;
+  /** how many orders the player has added or changed (a reset or a removal doesn't count) */
+  orderEdits: number;
+  /** how many marches the player has ordered on the map (a market trade doesn't count) */
+  marches: number;
+  /** how many times the player has selected a province or army */
+  selections: number;
+  /** how many times the player has sealed */
+  seals: number;
 }
 
 const STEPS: TourStep<GuideSignals>[] = [
@@ -21,7 +26,8 @@ const STEPS: TourStep<GuideSignals>[] = [
     body: <p>Pick how many AI rivals and how many seasons, then press New campaign. The campaign is created on the NEAR testnet contract.</p>,
     hint: 'Press New campaign: the rest of the tour needs an open campaign.',
     next: 'Skip the table tour',
-    watch: (s) => s.campaign,
+    // a campaign opened (not one closing, or the view clearing while it reloads)
+    acted: (before, now) => now.campaign !== null && now.campaign !== before.campaign,
   },
   {
     target: '[data-tour="map"]',
@@ -32,7 +38,9 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Click one of your provinces or your army.',
-    watch: (s) => s.selected,
+    // the player selected something, or gave a march straight away (which clears the selection);
+    // deselecting, a season turn or a reload doesn't count
+    acted: (before, now) => now.selections > before.selections || now.marches > before.marches,
   },
   {
     target: '[data-tour="orders"]',
@@ -42,8 +50,8 @@ const STEPS: TourStep<GuideSignals>[] = [
         With your army selected, click a highlighted province to march. With one of your provinces selected, fortify, raise levies or build here. Orders list here; ✕ takes one back.
       </p>
     ),
-    hint: 'Add an order to go on.',
-    watch: (s) => s.orders,
+    hint: 'Add or change an order to go on (or Next if you already have).',
+    acted: (before, now) => now.orderEdits > before.orderEdits,
   },
   {
     target: '[data-tour="purse"]',
@@ -64,7 +72,8 @@ const STEPS: TourStep<GuideSignals>[] = [
       </p>
     ),
     hint: 'Press Seal orders to go on, or Next to look around first.',
-    watch: (s) => s.phase,
+    // the player sealed (not the view clearing, a season turning, or the campaign ending)
+    acted: (before, now) => now.seals > before.seals,
   },
   {
     target: '[data-tour="status"]',
