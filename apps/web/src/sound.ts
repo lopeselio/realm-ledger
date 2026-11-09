@@ -42,10 +42,18 @@ export function onMutedChange(l: (muted: boolean) => void): () => void {
   return () => listeners.delete(l);
 }
 
-/** The context to play on now, or null when muted, locked or unavailable. */
-function live(): AudioContext | null {
-  if (muted || !ctx || ctx.state !== 'running') return null;
-  return ctx;
+/**
+ * Plays on the audio context once it runs: a context just unlocked may still be waking (Safari,
+ * or a first tap outside the board), and a sound sent before then would be lost. Nothing plays
+ * when muted, never unlocked, or closed.
+ */
+function live(play: (c: AudioContext) => void): void {
+  const c = ctx;
+  if (muted || !c || c.state === 'closed') return;
+  if (c.state === 'running') return play(c);
+  c.resume()
+    .then(() => !muted && play(c))
+    .catch(() => undefined);
 }
 
 function envelope(c: AudioContext, at: number, peak: number, attack: number, decay: number): GainNode {
@@ -78,26 +86,22 @@ function tone(c: AudioContext, at: number, freq: number, type: OscillatorType, p
 
 /** A wax seal pressed: a soft low thud. */
 export function sealSound(): void {
-  const c = live();
-  if (!c) return;
-  tone(c, c.currentTime, 140, 'sine', 0.35, 0.25, 60);
+  live((c) => tone(c, c.currentTime, 140, 'sine', 0.35, 0.25, 60));
 }
 
 /** Marching: a few muffled drum beats. */
 export function marchSound(delay = 0): void {
-  const c = live();
-  if (!c) return;
-  for (let i = 0; i < 4; i++) {
-    const at = c.currentTime + delay + i * 0.2;
-    tone(c, at, 95, 'triangle', 0.22, 0.12, 55);
-  }
+  live((c) => {
+    for (let i = 0; i < 4; i++) tone(c, c.currentTime + delay + i * 0.2, 95, 'triangle', 0.22, 0.12, 55);
+  });
 }
 
 /** A clash of arms: a burst of filtered noise over a thump. */
 export function clashSound(delay = 0): void {
-  const c = live();
-  if (!c) return;
-  const at = c.currentTime + delay;
+  live((c) => clash(c, c.currentTime + delay));
+}
+
+function clash(c: AudioContext, at: number): void {
   const n = noise(c, 0.35);
   const band = c.createBiquadFilter();
   band.type = 'bandpass';
@@ -111,9 +115,9 @@ export function clashSound(delay = 0): void {
 
 /** A province changes hands: two bright bell notes. */
 export function captureSound(delay = 0): void {
-  const c = live();
-  if (!c) return;
-  const at = c.currentTime + delay;
-  tone(c, at, 660, 'sine', 0.18, 0.9);
-  tone(c, at + 0.12, 990, 'sine', 0.12, 0.9);
+  live((c) => {
+    const at = c.currentTime + delay;
+    tone(c, at, 660, 'sine', 0.18, 0.9);
+    tone(c, at + 0.12, 990, 'sine', 0.12, 0.9);
+  });
 }
