@@ -41,6 +41,12 @@ export interface Overlay {
   marks?: Set<number>;
 }
 
+/** Where a province sits on the flat map, in SVG units. */
+export function provinceCenter(s: GameState, id: number): [number, number] {
+  const p = s.map.provinces[id]!;
+  return center(p.q, p.r);
+}
+
 /** Renders the board for one state as SVG markup. */
 export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {}): void {
   const winter = s.season % 4 === 3 ? 0.35 : s.season % 4 === 2 ? 0.08 : 0;
