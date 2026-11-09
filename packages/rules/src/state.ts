@@ -98,11 +98,12 @@ export function viewFor(s: GameState, realm: number): GameState {
  * The season's events as one realm may see them: its own, and those in provinces it saw at the
  * start or the end of the season (`seen`). Treasury-revealing events of other realms (harvest,
  * upkeep, rejected orders) stay hidden; public ones (trades on the shared market, prices,
- * tribute, broken treaties, fallen realms, victory) are kept. The proof bundle keeps them all.
+ * tribute, fallen realms, victory) are kept, and a broken treaty if it involves this realm or
+ * happened in sight. Any other kind is hidden. The proof bundle keeps them all.
  */
 export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>): GameEvent[] {
   const sees = (...ps: (number | undefined)[]): boolean => ps.some((p) => p !== undefined && seen.has(p));
-  return events.filter((e) => {
+  return events.filter((e): boolean => {
     switch (e.kind) {
       case 'rejected':
       case 'harvest':
@@ -118,8 +119,20 @@ export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>)
         return e.realm === realm || e.from === realm || sees(e.province);
       case 'battle':
         return e.sides.some((x) => x.realm === realm) || sees(e.province, ...(e.border ?? []));
-      default:
+      // a betrayal is public (every ruler remembers it), but where it happened is only told if seen
+      case 'treaty-broken':
+        return e.realm === realm || e.against === realm || sees(e.province);
+      case 'trade':
+      case 'price':
+      case 'tribute':
+      case 'fallen':
+      case 'victory':
         return true;
+      default: {
+        // a new kind of event is hidden until it is listed here (the compiler asks)
+        const unknown: never = e;
+        return unknown && false;
+      }
     }
   });
 }

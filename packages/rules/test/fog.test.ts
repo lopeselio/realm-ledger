@@ -33,3 +33,26 @@ describe('the season as one realm sees it', () => {
     expect(eventsFor([border], 0, new Set([7]))).toHaveLength(0);
   });
 });
+
+describe('the season as one realm sees it: every kind', () => {
+  const t = { levies: 1, regulars: 0, mercs: 0 };
+  const zero = { crowns: 0, grain: 0, timber: 0, iron: 0, gold: 0 };
+  const seen = new Set([3]);
+  const cases: [GameEvent, boolean][] = [
+    [{ kind: 'retreated', realm: 1, from: 9, to: 3 }, true],
+    [{ kind: 'retreated', realm: 1, from: 8, to: 9 }, false],
+    [{ kind: 'destroyed', realm: 1, province: 3 }, true],
+    [{ kind: 'destroyed', realm: 1, province: 9 }, false],
+    [{ kind: 'destroyed', realm: 0, province: 9 }, true],
+    [{ kind: 'upkeep', realm: 1, paid: zero, deserted: t, spoiled: { grain: 0, timber: 0, iron: 0, gold: 0 } }, false],
+    [{ kind: 'tribute', from: 1, to: 2, amount: 3 }, true],
+    [{ kind: 'price', good: 'iron', from: 8, to: 9 }, true],
+    [{ kind: 'treaty-broken', realm: 1, against: 2, treaty: 'passage', province: 9 }, false],
+    [{ kind: 'treaty-broken', realm: 1, against: 0, treaty: 'peace', province: 9 }, true],
+    [{ kind: 'treaty-broken', realm: 1, against: 2, treaty: 'peace', province: 3 }, true],
+    [{ kind: 'victory', realm: 1, reason: 'last-winter', scores: [] }, true],
+  ];
+  it.each(cases)('%j: %s', (e, shown) => {
+    expect(eventsFor([e], 0, seen)).toHaveLength(shown ? 1 : 0);
+  });
+});
