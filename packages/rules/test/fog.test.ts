@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eventsFor, type GameEvent } from '../src/index.ts';
+import { eventFor, eventsFor, type GameEvent } from '../src/index.ts';
 
 const t = { levies: 1, regulars: 0, mercs: 0 };
 const purse = { crowns: 1, grain: 0, timber: 0, iron: 0, gold: 0 };
@@ -23,8 +23,9 @@ describe('the season as one realm sees it', () => {
   ];
 
   it('keeps your own events, what happened in sight, and public news; drops the rest', () => {
-    const kept = eventsFor(events, 0, new Set([2, 3, 4]));
-    expect(kept.map((e) => events.indexOf(e))).toEqual([1, 2, 4, 6, 7, 10, 12, 13]);
+    const seen = new Set([2, 3, 4]);
+    expect(events.flatMap((e, i) => (eventFor(e, 0, seen) ? [i] : []))).toEqual([1, 2, 4, 6, 7, 10, 12, 13]);
+    expect(eventsFor(events, 0, seen)).toHaveLength(8);
   });
 
   it('sees a border battle from either side of the border', () => {
@@ -65,3 +66,14 @@ describe('the season as one realm sees it: every kind', () => {
     expect(eventsFor([near], 0, seen)).toEqual([near]);
   });
 });
+
+describe('what a realm is told of where a rival came from', () => {
+  const t = { levies: 1, regulars: 0, mercs: 0 };
+  it('masks an origin out of sight, for a march or a retreat; never your own', () => {
+    const seen = new Set([3]);
+    expect(eventsFor([{ kind: 'retreated', realm: 1, from: 9, to: 3 }], 0, seen)).toEqual([{ kind: 'retreated', realm: 1, from: -1, to: 3 }]);
+    expect(eventsFor([{ kind: 'moved', realm: 1, from: 9, to: 3, troops: t }], 0, seen)[0]).toMatchObject({ from: -1 });
+    expect(eventsFor([{ kind: 'moved', realm: 0, from: 9, to: 8, troops: t }], 0, seen)[0]).toMatchObject({ from: 9 });
+  });
+});
+
