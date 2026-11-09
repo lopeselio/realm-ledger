@@ -93,6 +93,8 @@ export function useGame(id: number | null, signer: Signer | null) {
       await fn();
     } catch (e) {
       say((e as Error).message, 'error');
+      // a flow that failed settled nothing here, so no season it was about to show plays back later
+      setBefore(null);
     } finally {
       setBusy(false);
       if (!keepStage) setStage(null);
@@ -393,9 +395,11 @@ export function useGame(id: number | null, signer: Signer | null) {
         if (after.phase !== 'sealed') throw e;
       }
       // (counted only for the campaign on screen)
-      if (adopt(after)) setSeals((n) => n + 1);
-      // the seal is posted: now it sounds like one
-      sealSound();
+      // the seal is posted: now it sounds like one (if its campaign is still on screen)
+      if (adopt(after)) {
+        setSeals((n) => n + 1);
+        sealSound();
+      }
       // the server keeps a seal an earlier attempt already put onchain
       if (posted || (after.yourSeal && after.yourSeal !== hash)) say('Your seal from an earlier attempt was already onchain, so the orders you sealed then stand, not the ones on screen. Revealing…');
       else say(`Sealed ${hash.slice(0, 16)}… Revealing…`);

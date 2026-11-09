@@ -78,12 +78,16 @@ function envelope(c: AudioContext, at: number, peak: number, attack: number, dec
   return g;
 }
 
+// one buffer of white noise, made once and replayed for every clash
+let noiseBuf: AudioBuffer | null = null;
 function noise(c: AudioContext, seconds: number): AudioBufferSourceNode {
-  const buf = c.createBuffer(1, Math.ceil(c.sampleRate * seconds), c.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  if (!noiseBuf || noiseBuf.sampleRate !== c.sampleRate) {
+    noiseBuf = c.createBuffer(1, Math.ceil(c.sampleRate * seconds), c.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
   const src = c.createBufferSource();
-  src.buffer = buf;
+  src.buffer = noiseBuf;
   return src;
 }
 
