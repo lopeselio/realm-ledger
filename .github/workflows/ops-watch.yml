@@ -1,0 +1,56 @@
+name: ops-watch
+# Every 3 hours: will the hosted game keep working through judging? /api/health reports the
+# contract's free storage NEAR (it pays for every campaign's storage), the referee's NEAR and every
+# seat's gas (NEAR and key allowance). If it isn't `ok`, or the API doesn't answer, open an issue
+# labelled `ops` (or comment on the open one) so the owner hears about it.
+on:
+  schedule:
+    - cron: '41 */3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: ops-watch
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URL: ${{ vars.DEMO_URL || 'https://realm-ledger.vercel.app' }}
+    steps:
+      - name: Read /api/health
+        id: read
+        run: |
+          if ! curl -fsS --retry 3 --max-time 30 "$URL/api/health" > health.json; then
+            echo "- **alert** api: $URL/api/health didn't answer" > findings.md
+          else
+            cat health.json; echo
+            jq -r 'if (.level // "unknown") == "ok" then empty
+                   elif (.checks // []) == [] then "- **\(.level // "unknown")** health: no checks reported"
+                   else .checks[] | "- **\(.level)** \(.subject): \(.text)" end' health.json > findings.md
+          fi
+          cat findings.md
+          echo "found=$( [ -s findings.md ] && echo 1 || echo 0 )" >> "$GITHUB_OUTPUT"
+      - name: Open or update the issue
+        if: steps.read.outputs.found == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create ops --color d93f0b --description 'The hosted game needs attention' 2>/dev/null || true
+          {
+            echo "Health check on $(date -u '+%Y-%m-%d %H:%M UTC') ([run]($RUN_URL), [health]($URL/api/health)):"
+            echo
+            cat findings.md
+            echo
+            echo 'Contract storage low: send testnet NEAR to the contract account. Seat or referee low on gas: top it up (or make a new key with a larger allowance).'
+          } > body.md
+          issue=$(gh issue list --label ops --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$issue" ]; then gh issue comment "$issue" --body-file body.md
+          else gh issue create --title 'Ops: the hosted game needs attention' --label ops --body-file body.md; fi
+      - name: Fail the run so it shows red
+        if: steps.read.outputs.found == '1'
+        run: exit 1
