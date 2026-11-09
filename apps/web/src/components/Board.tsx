@@ -177,9 +177,10 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
       <span aria-hidden="true">{muted ? '🔇' : '🔊'}</span> Sound
     </button>
   );
+  // the sound switch only where seasons play back (not on Watch)
   const toggle = (
     <span className="board-tools">
-      {sound}
+      {replay !== undefined && sound}
       {!unavailable && (
         <button type="button" className="view-toggle" aria-pressed={mode === '3d'} onClick={toggleMode}>
           {mode === '3d' ? 'Flat map' : '3D table'}

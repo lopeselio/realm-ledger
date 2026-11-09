@@ -273,6 +273,8 @@ export function useGame(id: number | null, signer: Signer | null) {
   const forfeit = async (): Promise<void> => {
     const v = viewRef.current;
     if (!v || v.phase !== 'sealed') return;
+    // the season plays back with sound: wake it on this click
+    unlockSound();
     await withBusy('Settling the season without your orders; every AI ruler reveals…', async () => {
       endSeasonFrom(v.state);
       let revealedElsewhere = false;
