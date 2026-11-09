@@ -65,13 +65,17 @@ export function Play() {
   const before = game.before;
   // when each season was first seen settled, so a later view (an envoy's reply) doesn't make it fresh again
   const seenAt = useRef(new Map<string, number>());
+  // built when the season or the before-state changes, not on every later view (an envoy's reply)
+  const replayKey = v && before && before.season === v.state.season - 1 ? `${v.id}:${v.state.season}` : null;
   const replay = useMemo(() => {
-    if (!v || !before || before.season !== v.state.season - 1) return null;
-    const key = `${v.id}:${v.state.season}`;
-    if (!seenAt.current.has(key)) seenAt.current.set(key, Date.now());
-    // only what your realm can see plays out (the whole map once the campaign is over)
-    return { key, at: seenAt.current.get(key)!, script: scriptFor(v.lastEvents, v.phase === 'over' ? undefined : visibleProvinces(v.state, v.human)) };
-  }, [v, before]);
+    if (!v || !before || !replayKey) return null;
+    if (!seenAt.current.has(replayKey)) seenAt.current.set(replayKey, Date.now());
+    // only what your realm could see at the start of the season or can see now (so your own
+    // losses far from home still play); the whole map once the campaign is over
+    const seen = v.phase === 'over' ? undefined : new Set([...visibleProvinces(before, v.human), ...visibleProvinces(v.state, v.human)]);
+    return { key: replayKey, at: seenAt.current.get(replayKey)!, script: scriptFor(v.lastEvents, seen) };
+    // v is read for the season it settled; later views of the same season don't change the replay
+  }, [replayKey, before]);
 
   // what the walkthrough watches, rebuilt only when one of them changes
   const guideSignals = useMemo(
