@@ -675,12 +675,16 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
  * wallet's only after that wallet's own onchain `forfeit`, a guest seat's once the reveal
  * window has closed. Orders revealed onchain always count instead.
  */
-export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false, onlySeason?: number): Promise<GameEvent[]> {
+/**
+ * Settles the sealed season. Returns nothing: the season's events reach the player only through
+ * publicView, fogged.
+ */
+export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false, onlySeason?: number): Promise<void> {
   return locked(id, async () => {
     const h = get(id);
     // the sweep settles only the season it watched, still sealed; if the player finished it
     // meanwhile, or a later one is open, there's nothing for the sweep to do
-    if (onlySeason !== undefined && (h.state.season !== onlySeason || h.phase !== 'sealed')) return [];
+    if (onlySeason !== undefined && (h.state.season !== onlySeason || h.phase !== 'sealed')) return;
     if (h.phase !== 'sealed') throw new GameError('nothing sealed to reveal');
     const before = h.state;
 
@@ -921,9 +925,11 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     });
     h.state = state;
     h.lastEvents = events;
-    h.lastSeen = [...new Set([...visibleProvinces(before, HUMAN), ...visibleProvinces(state, HUMAN)])];
     // workers deliver; buyers check the work against the resolved season and pay or refund
     const refunds = await closeJobs(h, state, before.season);
+    // what the player saw of this season: its start and end, and where its spies reported from
+    const spied = h.reports.filter((x) => x.season === before.season && x.passed).map((x) => x.report.province);
+    h.lastSeen = [...new Set([...visibleProvinces(before, HUMAN), ...visibleProvinces(state, HUMAN), ...spied])];
     for (const d of refunds) h.state = applyDeal(h.state, d);
     h.pending = { treaties: [], deals: refunds, jobs: [], ai: [] };
     h.phase = 'planning';
@@ -931,7 +937,6 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     const over = state.winner !== null || !state.realms[HUMAN]!.alive;
     if (over) await finish(h);
     await save(h);
-    return events;
   });
 }
 
@@ -1158,6 +1163,8 @@ export function publicView(id: number) {
   const h = get(id);
   const view = viewFor(h.state, HUMAN);
   const over = h.phase === 'over';
+  // saves from before lastSeen: what the player sees now
+  const lastSeen = h.lastSeen ?? [...visibleProvinces(h.state, HUMAN)];
   return {
     id: h.id,
     contract: config.contract,
@@ -1167,7 +1174,9 @@ export function publicView(id: number) {
     // rivals' agendas and personalities stay hidden until the campaign ends
     state: over ? h.state : view,
     // what happened in the fog stays there until the campaign ends; the proof bundle keeps it all
-    lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(h.lastSeen ?? visibleProvinces(h.state, HUMAN))),
+    lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)),
+    /** the provinces the player saw of the last settled season (the board plays back only these); null once it's over */
+    lastSeen: over ? null : lastSeen,
     envoys: h.envoys.map((e) => ({
       ...e,
       ...(e.signed !== undefined ? { verified: checkReply(h.bundle.replies[e.signed] as SignedReply).ok } : {}),
