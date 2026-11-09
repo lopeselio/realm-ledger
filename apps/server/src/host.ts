@@ -673,11 +673,8 @@ export async function sealSeason(id: number, seal: string): Promise<void> {
  * Reveals every seal and resolves the season. With `forfeit`, your sealed orders are given up
  * (your realm does nothing this season), for when the browser holding them is gone: a
  * wallet's only after that wallet's own onchain `forfeit`, a guest seat's once the reveal
- * window has closed. Orders revealed onchain always count instead.
- */
-/**
- * Settles the sealed season. Returns nothing: the season's events reach the player only through
- * publicView, fogged.
+ * window has closed. Orders revealed onchain always count instead. Returns nothing: the
+ * season's events reach the player only through publicView, fogged.
  */
 export async function revealSeason(id: number, orders: OrderSet | null, salt: string | null, forfeit = false, onlySeason?: number): Promise<void> {
   return locked(id, async () => {

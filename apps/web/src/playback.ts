@@ -1,7 +1,7 @@
 // A settled season, played out on the board: armies march, battles flash, the beaten fall back
 // or fall, and captured provinces raise their new colours. The board already shows the season's
 // end; this is a short replay over it, timed the same on the 3D table and the flat map, with sound.
-import type { GameEvent, GameState } from '@realm-ledger/rules';
+import { seesEvent, type GameEvent, type GameState } from '@realm-ledger/rules';
 import { colorOf, provinceCenter } from './map.ts';
 import { captureSound, clashSound, marchSound } from './sound.ts';
 
@@ -33,23 +33,21 @@ export const TIMING = {
 export const FRESH_MS = 4000;
 
 /**
- * The season's events as a playback. With `visible` (the provinces your realm `me` sees), only
- * what happens there is shown: your own marches, others' marches that arrive in sight (one seen
- * leaving into the fog isn't drawn, so its destination stays hidden), and battles, losses and
- * captures in sight. Elements wait hidden until their moment (fill 'forwards', not 'both').
+ * The season's events as a playback. With `visible` (the provinces your realm `me` saw), only
+ * what it saw plays, by the same rule as the chronicle (`seesEvent`). Elements wait hidden until
+ * their moment (fill 'forwards', not 'both').
  */
-export function scriptFor(events: GameEvent[], visible?: Set<number>, me?: number): SeasonScript {
+export function scriptFor(events: GameEvent[], visible?: Set<number>, me = -2): SeasonScript {
   const sc: SeasonScript = { moves: [], battles: [], retreats: [], losses: [], captures: [] };
   const battles = new Set<number>();
-  const seen = (...ps: number[]): boolean => !visible || ps.some((p) => visible.has(p));
-  const arrives = (realm: number, to: number): boolean => realm === me || seen(to);
   for (const e of events) {
-    if (e.kind === 'moved') arrives(e.realm, e.to) && sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
+    if (visible && !seesEvent(e, me, visible)) continue;
+    if (e.kind === 'moved') sc.moves.push({ realm: e.realm, from: e.from, to: e.to });
     // a border clash (two armies swapping provinces) flashes at the province it was named for
-    else if (e.kind === 'battle') seen(e.province, ...(e.border ?? [])) && battles.add(e.province);
-    else if (e.kind === 'retreated') arrives(e.realm, e.to) && sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
-    else if (e.kind === 'destroyed') seen(e.province) && sc.losses.push({ realm: e.realm, province: e.province });
-    else if (e.kind === 'captured') seen(e.province) && sc.captures.push({ realm: e.realm, province: e.province });
+    else if (e.kind === 'battle') battles.add(e.province);
+    else if (e.kind === 'retreated') sc.retreats.push({ realm: e.realm, from: e.from, to: e.to });
+    else if (e.kind === 'destroyed') sc.losses.push({ realm: e.realm, province: e.province });
+    else if (e.kind === 'captured') sc.captures.push({ realm: e.realm, province: e.province });
   }
   sc.battles = [...battles];
   return sc;
