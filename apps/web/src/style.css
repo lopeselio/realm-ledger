@@ -217,3 +217,64 @@ h3.sub { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem;
 .continue li { padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .continue .meta { font-size: 0.82rem; color: var(--ink-soft); }
 .notfound { max-width: 40rem; margin: 15vh auto; padding: 0 16px; text-align: center; }
+
+/* ---------- onboarding: welcome, walkthrough, how to play ---------- */
+.header-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.ob-help-btn { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.ob-help-btn span { display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 50%; border: 1px solid var(--brass); color: var(--brass); font-weight: 700; font-size: 0.85em; }
+.ob-scrim { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(10, 7, 5, 0.72); }
+.ob-card {
+  background: linear-gradient(180deg, var(--parchment), var(--parchment-2));
+  color: var(--ink);
+  border-radius: 10px;
+  border: 1px solid var(--brass-dim);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  padding: 18px 20px 16px;
+  outline: none;
+}
+.ob-card h2 { font-size: 1.55rem; color: var(--ink); margin-bottom: 6px; }
+.ob-card h3 { font-family: var(--font-display); font-weight: 400; font-size: 1.1rem; margin: 14px 0 4px; }
+.ob-card p { margin: 0 0 8px; }
+.ob-card code { font-family: var(--font-mono); font-size: 0.82rem; }
+.ob-card .red { color: #a52a1f; }
+.ob-kicker { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brass-dim); margin: 0 0 4px !important; }
+.ob-body { font-size: 0.95rem; }
+.ob-beats, .ob-list { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 5px; font-size: 0.93rem; }
+.ob-note, .ob-hint { font-size: 0.85rem; color: var(--ink-soft); }
+.ob-hint { font-style: italic; }
+.ob-card button { color: var(--ink); background: rgba(255, 255, 255, 0.55); border-color: rgba(43, 33, 24, 0.3); padding: 6px 12px; font-size: 0.92rem; }
+.ob-card button:hover { border-color: var(--ink); }
+.ob-card button.primary { background: #7a1f16; color: var(--parchment); border-color: #7a1f16; font-weight: 700; }
+.ob-card button.primary:hover { background: #962a1f; }
+.ob-card .ob-skip { background: none; border-color: transparent; color: var(--ink-soft); padding-left: 4px; }
+.ob-card .ob-skip:hover { text-decoration: underline; border-color: transparent; }
+.ob-nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.ob-grow { flex: 1; }
+
+.ob-welcome { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; }
+.ob-welcome .ob-body { min-height: 11.5em; }
+.ob-dots { display: flex; gap: 8px; justify-content: center; margin-top: 6px; }
+.ob-card .ob-dots button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 1px solid var(--brass-dim); background: transparent; }
+.ob-card .ob-dots button.on { background: var(--brass-dim); }
+
+.ob-help { width: min(620px, 100%); max-height: calc(100vh - 32px); overflow: auto; }
+.ob-help-head { display: flex; justify-content: space-between; align-items: center; }
+.ob-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+.ob-card .ob-close { padding: 2px 9px; }
+
+.ob-tour { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+.ob-light {
+  position: fixed;
+  border: 2px solid var(--brass);
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(10, 7, 5, 0.55), 0 0 24px rgba(201, 162, 39, 0.6);
+  transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+.ob-mark { position: fixed; pointer-events: auto; max-height: calc(100vh - 32px); overflow: auto; }
+.ob-mark h2 { font-size: 1.3rem; }
+@media (prefers-reduced-motion: reduce) { .ob-light { transition: none; } }
+@media (max-width: 560px) {
+  .ob-card { padding: 14px 14px 12px; }
+  .ob-welcome .ob-body { min-height: 0; }
+  .header-right { justify-items: stretch; }
+}
