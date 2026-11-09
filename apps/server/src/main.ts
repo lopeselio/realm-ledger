@@ -4,6 +4,9 @@ import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
 import { confirmTreaty, createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
+import { healthMonitor } from './health.ts';
+
+const health = healthMonitor();
 
 // Small JSON API for the game. No framework: a handful of routes.
 //   GET  /api/health
@@ -63,7 +66,9 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === 'OPTIONS') return send(res, 204, null);
   if (parts[0] !== 'api') return send(res, 404, { error: 'not found' });
 
-  if (parts[1] === 'health') return send(res, 200, { ok: true, contract: config.contract, model: config.nearAi.model, nearAi: nearAiEnabled() });
+  // Always 200 while the server answers (so a probe never restarts it over a balance); `level` says
+  // whether the chain side will last: the contract's free storage NEAR, the referee, every seat's gas.
+  if (parts[1] === 'health') return send(res, 200, { ...(await health()), model: config.nearAi.model, nearAi: nearAiEnabled() });
 
   if (parts[1] !== 'campaigns') return send(res, 404, { error: 'not found' });
   if (parts.length === 2) {
