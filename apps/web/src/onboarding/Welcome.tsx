@@ -114,19 +114,18 @@ export function Welcome({ onClose, onTour }: { onClose: () => void; onTour: () =
         <div className="ob-body" aria-live="polite">
           {slide.body}
         </div>
-        <div className="ob-dots" role="tablist" aria-label="Welcome cards">
+        <nav className="ob-dots" aria-label="Welcome cards">
           {SLIDES.map((s, k) => (
             <button
               key={k}
               type="button"
-              role="tab"
-              aria-selected={k === i}
+              aria-current={k === i ? 'step' : undefined}
               aria-label={`Card ${k + 1}: ${s.title}`}
               className={k === i ? 'on' : ''}
               onClick={() => setI(k)}
             />
           ))}
-        </div>
+        </nav>
         <div className="ob-nav">
           <button type="button" className="ob-skip" onClick={onClose}>
             Skip
