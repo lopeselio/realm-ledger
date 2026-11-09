@@ -314,15 +314,15 @@ button.target.bad { border-left-color: var(--bad); }
 
 /* ---- board tools: sound and view ---- */
 .board-tools { display: inline-flex; gap: 6px; }
-.map-wrap > svg.playback { position: absolute; pointer-events: none; }
+svg.playback { position: absolute; pointer-events: none; }
 
-/* ---- the flat map's zoom ---- */
-.map-wrap { overflow: hidden; }
+/* ---- the flat map's zoom: the map is clipped to its frame, the hover tip isn't ---- */
+.map-clip { position: relative; overflow: hidden; }
 .zoom-tools { position: absolute; right: 8px; bottom: 8px; display: grid; gap: 6px; z-index: 2; }
 .zoom-tools button { width: 40px; height: 40px; padding: 0; font-size: 1.3rem; line-height: 1; background: rgba(23, 17, 13, 0.85); }
 .zoom-tools button:disabled { opacity: 0.4; }
 
-/* ---- phones: the move under your thumb ---- */
+/* ---- phones: the move under your thumb (the same query as PHONE_QUERY in Board.tsx) ---- */
 .phone-dock { display: none; }
 @media (max-width: 640px), (pointer: coarse) and (max-width: 900px) {
   .masthead { padding: 12px 16px 6px; gap: 10px; }

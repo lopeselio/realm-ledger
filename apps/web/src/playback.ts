@@ -72,7 +72,8 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
   layer.setAttribute('viewBox', svg.getAttribute('viewBox') ?? '');
   layer.setAttribute('class', 'playback');
   layer.setAttribute('aria-hidden', 'true');
-  // laid exactly over the map, inside the same positioned wrapper, and kept there if the page reflows
+  // laid exactly over the map, inside the same positioned wrapper, and kept there each frame while
+  // it plays (a reflow, or the map panned or pinched: a transform no observer reports)
   const wrap = svg.parentElement!;
   const place = (): void => {
     const box = svg.getBoundingClientRect();
@@ -80,9 +81,10 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
     Object.assign(layer.style, { left: `${box.left - parent.left - wrap.clientLeft}px`, top: `${box.top - parent.top - wrap.clientTop}px`, width: `${box.width}px`, height: `${box.height}px` });
   };
   place();
-  const follow = new ResizeObserver(place);
-  follow.observe(svg);
-  follow.observe(wrap);
+  let frame = requestAnimationFrame(function track() {
+    place();
+    frame = requestAnimationFrame(track);
+  });
   svg.after(layer);
   const add = (tag: string, attrs: Record<string, string | number>, text?: string): SVGElement => {
     const el = document.createElementNS(SVG, tag);
@@ -147,7 +149,7 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
   }
   const stop = (): void => {
     window.clearTimeout(timer);
-    follow.disconnect();
+    cancelAnimationFrame(frame);
     layer.remove();
   };
   const timer = window.setTimeout(stop, TIMING.capture + TIMING.captureFor + 100);
