@@ -1,6 +1,7 @@
 // The season at a glance: the standing of every realm, where ending the season has got to,
 // and what a march would meet.
-import { forecastMarch, type Forecast, type GameState, type Order, type Troops } from '@realm-ledger/rules';
+import { useMemo } from 'react';
+import { forecastMarch, friendly, pickTroops, plannedMarches, type Forecast, type ForecastSide, type GameState, type Order } from '@realm-ledger/rules';
 import type { View } from '../api.ts';
 import { REALM_COLORS } from '../map.ts';
 import type { Game } from './useGame.ts';
@@ -44,12 +45,14 @@ const STEPS = [
 /** Plan → Seal → Reveal → Resolve, with the step the season is on. */
 export function TurnSteps({ game, v }: { game: Game; v: View }) {
   if (v.phase === 'over') return null;
-  const at = game.stage ?? (v.phase === 'sealed' ? 'reveal' : 'plan');
+  // a flow ending another campaign's season doesn't move this one's steps
+  const running = game.stage?.campaign === v.id ? game.stage.step : null;
+  const at = running ?? (v.phase === 'sealed' ? 'reveal' : 'plan');
   const idx = STEPS.findIndex(([k]) => k === at);
   return (
     <ol className="turn-steps" aria-label="Ending the season">
       {STEPS.map(([k, label], i) => (
-        <li key={k} className={i < idx ? 'done' : i === idx ? `now${game.busy ? ' working' : ''}` : ''} aria-current={i === idx ? 'step' : undefined}>
+        <li key={k} className={i < idx ? 'done' : i === idx ? `now${running ? ' working' : ''}` : ''} aria-current={i === idx ? 'step' : undefined}>
           {label}
         </li>
       ))}
@@ -57,47 +60,46 @@ export function TurnSteps({ game, v }: { game: Game; v: View }) {
   );
 }
 
-const troopsOf = (a: Troops): Troops => ({
-  levies: a.levies,
-  regulars: a.regulars,
-  mercs: a.mercs,
-});
-
 /** A short reading of a forecast: the odds, the powers, and what helps the defender. */
 export function forecastText(s: GameState, f: Forecast): string {
-  if (f.unopposed) {
-    const owner = s.owner[f.province];
-    if (owner === f.sides[0]!.realm) return 'your own province';
-    return owner === -1 ? 'unopposed: an empty province' : 'unguarded: taken if nobody else marches in';
-  }
   const [me, ...them] = f.sides;
+  if (f.unopposed) {
+    const owner = s.owner[f.province]!;
+    if (owner === me!.realm) return 'your own province';
+    if (owner === -1) return 'unopposed: an empty province';
+    return friendly(s, owner, me!.realm) ? 'a friendly realm’s province: you pass through, it isn’t taken' : 'unguarded: taken if nobody else marches in';
+  }
   const d = f.defence;
   const why = [d.terrainBonus ? `${d.terrain} +${d.terrainBonus}` : '', d.fortBonus ? `fort +${d.fortBonus}` : '', d.riverBonus ? `river +${d.riverBonus}` : ''].filter(Boolean);
   const defender = them.find((x) => x.defending);
   const supply = me!.outOfSupply ? ' · you are out of supply −2' : '';
-  return `${f.winPct}% to win · you ${me!.power[0]}–${me!.power[1]} vs ${them.map((x) => `${x.power[0]}–${x.power[1]}`).join(', ')}${
-    defender && why.length ? ` · defender ${why.join(', ')}` : ''
-  }${supply}`;
+  const range = (x: ForecastSide): string => `${x.ally ? 'ally ' : ''}${x.power[0]}–${x.power[1]}`;
+  return `${f.winPct}% to win · you ${range(me!)} vs ${them.map(range).join(', ')}${defender && why.length ? ` · defender ${why.join(', ')}` : ''}${supply}`;
 }
 
-/** The forecast of a march order on screen, or null for other orders. */
-export function marchForecast(v: View, o: Order): Forecast | null {
-  if (o.kind !== 'march') return null;
-  const army = v.state.armies.find((a) => a.realm === v.human && a.province === o.from);
-  if (!army) return null;
-  return forecastMarch(v.state, v.human, o.troops ? { ...troopsOf(army), ...o.troops } : troopsOf(army), o.to);
+/** What your march orders meet, by the province they march into (marches into one province fight together). */
+export function useMarchForecasts(v: View, orders: Order[]): Map<number, Forecast> {
+  return useMemo(() => {
+    const out = new Map<number, Forecast>();
+    for (const [to, troops] of plannedMarches(v.state, v.human, orders)) out.set(to, forecastMarch(v.state, v.human, troops, to));
+    return out;
+  }, [v, orders]);
 }
 
 /** Where the selected army can march, each with what it would meet. Tapping one orders it. */
 export function MarchTargets({ game, v, from }: { game: Game; v: View; from: number }) {
   const s = v.state;
   const army = game.armyAt(from);
+  // what this army would meet in each neighbour, marching alone; worked out once per army and state
+  const targets = useMemo(
+    () => (army ? s.map.provinces[from]!.neighbors.map((to) => ({ to, f: forecastMarch(s, v.human, pickTroops(army), to) })) : []),
+    [s, v.human, from, army],
+  );
   if (!army) return null;
   const off = v.phase !== 'planning' || game.busy;
   return (
     <ul className="targets" aria-label="March to">
-      {s.map.provinces[from]!.neighbors.map((to) => {
-        const f = forecastMarch(s, v.human, troopsOf(army), to);
+      {targets.map(({ to, f }) => {
         const tone = f.unopposed ? 'safe' : f.winPct >= 67 ? 'good' : f.winPct >= 34 ? 'even' : 'bad';
         return (
           <li key={to}>
