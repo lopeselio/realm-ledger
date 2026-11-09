@@ -178,9 +178,13 @@ const errText = (e: unknown): string => `${(e as Error)?.name ?? ''}: ${String((
 /** The signing key can't sign at all: out of gas allowance, or gone (near-api-js 7 wording). */
 // (not "… does not exist at block height", which a lagging RPC says of a key added a moment ago)
 const KEY_FAILURE = /Not enough allowance for access key|NotEnoughAllowance|Access key \S+ does not exist on account|AccessKeyNotFound/;
+/** The signer's account can't pay for its transaction: only a reason to let the referee sign. */
+const CANT_PAY = /Not enough balance for|NotEnoughBalance/;
 /** The signing key may not make this call (wrong method or contract): it never will. */
 const METHOD_NOT_ALLOWED = /does not allow method|MethodNameMismatch|ReceiverMismatch|receiver .* does not match|InvalidAccessKey/;
 export const isKeyFailure = (e: unknown): boolean => KEY_FAILURE.test(errText(e));
+/** A seat whose account is too poor to pay for its own transaction (not counted as permanent). */
+export const cantPay = (e: unknown): boolean => CANT_PAY.test(errText(e));
 export const isMethodNotAllowed = (e: unknown): boolean => METHOD_NOT_ALLOWED.test(errText(e));
 
 const hex = (n = 32): string => randomBytes(n).toString('hex');
@@ -231,16 +235,16 @@ export function reconcileAll(): void {
 }
 
 /** Seasons the sweep failed to settle: how often, and whether it gave up on them. */
-const sweepFailures = new Map<string, { tries: number; notKept: number; givenUp: boolean }>();
+const sweepFailures = new Map<string, { tries: number; notKept: number; attempts: number; givenUp: boolean }>();
 let sweepRunning = false;
 
 /**
- * Settles seasons a wallet revealed onchain but nobody finished: a wallet's revealed orders
- * are kept onchain at the contract's expense until its season settles, so an abandoned
- * campaign would otherwise hold them for good. Only once the season's reveal window has
- * closed (forfeitOpensAt, from the onchain deadline, so restarts don't matter), so a player
- * still revealing finishes the season themselves. A failed season is tried again at the next
- * sweep. Runs in the background; a sweep that finds one still running does nothing.
+ * Settles seasons nobody finished, so an abandoned campaign doesn't hold contract storage or
+ * stay sealed for good. A wallet's: once its reveal window has closed, with the orders it
+ * revealed onchain (kept onchain at the contract's expense until then) or without them if it
+ * forfeited onchain. A guest's: a further full season after the window, with the orders the
+ * server kept, or without them; at most three per sweep. Runs in the background; a sweep that
+ * finds one still running does nothing.
  */
 export async function sweepAbandoned(): Promise<void> {
   if (sweepRunning) return;
@@ -252,27 +256,56 @@ export async function sweepAbandoned(): Promise<void> {
       const h = campaigns.get(id!);
       if (!h || h.phase !== 'sealed' || h.state.season !== season) sweepFailures.delete(k);
     }
-    for (const h of [...campaigns.values()]) {
-      if (h.phase !== 'sealed' || !h.player) continue;
+    let guestsTried = 0;
+    // wallets, then guests with the fewest failed attempts (of any kind) first, so a few that keep
+    // failing can't crowd out the rest
+    const attempts = (h: Hosted): number => sweepFailures.get(`${h.id}:${h.state.season}`)?.attempts ?? 0;
+    const all = [...campaigns.values()];
+    const order = [...all.filter((h) => h.player), ...all.filter((h) => !h.player).sort((a, b) => attempts(a) - attempts(b))];
+    for (const h of order) {
+      if (h.phase !== 'sealed') continue;
       const season = h.state.season;
       const key = `${h.id}:${season}`;
       if (sweepFailures.get(key)?.givenUp) continue;
+      // a few guest seasons per sweep: a backlog of old demo campaigns mustn't drain the referee
+      // in one go (checked before any chain read)
+      if (!h.player && guestsTried >= 3) continue;
       try {
-        const [c, rec] = await Promise.all([
-          view<{ season: number; seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id }),
-          view<{ revealed: boolean }>('get_seal', { campaign: h.id, season, realm: HUMAN }),
-        ]);
+        const c = await view<{ season: number; seal_deadline_ms: number; season_ms: number }>('get_campaign', { campaign: h.id });
         if (!c) continue;
         // the chain settled it already (we crashed before saving): finish recording it
         const moved = c.season > season;
-        // only once the reveal window has closed: a player still revealing gets to finish it
-        if (!moved && (!rec?.revealed || Date.now() < forfeitOpensAt(c))) continue;
-        console.log(`campaign ${h.id}: settling season ${season}, revealed onchain but not finished`);
-        await revealSeason(h.id, null, null, false, season);
+        // a wallet once the reveal window has closed; a guest a further full season later, so a
+        // guest coming back late still gets to finish
+        const readyAt = forfeitOpensAt(c) + (h.player ? 0 : c.season_ms);
+        if (!moved && Date.now() < readyAt) continue;
+        if (h.player) {
+          // a wallet: settle with its orders if it revealed them onchain, or without them if it
+          // forfeited them onchain (only the wallet can give them up)
+          const where = { campaign: h.id, season, realm: HUMAN };
+          const [rec, declared] = await Promise.all([view<{ revealed: boolean }>('get_seal', where), view<boolean>('get_forfeit', where).catch(() => null)]);
+          if (!moved && !rec?.revealed && !declared) {
+            if (declared === null) console.warn(`sweep ${h.id}: couldn't read whether the wallet forfeited; trying again next sweep`);
+            continue;
+          }
+          const why = moved ? 'already settled onchain' : rec?.revealed ? 'revealed onchain' : 'forfeited onchain';
+          console.log(`campaign ${h.id}: recording season ${season} (${why}) that nobody finished`);
+          // (revealSeason reads the onchain reveal or forfeit itself)
+          await revealSeason(h.id, null, null, false, season);
+        } else {
+          // a guest seat whose player never came back: settled with the orders the server kept,
+          // or without them, as the contract allows
+          // (an attempt uses a slot whether or not it settles, since each can cost the referee gas;
+          // recording a season the chain already settled costs nothing)
+          if (!moved) guestsTried += 1;
+          console.log(`campaign ${h.id}: settling guest season ${season}, left sealed well past its reveal window`);
+          await revealSeason(h.id, null, null, true, season);
+        }
         sweepFailures.delete(key);
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
-        const f = sweepFailures.get(key) ?? { tries: 0, notKept: 0, givenUp: false };
+        const f = sweepFailures.get(key) ?? { tries: 0, notKept: 0, attempts: 0, givenUp: false };
+        f.attempts += 1;
         // an outage says nothing about the season: it doesn't count towards giving up
         if (!isNetworkError(e) && !/try again in a moment/.test(msg)) {
           f.tries += 1;
@@ -748,9 +781,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       // signs for it, even if a lagging node makes its `done` check read false
       const toSend = reveals.filter((x) => !(x.realm === HUMAN && h.player));
       const args = (x: (typeof reveals)[number]) => ({ campaign: h.id, realm: x.realm, orders: canonicalJson(x.orders), salt: x.salt });
-      // A seat the server signs for (an AI ruler's, or the guest seat) whose key can't sign its
-      // reveal (out of allowance, gone, not allowed, or every RPC saying it doesn't exist) is
-      // revealed by the referee instead: the contract accepts the referee's reveal for any
+      // A seat the server signs for (an AI ruler's, or the guest seat) that can't sign its reveal
+      // (its key out of allowance, gone or not allowed, every RPC saying it doesn't exist, or its
+      // account too poor to pay) is revealed by the referee instead: the contract accepts the referee's reveal for any
       // realm and checks it against the seal just the same. If the referee can't either, the
       // seat's own error is what counts.
       const send = async (x: (typeof reveals)[number]): Promise<void> => {
@@ -760,7 +793,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
           // only when the seat's key can't sign; anything else (a contract panic, a network
           // failure that was already retried and may still land, a stale nonce) is thrown, and
           // the next attempt picks it up
-          if (!isKeyFailure(e) && !isMethodNotAllowed(e) && !/AccessKeyDoesNotExist|does not exist/.test(errText(e))) throw e;
+          if (!isKeyFailure(e) && !isMethodNotAllowed(e) && !cantPay(e) && !/AccessKeyDoesNotExist|does not exist/.test(errText(e))) throw e;
           console.warn(`campaign ${h.id}: realm ${x.realm}'s seat couldn't reveal (${String((e as Error)?.message ?? e).slice(0, 160)}); the referee reveals for it`);
           await call(config.referee, 'reveal', args(x), { done: revealed(x.realm) }).catch((r: unknown) => {
             console.warn(`campaign ${h.id}: the referee's reveal for realm ${x.realm} failed too: ${String((r as Error)?.message ?? r).slice(0, 160)}`);

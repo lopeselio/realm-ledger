@@ -50,6 +50,12 @@ describe('RPC failover', () => {
     await expect(q.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(outage);
   });
 
+  it('returns a seat too poor to pay at once, even if another RPC is down', async () => {
+    const poor = Object.assign(new Error('Not enough balance for ruler1.realm-ledger.testnet (balance: 1, cost: 2)'), { name: 'NotEnoughBalanceError' });
+    const p = withRealErrors(new FailoverRpcProvider([failing(poor), failing(new Error('fetch failed'))]));
+    await expect(p.viewAccessKey({ accountId: 'a.testnet', publicKey: 'ed25519:x' } as never)).rejects.toBe(poor);
+  });
+
   it('moves on to the next RPC after a network failure', async () => {
     const ok = Object.assign(new JsonRpcProvider({ url: 'http://unused.invalid' }), { viewAccessKey: async () => ({ nonce: 1 }) });
     const p = withRealErrors(new FailoverRpcProvider([failing(new Error('fetch failed')), ok]));
