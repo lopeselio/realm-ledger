@@ -921,12 +921,14 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
       stateHash: hash,
     });
     h.state = state;
+    // the events and what the player saw of them change together (spies' provinces join below)
     h.lastEvents = events;
+    h.lastSeen = [...new Set([...visibleProvinces(before, HUMAN), ...visibleProvinces(state, HUMAN)])];
     // workers deliver; buyers check the work against the resolved season and pay or refund
     const refunds = await closeJobs(h, state, before.season);
-    // what the player saw of this season: its start and end, and where its spies reported from
+    // and where its spies reported from this season
     const spied = h.reports.filter((x) => x.season === before.season && x.passed).map((x) => x.report.province);
-    h.lastSeen = [...new Set([...visibleProvinces(before, HUMAN), ...visibleProvinces(state, HUMAN), ...spied])];
+    h.lastSeen = [...new Set([...h.lastSeen, ...spied])];
     for (const d of refunds) h.state = applyDeal(h.state, d);
     h.pending = { treaties: [], deals: refunds, jobs: [], ai: [] };
     h.phase = 'planning';
@@ -1171,9 +1173,8 @@ export function publicView(id: number) {
     // rivals' agendas and personalities stay hidden until the campaign ends
     state: over ? h.state : view,
     // what happened in the fog stays there until the campaign ends; the proof bundle keeps it all
+    // the board's playback and the chronicle both read these
     lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)),
-    /** the provinces the player saw of the last settled season (the board plays back only these); null once it's over */
-    lastSeen: over ? null : lastSeen,
     envoys: h.envoys.map((e) => ({
       ...e,
       ...(e.signed !== undefined ? { verified: checkReply(h.bundle.replies[e.signed] as SignedReply).ok } : {}),
