@@ -38,6 +38,13 @@ export const chancellorAccount = (): string => `chancellor.${config.contract}`;
 export const companyAccount = (c: { id: number; kind: 'mercs' | 'spy' }): string =>
   c.kind === 'mercs' ? `merc${c.id}.${config.contract}` : `spy${c.id - 2}.${config.contract}`;
 export const COMPANY_ACCOUNTS = ['merc0', 'merc1', 'spy0', 'spy1'];
+/** Every seat account (setup creates these; health watches their gas). One list, so neither drifts. */
+export const allSeatAccounts = (): string[] => [
+  ...Array.from({ length: 8 }, (_, i) => rulerAccount(i)),
+  playerAccount(),
+  chancellorAccount(),
+  ...COMPANY_ACCOUNTS.map((n) => `${n}.${config.contract}`),
+];
 
 /**
  * Private keys. Hosted: AGENT_KEYS is a JSON map of account to "ed25519:..." key.

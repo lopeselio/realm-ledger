@@ -5,17 +5,12 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { accountExists, call } from './chain.ts';
-import { chancellorAccount, COMPANY_ACCOUNTS, config, playerAccount, rulerAccount } from './config.ts';
+import { allSeatAccounts, config } from './config.ts';
 
 const keygen = join(import.meta.dirname, '../../../contracts/realm/scripts/keygen.mjs');
 const FUND_YOCTO = 250_000_000_000_000_000_000_000n; // 0.25 NEAR
 
-const seats = [
-  ...Array.from({ length: 8 }, (_, i) => rulerAccount(i)),
-  playerAccount(),
-  chancellorAccount(),
-  ...COMPANY_ACCOUNTS.map((n) => `${n}.${config.contract}`),
-];
+const seats = allSeatAccounts();
 for (const id of seats) {
   if (await accountExists(id)) {
     console.log(`✓ ${id} exists`);
