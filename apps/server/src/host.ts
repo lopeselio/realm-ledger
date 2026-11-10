@@ -1240,8 +1240,22 @@ export function publicView(id: number) {
   };
 }
 
+/**
+ * The proof bundle. While the campaign runs, each signed reply gives the hashes of its request and
+ * response in place of the bytes: the request holds the ruler's secret aim and temperament (the
+ * TEE signed the hashes, so the signature still checks). The finished proof carries the bytes.
+ */
 export function proof(id: number): ProofBundle {
-  return get(id).bundle;
+  const h = get(id);
+  if (h.phase === 'over') return h.bundle;
+  return {
+    ...h.bundle,
+    replies: (h.bundle.replies ?? []).map(({ request, response, ...r }) => ({
+      ...r,
+      ...(request !== undefined ? { requestHash: sha256Hex(request) } : {}),
+      ...(response !== undefined ? { responseHash: sha256Hex(response) } : {}),
+    })),
+  };
 }
 
 export interface CampaignSummary {

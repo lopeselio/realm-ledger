@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 
 // campaigns on one day's map: two finished (one a conquest), one being played, and one on another day
 function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crowns?: number; conquest?: boolean; player?: string; neverPlayed?: boolean } = {}) {
-  const state = newCampaign({ seed, realms: QUICK_MATCH.realms, human: 0, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map });
+  const state = newCampaign({ seed, realms: QUICK_MATCH.realms, human: 0, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map, rulesVersion: 2 });
   state.realms[0]!.purse.crowns = opts.crowns ?? 0;
   if (opts.conquest) {
     for (const r of state.realms) if (r.id !== 0) r.alive = false;
