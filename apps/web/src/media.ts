@@ -14,7 +14,7 @@ function query(): MediaQueryList | null {
   }
 }
 
-export const isPhone = (): boolean => query()?.matches ?? false;
+export const isPhone = (): boolean => (shared ?? query())?.matches ?? false;
 
 /** Keeps <html class="phone"> in step with the query; call once at start-up. */
 export function watchPhone(): void {
@@ -26,12 +26,12 @@ export function watchPhone(): void {
 
 /** isPhone for React: re-renders as the window turns or resizes across the line. */
 export function usePhone(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const mq = query();
-      mq?.addEventListener('change', onChange);
-      return () => mq?.removeEventListener('change', onChange);
-    },
-    isPhone,
-  );
+  return useSyncExternalStore(subscribe, isPhone);
+}
+
+// one query list and one subscribe for every usePhone, so renders don't re-subscribe
+const shared = typeof window === 'undefined' ? null : query();
+function subscribe(onChange: () => void): () => void {
+  shared?.addEventListener('change', onChange);
+  return () => shared?.removeEventListener('change', onChange);
 }
