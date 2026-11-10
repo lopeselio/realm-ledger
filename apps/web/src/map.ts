@@ -151,7 +151,8 @@ const growsText = (left: number): string => `grows into a city after ${left} mor
 export function provinceNotes(s: GameState, id: number): string[] {
   const notes: string[] = [];
   if (s.cities?.[id]) notes.push(`a city (+${CITY_BONUS} crowns a harvest, +${SCORE.city} points)`);
-  else if (s.held && s.towns[id] && s.owner[id]! >= 0) notes.push(`a town; ${growsText(Math.max(1, CITY_AFTER - s.held[id]!))}`);
+  // (a capital is its realm's seat, and doesn't grow)
+  else if (s.held && s.towns[id] && s.owner[id]! >= 0 && s.realms[s.owner[id]!]!.capital !== id) notes.push(`a town; ${growsText(Math.max(1, CITY_AFTER - s.held[id]!))}`);
   if (s.shrines?.[id]) notes.push(`a shrine: ${SCORE.shrine} points to whoever holds it at the end`);
   return notes;
 }
@@ -167,9 +168,9 @@ export function provinceTip(s: GameState, id: number): string {
     .map((a) => `${a.realm === NEUTRAL ? 'militia' : esc(s.realms[a.realm]!.name)}: ${a.levies} levies, ${a.regulars} regulars${a.mercs ? `, ${a.mercs} mercs` : ''}`);
   return [
     `<strong>${esc(p.name)}</strong>`,
-    `${p.terrain}${p.coast ? ', coast' : ''}${p.river ? ', river' : ''}${s.cities?.[id] ? ', city' : s.towns[id] ? ', town' : ''}${s.forts[id] ? `, fort ${s.forts[id]}` : ''}${s.shrines?.[id] ? ', shrine (worth score to its holder)' : ''}`,
-    // how close a held town is to growing into a city
-    ...(s.held && s.towns[id] && !s.cities?.[id] && owner >= 0 ? [growsText(Math.max(1, CITY_AFTER - s.held[id]!))] : []),
+    `${p.terrain}${p.coast ? ', coast' : ''}${p.river ? ', river' : ''}${s.cities?.[id] ? '' : s.towns[id] ? ', town' : ''}${s.forts[id] ? `, fort ${s.forts[id]}` : ''}`,
+    // a city, how near a held town is to growing, a shrine (the same notes as the selection's)
+    ...provinceNotes(s, id),
     `yields ${yields || 'nothing'}`,
     owner >= 0 ? `held by ${esc(s.realms[owner]!.name)}` : 'unclaimed',
     ...armies,

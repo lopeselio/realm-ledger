@@ -72,7 +72,7 @@ export function HelpSheet({ onClose, onWelcome, onTour }: { onClose: () => void;
         <h3>Winning</h3>
         <p>
           The campaign ends when one realm stands or the last season turns. A realm falls when its capital is taken. Otherwise the highest score wins: crowns, goods at market price, and
-          each province, town and fort you hold, more for a city (a town you held through 4 harvests) and a shrine (✦). Scores are in <em>Realms</em>.
+          each province, town and fort you hold, more for a city (a town, not your capital, held through 4 harvests in peace) and a shrine (✦). Scores are in <em>Realms</em>.
         </p>
 
         <h3>Fair play on NEAR</h3>

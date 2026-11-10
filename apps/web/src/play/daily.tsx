@@ -3,7 +3,7 @@
 // realm's final score, each linked to its campaign (and from there its proof).
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { QUICK_MATCH, utcDay } from '@realm-ledger/rules';
+import { QUICK_MATCH, RULES_VERSION, utcDay } from '@realm-ledger/rules';
 import { api, ApiError } from '../api.ts';
 
 interface Entry {
@@ -48,7 +48,8 @@ export function DailyBoard({ date, mine, progress }: { date?: string; mine?: num
     <section className="daily" aria-label="Daily challenge">
       <h2>Daily challenge{board ? ` · ${board.date}` : ''}</h2>
       <p className="fine">
-        Everyone gets the same map {today ? 'today' : 'that day'}: a quick match against {rivals} AI rulers (their secret aims are your campaign's own). Best final score wins the day; taking every rival capital beats any score.
+        Everyone gets the same map {today ? 'today' : 'that day'}: a quick match against {rivals} AI rulers (their secret aims are your campaign's own). Best final score wins the day; taking every
+        rival capital beats any score.
       </p>
       {!board ? (
         <p className="fine">Loading the board…</p>
@@ -71,7 +72,9 @@ function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?
     <>
       {groups.map((group, g) => (
         <div key={g}>
-          {g > 0 && <p className="fine">Under the earlier rules (version {group[0]?.rulesVersion}), ranked apart:</p>}
+          {(group[0]?.rulesVersion ?? RULES_VERSION) < RULES_VERSION && (
+            <p className="fine">Played under earlier rules (version {group[0]?.rulesVersion}, before cities and shrines or other changes), ranked apart:</p>
+          )}
           <RankedList done={group} mine={mine} />
         </div>
       ))}
@@ -82,18 +85,16 @@ function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?
 
 function RankedList({ done, mine }: { done: Entry[]; mine?: number | undefined }) {
   return (
-    <>
-      <ol className="daily-board">
-        {[...done.slice(0, 10), ...done.slice(10).filter((e) => e.id === mine)].map((e) => (
-          <li key={e.id} className={e.id === mine ? 'mine' : ''}>
-            <span className="daily-rank">{e.rank}</span>
-            <span className="daily-who">{e.player ?? `guest #${e.id}`}</span>
-            <strong>{e.conquest ? 'conquest' : e.score}</strong>
-            <Link to={`/play/${e.id}`}>campaign</Link>
-          </li>
-        ))}
-      </ol>
-    </>
+    <ol className="daily-board">
+      {[...done.slice(0, 10), ...done.slice(10).filter((e) => e.id === mine)].map((e) => (
+        <li key={e.id} className={e.id === mine ? 'mine' : ''}>
+          <span className="daily-rank">{e.rank}</span>
+          <span className="daily-who">{e.player ?? `guest #${e.id}`}</span>
+          <strong>{e.conquest ? 'conquest' : e.score}</strong>
+          <Link to={`/play/${e.id}`}>campaign</Link>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -150,8 +151,8 @@ export function ChallengeBoard({ code, mine, progress, onMissing }: { code: stri
       {mine !== undefined && (
         <>
           <p className="fine">
-            Send this link to a friend: they play the same map against {QUICK_MATCH.realms - 1} AI rulers ({QUICK_MATCH.maxSeasons} seasons), and this board compares your results. Best
-            final score wins; taking every rival capital beats any score.
+            Send this link to a friend: they play the same map against {QUICK_MATCH.realms - 1} AI rulers ({QUICK_MATCH.maxSeasons} seasons), and this board compares your results. Best final score
+            wins; taking every rival capital beats any score.
           </p>
           <p className="challenge-link">
             <input readOnly value={link} aria-label="Challenge link" onFocus={(e) => e.currentTarget.select()} />{' '}
