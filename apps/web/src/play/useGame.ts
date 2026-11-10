@@ -347,9 +347,8 @@ export function useGame(id: number | null, signer: Signer | null) {
     await withBusy('Creating the campaign onchain and fetching the model attestation…', async () => {
       const s = signerRef.current;
       const v = await api<View>('/campaigns', {
-        realms,
-        seasons,
-        ...(quick ? { quick: true } : {}),
+        // a quick match's shape is fixed by the server
+        ...(quick ? { quick: true } : { realms, seasons }),
         // signed in: your own account rules realm 0 onchain
         ...(s ? { player: s.accountId } : {}),
       });

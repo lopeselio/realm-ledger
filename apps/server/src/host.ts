@@ -384,7 +384,7 @@ function get(id: number): Hosted {
 
 // ---------- create ----------
 
-/** Starts a campaign. `quick`: the quick match (QUICK_MATCH), whatever `realms` and `seasons` say. */
+/** Starts a campaign. `quick`: the quick match (QUICK_MATCH); its realms and seasons are fixed, so `realms` and `seasons` are not read. */
 export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false): Promise<Hosted> {
   if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
   if (player !== undefined) {
