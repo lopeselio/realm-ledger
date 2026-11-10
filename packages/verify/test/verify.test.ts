@@ -11,10 +11,10 @@ import {
   sha256Hex,
   stateHash,
   type GameState,
+  QUICK_MAP,
 } from '@realm-ledger/rules';
 import { describe, expect, it } from 'vitest';
 import { checkReply, recoverSigner, rulesVersionOf, verifyBundle, type ProofBundle, type SignedReply } from '../src/index.ts';
-import { QUICK_MAP } from '@realm-ledger/rules';
 
 const fx = (f: string): string => readFileSync(join(import.meta.dirname, 'fixtures', f), 'utf8');
 
