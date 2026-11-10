@@ -1,7 +1,7 @@
 // "/play" and "/play/:id": rule one realm against the AI rulers.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
-import { dailyDate, QUICK_MATCH, visibleProvinces } from '@realm-ledger/rules';
+import { challengeCode, dailyDate, isChallengeCode, QUICK_MATCH, visibleProvinces } from '@realm-ledger/rules';
 import { provinceTip } from '../map.ts';
 import { Board, type BoardOverlay } from '../components/Board.tsx';
 import { usePhone } from '../media.ts';
@@ -14,10 +14,16 @@ import { findSecret } from '../secrets.ts';
 import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList, Selection } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
-import { DailyBoard } from '../play/daily.tsx';
+import { ChallengeBoard, DailyBoard } from '../play/daily.tsx';
 import { PhoneDock, StandingBar, TurnSteps } from '../play/turn.tsx';
 import { scriptFor } from '../playback.ts';
 import { Guide } from '../onboarding/Guide.tsx';
+
+/** A shared challenge, /challenge/abc123, opens the play page ready to accept it. */
+export function ChallengeLink() {
+  const { code } = useParams();
+  return <Navigate to={code && isChallengeCode(code) ? `/play?challenge=${code}` : '/play'} replace />;
+}
 
 /** The old address, /play.html?c=7, opens /play/7. */
 export function LegacyPlay() {
@@ -34,6 +40,10 @@ export function Play() {
   const params = useParams();
   const id = parseId(params.id);
   const navigate = useNavigate();
+  // a challenge a friend shared (/challenge/:code lands here with ?challenge=code)
+  const [search] = useSearchParams();
+  const asked = search.get('challenge');
+  const accepting = id === null && asked && isChallengeCode(asked) ? asked : null;
   const [signer, setSigner] = useState<Signer | null>(null);
   const game = useGame(id, signer);
   // the thumb dock exists only on a phone (on wider screens the orders panel sits by the map)
@@ -86,8 +96,9 @@ export function Play() {
   );
 
   if (params.id !== undefined && id === null) return <Navigate to="/play" replace />;
-  // a daily challenge's day, for its board under the proof
+  // a daily challenge's day, or a challenge's code, for its board under the proof
   const day = v ? dailyDate(v.state.seed) : null;
+  const code = v ? challengeCode(v.state.seed) : null;
 
   const title = !v
     ? 'Start a campaign'
@@ -97,8 +108,8 @@ export function Play() {
         : `${v.state.realms[v.winner ?? 0]!.name} wins the campaign`
       : `${seasonTitle(v.state.season)} · campaign #${v.id}`;
 
-  const start = async (realms: number, seasons: number, quick: boolean, daily: boolean): Promise<void> => {
-    const created = await game.newCampaign(realms, seasons, quick, daily);
+  const start = async (realms: number, seasons: number, quick: boolean, daily: boolean, challenge?: string | true): Promise<void> => {
+    const created = await game.newCampaign(realms, seasons, quick, daily, challenge);
     if (created !== null) navigate(`/play/${created}`, { replace: id === null });
   };
 
@@ -119,7 +130,7 @@ export function Play() {
             <Guide signals={guideSignals} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
-          {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d) => void start(r, s, q, d)} />}
+          {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d, c) => void start(r, s, q, d, c)} />}
         </div>
       </header>
 
@@ -156,6 +167,19 @@ export function Play() {
             <div className="map-wrap empty">
               {id === null ? (
                 <>
+                  {accepting && (
+                    <div className="panel continue">
+                      <h2>You are challenged</h2>
+                      <p className="fine">
+                        A friend sent you challenge {accepting}: the same map they played, against {QUICK_MATCH.realms - 1} AI rulers for {QUICK_MATCH.maxSeasons} seasons. Your results go
+                        on the challenge's board.
+                      </p>
+                      <button type="button" className="primary" disabled={game.busy} onClick={() => void start(QUICK_MATCH.realms, QUICK_MATCH.maxSeasons, true, false, accepting)}>
+                        Accept: play this map
+                      </button>
+                      <ChallengeBoard code={accepting} />
+                    </div>
+                  )}
                   <Continue signer={signer} />
                   <div className="panel continue">
                     <DailyBoard />
@@ -194,6 +218,11 @@ export function Play() {
             <h2>The proof</h2>
             <Proof v={v} />
           </div>
+          {code && (
+            <div className="panel">
+              <ChallengeBoard code={code} mine={v.id} progress={`${v.season}:${v.phase}`} />
+            </div>
+          )}
           {day && (
             <div className="panel">
               <DailyBoard date={day} mine={v.id} progress={`${v.season}:${v.phase}`} />
@@ -266,15 +295,16 @@ function StatusLine({ game }: { game: Game }) {
 
 /** The lengths on offer: the quick match (fixed: 2 rivals, 6 seasons, a small map) or a full-size map. */
 const LENGTHS = {
-  daily: { label: `Daily challenge · today's map, the same for everyone (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: true },
-  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false },
-  '8': { label: '8 seasons', seasons: 8, quick: false, daily: false },
-  '12': { label: '12 seasons', seasons: 12, quick: false, daily: false },
-  '20': { label: '20 seasons', seasons: 20, quick: false, daily: false },
+  daily: { label: `Daily challenge · today's map, the same for everyone (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: true, challenge: false },
+  challenge: { label: `Challenge a friend · a new map to share by link (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: true },
+  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: false },
+  '8': { label: '8 seasons', seasons: 8, quick: false, daily: false, challenge: false },
+  '12': { label: '12 seasons', seasons: 12, quick: false, daily: false, challenge: false },
+  '20': { label: '20 seasons', seasons: 20, quick: false, daily: false, challenge: false },
 } as const;
 type Length = keyof typeof LENGTHS;
 
-function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean, daily: boolean) => void }) {
+function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean, daily: boolean, challenge?: true) => void }) {
   const [length, setLength] = useState<Length>('quick');
   // rivals for a full-size map; the quick match always has 2
   const [realms, setRealms] = useState(4);
@@ -301,7 +331,7 @@ function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number,
           </select>
         </label>
       )}
-      <button type="button" className="primary" disabled={busy} onClick={() => onStart(pick.quick ? QUICK_MATCH.realms : realms, pick.seasons, pick.quick, pick.daily)}>
+      <button type="button" className="primary" disabled={busy} onClick={() => onStart(pick.quick ? QUICK_MATCH.realms : realms, pick.seasons, pick.quick, pick.daily, pick.challenge ? true : undefined)}>
         New campaign
       </button>
     </div>

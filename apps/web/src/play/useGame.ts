@@ -341,7 +341,7 @@ export function useGame(id: number | null, signer: Signer | null) {
 
   /** Creates a campaign onchain; resolves to its id, or null if it failed. */
   /** `quick`: the quick match's smaller map; `daily`: today's challenge (a quick match on the day's map). */
-  const newCampaign = async (realms: number, seasons: number, quick = false, daily = false): Promise<number | null> => {
+  const newCampaign = async (realms: number, seasons: number, quick = false, daily = false, challenge?: string | true): Promise<number | null> => {
     let created: number | null = null;
     const route = routeRef.current;
     await withBusy('Creating the campaign onchain and fetching the model attestation…', async () => {
@@ -353,6 +353,7 @@ export function useGame(id: number | null, signer: Signer | null) {
         seasons,
         ...(quick ? { quick: true } : {}),
         ...(daily ? { daily: true } : {}),
+        ...(challenge !== undefined ? { challenge } : {}),
         // signed in: your own account rules realm 0 onchain
         ...(s ? { player: s.accountId } : {}),
       });
