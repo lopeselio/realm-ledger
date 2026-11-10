@@ -249,7 +249,7 @@ function StatusLine({ game }: { game: Game }) {
 
 /** The lengths on offer: the quick match (fixed: 2 rivals, 6 seasons, a small map) or a full-size map. */
 const LENGTHS = {
-  quick: { label: 'Quick · 2 rivals, 6 seasons, small map (~15 min)', seasons: QUICK_MATCH.maxSeasons, quick: true },
+  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true },
   '8': { label: '8 seasons', seasons: 8, quick: false },
   '12': { label: '12 seasons', seasons: 12, quick: false },
   '20': { label: '20 seasons', seasons: 20, quick: false },
