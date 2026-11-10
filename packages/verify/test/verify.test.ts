@@ -14,6 +14,7 @@ import {
 } from '@realm-ledger/rules';
 import { describe, expect, it } from 'vitest';
 import { checkReply, recoverSigner, rulesVersionOf, verifyBundle, type ProofBundle, type SignedReply } from '../src/index.ts';
+import { QUICK_MAP } from '@realm-ledger/rules';
 
 const fx = (f: string): string => readFileSync(join(import.meta.dirname, 'fixtures', f), 'utf8');
 
@@ -170,20 +171,27 @@ describe('the map a bundle claims', () => {
 
   it('takes the standard map, and the quick map with a quick seed', () => {
     expect(mapCheck(opts('rl-abc'))?.ok).toBe(true);
-    expect(mapCheck(opts('rl-abc-q', { radius: 6, minProvinces: 30, maxProvinces: 60 }))?.ok).toBe(true);
+    expect(mapCheck(opts('rl-abc-q', { ...QUICK_MAP }))?.ok).toBe(true);
   });
 
   it('refuses a map the seed does not name, or one of any other size, before building it', () => {
-    expect(mapCheck(opts('rl-abc', { radius: 6, minProvinces: 30, maxProvinces: 60 }))?.ok).toBe(false);
+    expect(mapCheck(opts('rl-abc', { ...QUICK_MAP }))?.ok).toBe(false);
     expect(mapCheck(opts('rl-abc-q'))?.ok).toBe(false);
     const huge = verifyBundle(opts('rl-abc-q', { radius: 100000 }));
     expect(huge).toHaveLength(1);
     expect(huge[0]!.ok).toBe(false);
     // a JSON null, or a quick seed on another shape, is refused the same way
     expect(verifyBundle(opts('rl-abc-q', null as unknown as object))[0]!.ok).toBe(false);
-    const big = opts('rl-abc-q', { radius: 6, minProvinces: 30, maxProvinces: 60 });
+    const big = opts('rl-abc-q', { ...QUICK_MAP });
     big.options.realms = 6;
     expect(mapCheck(big)?.ok).toBe(false);
+  });
+});
+
+describe('a malformed bundle', () => {
+  it('is reported, not crashed on', () => {
+    const b = { options: { realms: 3, human: 0, maxSeasons: 6 }, seasons: [], replies: [] } as unknown as ProofBundle;
+    expect(verifyBundle(b)[0]).toMatchObject({ name: 'map size matches the seed', ok: false });
   });
 });
 

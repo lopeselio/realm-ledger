@@ -141,7 +141,7 @@ export function verifyBundle(b: ProofBundle): Check[] {
   // the standard map, or the quick match whole, as its seed (recorded onchain) says: a bundle
   // can't claim another map, nor one too big to build
   const shapeOk = knownShape(b.options);
-  push('map size matches the seed', shapeOk, b.options.seed.endsWith(QUICK_SEED_SUFFIX) ? 'quick match' : 'standard map');
+  push('map size matches the seed', shapeOk, typeof b.options.seed === 'string' && b.options.seed.endsWith(QUICK_SEED_SUFFIX) ? 'quick match' : 'standard map');
   if (!shapeOk) return checks;
   let state: GameState = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   const after = new Map<number, GameState>();
@@ -238,6 +238,7 @@ export async function checkAgainstChain(
     state_hashes: string[];
     map_seed: string;
     realms: unknown[];
+    max_seasons?: number;
   } | null;
   if (!c) return [{ name: `campaign ${b.campaign} exists on ${b.contract}`, ok: false }];
   // once a campaign is over every job is settled, so each onchain treasury must equal the
@@ -254,6 +255,12 @@ export async function checkAgainstChain(
     });
   }
   checks.push({ name: 'onchain map seed matches', ok: c.map_seed === b.options.seed });
+  // the campaign's shape as the contract recorded it, not only as the bundle says
+  checks.push({
+    name: 'onchain realms and seasons match',
+    ok: c.realms.length === b.options.realms && (c.max_seasons === undefined || c.max_seasons === b.options.maxSeasons),
+    detail: `onchain ${c.realms.length} realms, ${c.max_seasons ?? '?'} seasons`,
+  });
   checks.push({ name: 'onchain roll commitment matches', ok: c.roll_commit === b.rollCommit });
   checks.push({ name: 'onchain agenda commitments match', ok: canonicalJson(c.agenda_commits) === canonicalJson(b.agendaCommits) });
   for (const j of b.jobs ?? []) {
