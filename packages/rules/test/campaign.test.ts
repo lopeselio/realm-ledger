@@ -13,6 +13,9 @@ import {
   dailySeed,
   dailyDate,
   utcDay,
+  challengeSeed,
+  challengeCode,
+  isChallengeCode,
   replaySeason,
   seasonRollSeed,
   runCampaign,
@@ -177,5 +180,18 @@ describe("rulers' secret (rules version 3)", () => {
     expect('secretRulers' in v2).toBe(false);
     const changed = { ...v2, realms: v2.realms.map((r) => ({ ...r, agenda: { ...r.agenda, text: 'other' } })) };
     expect(stateHash(changed)).not.toBe(stateHash(v2));
+  });
+});
+
+describe('a challenge between friends', () => {
+  it('names its map by a code, reads the code back, and is a quick match', () => {
+    expect(challengeSeed('a1b2c3')).toBe('duel-a1b2c3-q');
+    expect(challengeSeed('a1b2c3', 1)).toBe('duel-a1b2c3.1-q');
+    expect(challengeCode(challengeSeed('a1b2c3', 1))).toBe('a1b2c3');
+    expect(challengeCode('daily-2026-11-10-q')).toBeNull();
+    expect(challengeCode('duel-A1B2C3-q')).toBeNull();
+    expect(isChallengeCode('a1b2c3')).toBe(true);
+    expect(isChallengeCode('a1b2c')).toBe(false);
+    expect(knownShape({ seed: challengeSeed('a1b2c3'), realms: QUICK_MATCH.realms, maxSeasons: QUICK_MATCH.maxSeasons, map: { ...QUICK_MAP } })).toBe(true);
   });
 });
