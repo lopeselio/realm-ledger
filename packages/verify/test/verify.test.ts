@@ -195,3 +195,32 @@ describe('a malformed bundle', () => {
   });
 });
 
+
+describe('a finished rules-v3 campaign', () => {
+  // as the server makes one: rulers drawn from the roll secret, their agendas committed, the
+  // roll secret committed; at the end the secret and the agenda salts are revealed
+  const rollSecret = 'v3-roll-secret';
+  const options = { seed: 'v3-check', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 };
+  const real = newCampaign({ ...options, agendaSeed: rollSecret });
+  const agendaSalts = real.realms.map((_, i) => `salt-${i}`);
+  const finished = (extra: object = {}) =>
+    ({
+      options: { ...options, ...extra },
+      seasons: [],
+      replies: [],
+      rollCommit: commit(rollSecret, 'roll-salt'),
+      agendaCommits: real.realms.map((r, i) => commit(r.agenda, agendaSalts[i]!)),
+      rollSecret,
+      rollSalt: 'roll-salt',
+      agendaSalts,
+    }) as unknown as ProofBundle;
+  const agendas = (b: ProofBundle) => verifyBundle(b).find((c) => c.name === 'every agenda matches its commitment');
+
+  it('rebuilds the real rulers from the revealed roll secret, and their agendas match', () => {
+    expect(agendas(finished())?.ok).toBe(true);
+  });
+
+  it("ignores rulers a bundle names for itself: only the roll secret counts", () => {
+    expect(agendas(finished({ agendaSeed: 'chosen-by-the-bundle' }))?.ok).toBe(true);
+  });
+});

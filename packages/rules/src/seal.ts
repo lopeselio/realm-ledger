@@ -39,7 +39,8 @@ export const commit = (value: unknown, salt: string): string => sha256Hex(`${can
 /**
  * The hash of a state, as posted onchain each season. Under rules version 3 (`secretRulers`) the
  * rulers' personalities and agendas are left out: they come from a secret revealed only at the
- * end, and are committed onchain on their own, so a replay mid-campaign still matches.
+ * end; they are drawn from the roll secret, so its onchain commitment binds them from the
+ * start, and a replay mid-campaign, before the secret is revealed, still matches.
  */
 export const stateHash = (s: GameState): string =>
   sha256Hex(canonicalJson(s.secretRulers ? { ...s, realms: s.realms.map(({ personality: _p, agenda: _a, ...r }) => r) } : s));

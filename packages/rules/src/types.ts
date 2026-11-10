@@ -174,7 +174,7 @@ export interface GameState {
   lastBattles?: number;
   /**
    * Rules version 3: the rulers' personalities and agendas come from a secret revealed at the end,
-   * so the state hash leaves them out (they are committed onchain on their own).
+   * so the state hash leaves them out (they are bound by that secret's onchain commitment).
    */
   secretRulers?: boolean;
   /** set when the campaign is over */
