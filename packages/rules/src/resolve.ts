@@ -416,7 +416,13 @@ function captures(s: GameState, events: GameEvent[]): void {
       const loot = Math.floor(fallen.purse.crowns / 2);
       s.realms[taker]!.purse.crowns += loot;
       fallen.purse.crowns -= loot;
-      for (let q = 0; q < s.owner.length; q++) if (s.owner[q] === fallen.id) s.owner[q] = -1;
+      for (let q = 0; q < s.owner.length; q++) {
+        if (s.owner[q] !== fallen.id) continue;
+        s.owner[q] = -1;
+        // (rules version 4) unclaimed land holds no city and no count towards one
+        if (s.held) s.held[q] = 0;
+        if (s.cities) s.cities[q] = false;
+      }
       s.armies = s.armies.filter((a) => a.realm !== fallen.id);
       s.treaties = s.treaties.filter((t) => !t.realms.includes(fallen.id));
       events.push({ kind: 'fallen', realm: fallen.id, by: taker });
