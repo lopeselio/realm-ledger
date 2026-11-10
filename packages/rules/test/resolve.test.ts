@@ -316,3 +316,25 @@ describe('cities and shrines (rules version 4)', () => {
     expect(stateHash(s)).toBe(stateHash(state));
   });
 });
+
+describe('a city captured (rules version 4)', () => {
+  it('is sacked back to a town, and its new owner starts holding it afresh', () => {
+    const s = lineWorld(5);
+    // realm 0's city at 2, empty; realm 1 walks in from 3
+    s.owner[2] = 0;
+    s.towns[2] = true;
+    s.owner[3] = 1;
+    s.cities = new Array<boolean>(5).fill(false);
+    s.cities[2] = true;
+    s.held = new Array<number>(5).fill(0);
+    s.held[2] = 7;
+    s.shrines = new Array<boolean>(5).fill(false);
+    s.armies = [army(1, 3, 3)];
+    const r = resolveSeason(s, [{ realm: 1, season: 0, orders: [{ kind: 'march', from: 3, to: 2 }] }], { rollSeed: 'sack' });
+    expect(r.events).toContainEqual(expect.objectContaining({ kind: 'captured', realm: 1, province: 2, sacked: true }));
+    expect(r.state.cities![2]).toBe(false);
+    expect(r.state.towns[2]).toBe(true);
+    // held from this harvest on, by its new owner
+    expect(r.state.held![2]).toBe(1);
+  });
+});

@@ -159,7 +159,8 @@ export function decideOrders(view: GameState, me: number): Order[] {
 
 function worth(view: GameState, p: number): number {
   const y = view.map.provinces[p]!.yields;
-  return y.grain + y.timber + y.iron + 2 * y.gold + (view.towns[p] ? 6 : 0);
+  // rules version 4: a shrine and a city are worth taking for their score (absent before, so 0)
+  return y.grain + y.timber + y.iron + 2 * y.gold + (view.towns[p] ? 6 : 0) + (view.shrines?.[p] ? 8 : 0) + (view.cities?.[p] ? 5 : 0);
 }
 
 interface MoveCtx {

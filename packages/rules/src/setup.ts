@@ -211,7 +211,6 @@ function agenda(r: Rng, map: GameMap, self: number, capitals: number[], owner: n
   return { kind: 'hoard', good, text: `hoards ${good} against a coming famine` };
 }
 
-/** Builds the starting state of a campaign. Deterministic in its options. */
 /**
  * Rules version 4: a few shrines on open land (not a capital's, not next to one, not a town or a
  * pass), from a stream of their own so the rest of the setup is as in version 3.
@@ -232,6 +231,7 @@ function placeShrines(seed: string, map: GameMap, owner: number[], towns: boolea
   return shrines;
 }
 
+/** Builds the starting state of a campaign. Deterministic in its options. */
 export function newCampaign(opts: CampaignOptions): GameState {
   const n = opts.realms ?? 5;
   if (n < 2 || n > REALM_NAMES.length) throw new Error(`realms must be 2..${REALM_NAMES.length}`);

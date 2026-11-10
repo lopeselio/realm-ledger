@@ -154,7 +154,7 @@ export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>)
   return events.flatMap((e) => eventFor(e, realm, seen) ?? []);
 }
 
-/** Campaign score: treasury (goods at what they'd sell for) plus land, towns and forts. */
+/** Campaign score: treasury (goods at what they'd sell for) plus land, towns, forts, and (rules version 4) cities and shrines. */
 export function scores(s: GameState): number[] {
   return s.realms.map((r) => {
     if (!r.alive) return 0;
