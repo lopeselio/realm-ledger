@@ -48,7 +48,7 @@ const SLIDES: Slide[] = [
     body: (
       <>
         <p>
-          Win with the highest score (crowns, goods and land) when the last season turns, or be the last realm standing. A realm falls when its capital is taken, and the AI
+          Win with the highest score (crowns, goods, land, towns, cities and shrines) when the last season turns, or be the last realm standing. A realm falls when its capital is taken, and the AI
           rulers can topple each other too.
         </p>
         <p>

@@ -155,12 +155,25 @@ export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>)
   return events.flatMap((e) => eventFor(e, realm, seen) ?? []);
 }
 
-/** Campaign score: treasury (goods at what they'd sell for) plus land, towns, forts, and (rules version 4) cities and shrines. */
+/** Campaign score: treasury (goods at what they'd sell for) plus holdings (see `holdings`). */
 export function scores(s: GameState): number[] {
+  const land = holdings(s);
   return s.realms.map((r) => {
     if (!r.alive) return 0;
-    let total = r.purse.crowns;
+    let total = r.purse.crowns + land[r.id]!;
     for (const g of GOODS) total += r.purse[g] * sellPrice(s.market.price[g]);
+    return total;
+  });
+}
+
+/**
+ * The part of the score everyone can see: land, towns, forts, and (rules version 4) cities and
+ * shrines. Treasuries stay secret until the campaign ends, so this is what a standing compares.
+ */
+export function holdings(s: GameState): number[] {
+  return s.realms.map((r) => {
+    if (!r.alive) return 0;
+    let total = 0;
     s.owner.forEach((o, p) => {
       if (o !== r.id) return;
       total += SCORE.province + (s.towns[p] ? SCORE.town : 0) + s.forts[p]! * SCORE.fort + (s.cities?.[p] ? SCORE.city : 0) + (s.shrines?.[p] ? SCORE.shrine : 0);

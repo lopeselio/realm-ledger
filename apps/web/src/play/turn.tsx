@@ -20,9 +20,14 @@ export function StandingBar({ v }: { v: View }) {
         {v.phase === 'over' ? `Over after ${s.season} seasons` : `Season ${s.season + 1} of ${s.maxSeasons}`}
         {v.phase !== 'over' && <span className="fine"> · {left === 1 ? 'last season' : `${left} left`}</span>}
       </span>
+      <span className="fine standing-what">{v.phase === 'over' ? 'final scores:' : 'land held (treasuries count at the end):'}</span>
       <ol className="standing-realms">
         {ranked.map(({ r, score }) => (
-          <li key={r.id} className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`} title={`${r.name}: ${score} (treasury at market price, plus land, towns, cities, shrines and forts)`}>
+          <li key={r.id} className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`} title={
+              v.phase === 'over'
+                ? `${r.name}: final score ${score} (treasury at market price, plus land, towns, cities, shrines and forts)`
+                : `${r.name}: holds ${score} in land, towns, cities, shrines and forts (treasuries stay secret until the end, when they count too)`
+            }>
             <span className="chip" style={{ background: colorOf(r.id) }} aria-hidden="true" />
             <span className="standing-name">{r.id === v.human ? 'You' : r.name}</span>
             <strong>{r.alive ? score : 'fallen'}</strong>
