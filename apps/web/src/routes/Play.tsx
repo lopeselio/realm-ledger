@@ -1,7 +1,7 @@
 // "/play" and "/play/:id": rule one realm against the AI rulers.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
-import { QUICK_MATCH, visibleProvinces } from '@realm-ledger/rules';
+import { dailyDate, QUICK_MATCH, visibleProvinces } from '@realm-ledger/rules';
 import { provinceTip } from '../map.ts';
 import { Board, type BoardOverlay } from '../components/Board.tsx';
 import { usePhone } from '../media.ts';
@@ -14,6 +14,7 @@ import { findSecret } from '../secrets.ts';
 import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList, Selection } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
+import { DailyBoard } from '../play/daily.tsx';
 import { PhoneDock, StandingBar, TurnSteps } from '../play/turn.tsx';
 import { scriptFor } from '../playback.ts';
 import { Guide } from '../onboarding/Guide.tsx';
@@ -94,8 +95,8 @@ export function Play() {
         : `${v.state.realms[v.winner ?? 0]!.name} wins the campaign`
       : `${seasonTitle(v.state.season)} · campaign #${v.id}`;
 
-  const start = async (realms: number, seasons: number, quick: boolean): Promise<void> => {
-    const created = await game.newCampaign(realms, seasons, quick);
+  const start = async (realms: number, seasons: number, quick: boolean, daily: boolean): Promise<void> => {
+    const created = await game.newCampaign(realms, seasons, quick, daily);
     if (created !== null) navigate(`/play/${created}`, { replace: id === null });
   };
 
@@ -116,7 +117,7 @@ export function Play() {
             <Guide signals={guideSignals} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
-          {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q) => void start(r, s, q)} />}
+          {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d) => void start(r, s, q, d)} />}
         </div>
       </header>
 
@@ -151,7 +152,16 @@ export function Play() {
               <StatusLine game={game} />
             </div>
             <div className="map-wrap empty">
-              {id === null ? <Continue signer={signer} /> : <p className="fine">The war table is set when your campaign starts.</p>}
+              {id === null ? (
+                <>
+                  <Continue signer={signer} />
+                  <div className="panel continue">
+                    <DailyBoard />
+                  </div>
+                </>
+              ) : (
+                <p className="fine">The war table is set when your campaign starts.</p>
+              )}
             </div>
           </section>
         )}
@@ -182,6 +192,11 @@ export function Play() {
             <h2>The proof</h2>
             <Proof v={v} />
           </div>
+          {dailyDate(v.state.seed) && (
+            <div className="panel">
+              <DailyBoard date={dailyDate(v.state.seed)!} mine={v.id} />
+            </div>
+          )}
         </section>
       )}
       <Footer>
@@ -249,14 +264,15 @@ function StatusLine({ game }: { game: Game }) {
 
 /** The lengths on offer: the quick match (fixed: 2 rivals, 6 seasons, a small map) or a full-size map. */
 const LENGTHS = {
-  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true },
-  '8': { label: '8 seasons', seasons: 8, quick: false },
-  '12': { label: '12 seasons', seasons: 12, quick: false },
-  '20': { label: '20 seasons', seasons: 20, quick: false },
+  daily: { label: `Daily challenge · today's map, the same for everyone (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: true },
+  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false },
+  '8': { label: '8 seasons', seasons: 8, quick: false, daily: false },
+  '12': { label: '12 seasons', seasons: 12, quick: false, daily: false },
+  '20': { label: '20 seasons', seasons: 20, quick: false, daily: false },
 } as const;
 type Length = keyof typeof LENGTHS;
 
-function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean) => void }) {
+function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean, daily: boolean) => void }) {
   const [length, setLength] = useState<Length>('quick');
   // rivals for a full-size map; the quick match always has 2
   const [realms, setRealms] = useState(4);
@@ -283,7 +299,7 @@ function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number,
           </select>
         </label>
       )}
-      <button type="button" className="primary" disabled={busy} onClick={() => onStart(pick.quick ? QUICK_MATCH.realms : realms, pick.seasons, pick.quick)}>
+      <button type="button" className="primary" disabled={busy} onClick={() => onStart(pick.quick ? QUICK_MATCH.realms : realms, pick.seasons, pick.quick, pick.daily)}>
         New campaign
       </button>
     </div>

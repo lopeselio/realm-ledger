@@ -367,3 +367,13 @@ html.phone .phone-dock { max-height: 45vh; }
 html.phone .dock-hint { margin: 0 0 6px; }
 /* the dock's disabled buttons look it */
 html.phone .dock-selection button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- the daily challenge's board ---- */
+.daily { margin-top: 16px; }
+.daily h2 { font-size: 1.2rem; }
+.daily-board { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.daily-board li { display: grid; grid-template-columns: 2ch 1fr auto auto; gap: 10px; align-items: center; font-size: 0.9rem; }
+.daily-board li.mine { font-weight: 700; }
+.daily-rank { font-family: var(--font-mono); color: var(--brass-dim); }
+.daily-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daily-board strong { font-family: var(--font-mono); }

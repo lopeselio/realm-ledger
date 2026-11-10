@@ -1,0 +1,59 @@
+// The daily challenge's board: everyone plays the same map on a UTC day; finished campaigns are
+// ranked by your realm's final score, each linked to its campaign (and from there its proof).
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
+import { api } from '../api.ts';
+
+interface Entry {
+  id: number;
+  player: string | null;
+  phase: 'planning' | 'sealed' | 'over';
+  season: number;
+  maxSeasons: number;
+  score: number;
+  conquest: boolean;
+  rank: number | null;
+}
+
+/** Today's board (UTC), or `date`'s; `mine` marks the campaign on screen. */
+export function DailyBoard({ date, mine }: { date?: string; mine?: number }) {
+  const [board, setBoard] = useState<{ date: string; entries: Entry[] } | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api<{ date: string; entries: Entry[] }>(`/daily${date ? `?date=${date}` : ''}`)
+      .then((b) => live && setBoard(b))
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [date, mine]);
+  if (failed) return null;
+  const done = board?.entries.filter((e) => e.rank !== null) ?? [];
+  const playing = board?.entries.filter((e) => e.rank === null).length ?? 0;
+  return (
+    <section className="daily" aria-label="Daily challenge">
+      <h2>Daily challenge{board ? ` · ${board.date}` : ''}</h2>
+      <p className="fine">Everyone gets the same map today: a quick match against 2 AI rulers. Best final score wins the day; taking every rival capital beats any score.</p>
+      {!board ? (
+        <p className="fine">Loading the board…</p>
+      ) : done.length === 0 ? (
+        <p className="fine">No one has finished today's map yet{playing ? ` (${playing} playing)` : ''}. Choose “Daily challenge” as the length and start.</p>
+      ) : (
+        <>
+          <ol className="daily-board">
+            {done.slice(0, 10).map((e) => (
+              <li key={e.id} className={e.id === mine ? 'mine' : ''}>
+                <span className="daily-rank">{e.rank}</span>
+                <span className="daily-who">{e.player ?? `guest #${e.id}`}</span>
+                <strong>{e.conquest ? 'conquest' : e.score}</strong>
+                <Link to={`/play/${e.id}`}>campaign</Link>
+              </li>
+            ))}
+          </ol>
+          {playing > 0 && <p className="fine">{playing} still playing.</p>}
+        </>
+      )}
+    </section>
+  );
+}
