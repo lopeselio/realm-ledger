@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dailySeed, newCampaign, QUICK_MATCH, utcDay } from '@realm-ledger/rules';
+import { challengeSeed, dailySeed, newCampaign, QUICK_MATCH, utcDay } from '@realm-ledger/rules';
 
 const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-daily-'));
 process.env.DATA_DIR = dir;
@@ -54,6 +54,9 @@ describe("the daily challenge's board", () => {
     save(6, dailySeed(day), 'over', { crowns: 99999, neverPlayed: true });
     // alice again, worse: a wallet counts once, by its best
     save(7, dailySeed(day), 'over', { crowns: 400, player: 'alice.testnet' });
+    // a challenge between friends: its own board, unfinished ones counted as playing whatever the day
+    save(8, challengeSeed('a1b2c3'), 'over', { crowns: 300 });
+    save(9, challengeSeed('a1b2c3'), 'planning', { crowns: 5 });
     const host = await import('./host.ts');
     await host.loadAll();
     const board = host.dailyBoard(day, now);
@@ -66,4 +69,16 @@ describe("the daily challenge's board", () => {
     // an abandoned campaign from an earlier day isn't "still playing"
     expect(host.dailyBoard(before, now).map((e) => e.id)).toEqual([4]);
   });
+
+  it("keeps a challenge's own board, and refuses to join a challenge no one made", async () => {
+    const host = await import('./host.ts');
+    expect(host.challengeBoard('a1b2c3').map((e) => [e.id, e.rank])).toEqual([
+      [8, 1],
+      [9, null],
+    ]);
+    expect(host.challengeExists('a1b2c3')).toBe(true);
+    expect(host.challengeExists('ffffff')).toBe(false);
+    await expect(host.createCampaign(3, 6, undefined, true, false, 'ffffff')).rejects.toThrow('no such challenge');
+  });
 });
+

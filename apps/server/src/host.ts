@@ -29,6 +29,9 @@ import {
   QUICK_SEED_SUFFIX,
   dailySeed,
   dailyDate,
+  challengeSeed,
+  challengeCode,
+  isChallengeCode,
   utcDay,
   scores,
   sealOrders,
@@ -392,8 +395,11 @@ function get(id: number): Hosted {
  * `realms` and `seasons` are not read. `daily`: today's daily challenge, a quick match on the
  * day's map (the same for everyone).
  */
-export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false, daily = false): Promise<Hosted> {
-  if (daily) quick = true;
+export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false, daily = false, challenge?: string | true): Promise<Hosted> {
+  if (daily || challenge !== undefined) quick = true;
+  // a challenge: a new one (a fresh code), or one a friend shared, which must exist
+  const code = challenge === true ? hex(3) : challenge;
+  if (typeof challenge === 'string' && (!isChallengeCode(challenge) || !challengeExists(challenge))) throw new GameError('no such challenge');
   if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
 
   if (player !== undefined) {
@@ -419,7 +425,7 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   const build = (attempt: number) => {
     // the day's seed is the same for everyone (its attempt number too, since the same seed fails the same way)
     // (the day read now, after the account check: a request straddling midnight gets the new day)
-    const seed = daily ? dailySeed(day, attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
+    const seed = daily ? dailySeed(day, attempt) : code !== undefined ? challengeSeed(code, attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
     const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
     return { seed, options, state: newCampaign({ ...options, agendaSeed: rollSecret }) };
   };
@@ -1271,7 +1277,7 @@ export interface CampaignSummary {
   winner: number | null;
 }
 
-/** One line of a day's challenge board. */
+/** One line of a board: a day's daily challenge, or a challenge between friends. */
 export interface DailyEntry {
   id: number;
   /** the wallet that ruled it, or null for a guest seat */
@@ -1297,26 +1303,46 @@ const boardCache = new Map<string, { at: number; entries: DailyEntry[] }>();
 const BOARD_TTL_MS = 15_000;
 const BOARD_DAYS = 8;
 
-/** A campaign of this day moved on: its board is rebuilt on the next ask. */
-export function boardChanged(seed: string): void {
+/** Which board a campaign belongs to: `day:DATE` for a daily, `challenge:CODE` between friends, else none. */
+function boardOf(seed: string): string | null {
   const date = dailyDate(seed);
-  if (date) boardCache.delete(date);
+  if (date) return `day:${date}`;
+  const code = challengeCode(seed);
+  return code ? `challenge:${code}` : null;
+}
+
+/** A campaign moved on: its board is rebuilt on the next ask. */
+export function boardChanged(seed: string): void {
+  const key = boardOf(seed);
+  if (key) boardCache.delete(key);
 }
 
 export function dailyBoard(date: string, now = Date.now()): DailyEntry[] {
-  const hit = boardCache.get(date);
+  return cachedBoard(`day:${date}`, now);
+}
+
+/** A challenge's board: everyone who played its map, ranked as the daily is (all unfinished ones count as playing). */
+export function challengeBoard(code: string, now = Date.now()): DailyEntry[] {
+  return cachedBoard(`challenge:${code}`, now);
+}
+
+/** Whether anyone has started this challenge's map (a link to a code no one made is refused). */
+export const challengeExists = (code: string): boolean => [...campaigns.values()].some((h) => challengeCode(h.state.seed) === code);
+
+function cachedBoard(key: string, now: number): DailyEntry[] {
+  const hit = boardCache.get(key);
   if (hit && now - hit.at < BOARD_TTL_MS) return hit.entries;
-  const fresh = buildBoard(date, now);
-  // least recently built out first (Map keeps insertion order), so other days can't push today out
-  boardCache.delete(date);
+  const fresh = buildBoard(key, now);
+  // least recently built out first (Map keeps insertion order), so other boards can't push today out
+  boardCache.delete(key);
   if (boardCache.size >= BOARD_DAYS) boardCache.delete(boardCache.keys().next().value!);
-  boardCache.set(date, { at: now, entries: fresh });
+  boardCache.set(key, { at: now, entries: fresh });
   return fresh;
 }
 
-function buildBoard(date: string, now: number): DailyEntry[] {
+function buildBoard(key: string, now: number): DailyEntry[] {
   const entries = [...campaigns.values()]
-    .filter((h) => dailyDate(h.state.seed) === date)
+    .filter((h) => boardOf(h.state.seed) === key)
     // a campaign the player didn't play out isn't a result: at least half its seasons must have
     // settled with the player's orders (the rest the sweep settled without them)
     .filter((h) => {
@@ -1351,8 +1377,9 @@ function buildBoard(date: string, now: number): DailyEntry[] {
       return true;
     });
   done.forEach((e, i) => (e.rank = i + 1));
-  // only today's unfinished campaigns count as being played; an earlier day's were abandoned
-  const playing = date === utcDay(now) ? entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score) : [];
+  // a daily's unfinished campaigns count as being played only today (an earlier day's were
+  // abandoned); a challenge's always do
+  const playing = !key.startsWith('day:') || key === `day:${utcDay(now)}` ? entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score) : [];
   return [...done, ...playing].map(({ createdAt: _, ...e }) => e);
 }
 

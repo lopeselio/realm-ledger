@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { dailySeed, isUtcDay, utcDay, type OrderSet, type Treaty } from '@realm-ledger/rules';
+import { challengeSeed, dailySeed, isChallengeCode, isUtcDay, utcDay, type OrderSet, type Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
-import { confirmTreaty, createCampaign, dailyBoard, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
+import { challengeBoard, challengeExists, confirmTreaty, createCampaign, dailyBoard, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 import { healthMonitor } from './health.ts';
 import { RPCS } from './chain.ts';
@@ -13,6 +13,8 @@ const health = healthMonitor({ urls: RPCS });
 //   GET  /api/health
 //   GET  /api/campaigns?ids=&player=         recent campaigns, or just these ids / this ruler's
 //   GET  /api/daily?date=      the daily challenge's board (today, UTC, by default)
+//   GET  /api/challenge/:code  a challenge between friends: its board
+//                              (POST /api/campaigns {challenge: true} starts one, {challenge: code} joins it)
 //   POST /api/campaigns        {realms, seasons, player?, quick?, daily?}  start a campaign (you play realm 0;
 //                              `daily`: today's challenge, a quick match on the day's map;
 //                              `quick`: a smaller map, for a short match;
@@ -85,6 +87,12 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // `today` by the server's clock, so the page and the board agree about which day it is
     return send(res, 200, { date, today: date === today, seed: dailySeed(date), entries: dailyBoard(date, now) });
   }
+  // a challenge's board: everyone who played the map its code names
+  if (parts[1] === 'challenge' && parts.length === 3 && req.method === 'GET') {
+    const code = parts[2]!;
+    if (!isChallengeCode(code) || !challengeExists(code)) return send(res, 404, { error: 'no such challenge' });
+    return send(res, 200, { code, seed: challengeSeed(code), entries: challengeBoard(code) });
+  }
   if (parts[1] !== 'campaigns') return send(res, 404, { error: 'not found' });
   if (parts.length === 2) {
     if (req.method === 'GET') {
@@ -101,7 +109,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.socket.remoteAddress ?? '?';
       if (!allowCreate(ip)) throw new GameError('too many new campaigns from here; try again later', 429);
       const b = await body(req);
-      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20), typeof b.player === 'string' && b.player ? b.player : undefined, b.quick === true, b.daily === true);
+      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20), typeof b.player === 'string' && b.player ? b.player : undefined, b.quick === true, b.daily === true, b.challenge === true || typeof b.challenge === 'string' ? (b.challenge as true | string) : undefined);
       return send(res, 201, publicView(h.id));
     }
   }
