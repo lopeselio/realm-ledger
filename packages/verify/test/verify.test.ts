@@ -163,3 +163,22 @@ describe('rules version of a bundle', () => {
     expect(rulesVersionOf(bundle([{ season: 0 }], 2))).toBe(2);
   });
 });
+
+describe('the map a bundle claims', () => {
+  const opts = (seed: string, map?: object) => ({ options: { seed, realms: 3, human: 0, maxSeasons: 6, rulesVersion: 2, ...(map ? { map } : {}) }, seasons: [], replies: [] }) as unknown as ProofBundle;
+  const mapCheck = (b: ProofBundle) => verifyBundle(b).find((c) => c.name === 'map size matches the seed');
+
+  it('takes the standard map, and the quick map with a quick seed', () => {
+    expect(mapCheck(opts('rl-abc'))?.ok).toBe(true);
+    expect(mapCheck(opts('rl-abc-q', { radius: 6, minProvinces: 30, maxProvinces: 60 }))?.ok).toBe(true);
+  });
+
+  it('refuses a map the seed does not name, or one of any other size, before building it', () => {
+    expect(mapCheck(opts('rl-abc', { radius: 6, minProvinces: 30, maxProvinces: 60 }))?.ok).toBe(false);
+    expect(mapCheck(opts('rl-abc-q'))?.ok).toBe(false);
+    const huge = verifyBundle(opts('rl-abc-q', { radius: 100000 }));
+    expect(huge).toHaveLength(1);
+    expect(huge[0]!.ok).toBe(false);
+  });
+});
+

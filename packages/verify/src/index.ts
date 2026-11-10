@@ -21,6 +21,8 @@ import {
   type OrderSet,
   type Treaty,
   type MapOptions,
+  isKnownMap,
+  QUICK_SEED_SUFFIX,
 } from '@realm-ledger/rules';
 
 /** One reply from the TEE model, with everything needed to check its signature. */
@@ -136,6 +138,12 @@ export function verifyBundle(b: ProofBundle): Check[] {
     checks.push({ name, ok, ...(detail ? { detail } : {}) });
   };
 
+  // the map size is the standard one or exactly the quick match's, and a quick match's seed (which
+  // is recorded onchain) says so: a bundle can't claim another map, nor one too big to build
+  const quickSeed = b.options.seed.endsWith(QUICK_SEED_SUFFIX);
+  const mapOk = isKnownMap(b.options.map) && quickSeed === (b.options.map !== undefined);
+  push('map size matches the seed', mapOk, b.options.map ? 'quick match' : 'standard map');
+  if (!mapOk) return checks;
   let state: GameState = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   const after = new Map<number, GameState>();
   push('campaign rebuilt from its seed', true, `${state.map.provinces.length} provinces, ${state.realms.length} realms`);
@@ -212,6 +220,7 @@ export function rulesVersionOf(b: ProofBundle): number {
 
 /** Replays a bundle's seasons and returns the final state (no checks). */
 export function replayBundle(b: ProofBundle): GameState {
+  if (!isKnownMap(b.options.map)) throw new Error('unknown map size in the bundle');
   let state = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   for (const sp of b.seasons)
     state = replaySeason(state, { season: sp.season, treaties: sp.treaties, deals: sp.deals ?? [], orders: sp.seals.map((x) => x.orders), rollSeed: sp.rollSeed, events: [] }).state;
