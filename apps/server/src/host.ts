@@ -1399,10 +1399,14 @@ function buildBoard(key: string, now: number): DailyEntry[] {
     ? [...(challengeCodes.get(key.slice('challenge:'.length)) ?? [])].flatMap((id) => campaigns.get(id) ?? [])
     : [...campaigns.values()].filter((h) => boardOf(h.state.seed) === key);
   // a day that spans a rules change has campaigns under two versions, whose scores don't compare:
-  // the board ranks the day's newest version (a challenge's joins share its creator's already)
-  const newest = Math.max(0, ...pool.map((h) => h.bundle.options.rulesVersion ?? 1));
+  // the board shows the newest version among the day's finished results (an unplayed newer
+  // campaign doesn't hide them), or the newest of all while none has finished. A challenge's
+  // joins share its creator's version already
+  const versionOf = (h: Hosted): number => h.bundle.options.rulesVersion ?? 1;
+  const finished = pool.filter((h) => h.phase === 'over');
+  const newest = Math.max(0, ...(finished.length ? finished : pool).map(versionOf));
   const entries = pool
-    .filter((h) => (h.bundle.options.rulesVersion ?? 1) === newest)
+    .filter((h) => versionOf(h) === newest)
     // a campaign the player didn't play out isn't a result: at least half its seasons must have
     // settled with the player's orders (the rest the sweep settled without them)
     .filter((h) => {

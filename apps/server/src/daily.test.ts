@@ -66,12 +66,16 @@ describe("the daily challenge's board", () => {
     // a day that spans a rules change: only its newest version is ranked
     save(11, dailySeed('2026-01-03'), 'over', { crowns: 9999, rulesVersion: 3 });
     save(12, dailySeed('2026-01-03'), 'over', { crowns: 10, rulesVersion: 4 });
+    // the deploy day: finished v3 results, and a v4 campaign opened and left; the finished ones stay ranked
+    save(13, dailySeed('2026-01-04'), 'over', { crowns: 300, rulesVersion: 3 });
+    save(14, dailySeed('2026-01-04'), 'planning', { crowns: 0, rulesVersion: 4 });
     host = await import('./host.ts');
     await host.loadAll();
   });
 
   it("ranks only the day's newest rules version, whose scores compare", () => {
     expect(host.dailyBoard('2026-01-03', now).map((e) => e.id)).toEqual([12]);
+    expect(host.dailyBoard('2026-01-04', now).map((e) => e.id)).toEqual([13]);
   });
 
   it("ranks today's finished campaigns by score, a conquest first, then those still playing; an earlier day shows only its finished", async () => {
