@@ -31,10 +31,18 @@ export interface SignedReply {
   realm: number;
   season: number;
   model: string;
-  /** the exact request body bytes sent, as UTF-8 text */
-  request: string;
-  /** the exact response body bytes received, as UTF-8 text */
-  response: string;
+  /**
+   * The exact request body bytes sent, as UTF-8 text. Withheld while the campaign runs (it holds
+   * the ruler's secret aim and temperament): then only `requestHash` is given, and the bytes come
+   * with the finished proof.
+   */
+  request?: string;
+  /** the exact response body bytes received, as UTF-8 text (withheld like `request`) */
+  response?: string;
+  /** sha256 of the request bytes, given in their place while the campaign runs */
+  requestHash?: string;
+  /** sha256 of the response bytes, given in their place while the campaign runs */
+  responseHash?: string;
   /** what the TEE signed: `<model>:<sha256(request)>:<sha256(response)>` */
   text: string;
   signature: string;
@@ -115,8 +123,13 @@ export function recoverSigner(text: string, signatureHex: string): string {
 /** Checks one TEE reply: the hashes match the bytes, and the signature recovers the signing address. */
 export function checkReply(r: SignedReply): Check {
   const name = `reply to realm ${r.realm}, season ${r.season}`;
-  const expected = `${r.model}:${sha256Hex(r.request)}:${sha256Hex(r.response)}`;
-  if (r.text !== expected) return { name, ok: false, detail: 'signed text does not match the request and response bytes' };
+  // the bytes when they are given; their hashes while the campaign runs
+  const reqHash = r.request !== undefined ? sha256Hex(r.request) : r.requestHash;
+  const resHash = r.response !== undefined ? sha256Hex(r.response) : r.responseHash;
+  if (reqHash === undefined || resHash === undefined) return { name, ok: false, detail: 'neither the request and response nor their hashes are given' };
+  const withheld = r.request === undefined || r.response === undefined;
+  const expected = `${r.model}:${reqHash}:${resHash}`;
+  if (r.text !== expected) return { name, ok: false, detail: `signed text does not match the request and response ${withheld ? 'hashes' : 'bytes'}` };
   let signer: string;
   try {
     signer = recoverSigner(r.text, r.signature);
@@ -124,7 +137,7 @@ export function checkReply(r: SignedReply): Check {
     return { name, ok: false, detail: (e as Error).message };
   }
   if (signer.toLowerCase() !== r.signingAddress.toLowerCase()) return { name, ok: false, detail: `signed by ${signer}, not ${r.signingAddress}` };
-  return { name, ok: true, detail: `signed by ${signer}` };
+  return { name, ok: true, detail: `signed by ${signer}${withheld ? '; the request and response bytes come with the finished proof' : ''}` };
 }
 
 /**
@@ -240,8 +253,19 @@ export function rulesVersionOf(b: ProofBundle): number {
  * bundle, so a bundle can't choose its own rulers.
  */
 function rebuild(b: ProofBundle): GameState {
-  const { agendaSeed: _ignored, ...options } = b.options as ProofBundle['options'] & { agendaSeed?: unknown };
-  return newCampaign({ ...options, rulesVersion: rulesVersionOf(b), ...(b.rollSecret !== undefined ? { agendaSeed: b.rollSecret } : {}) });
+  // only the options a campaign has (an allowlist: nothing else in a bundle reaches setup), and the
+  // roll secret only once it matches its commitment
+  const o = b.options;
+  const revealed = b.rollSecret !== undefined && b.rollSalt !== undefined && commit(b.rollSecret, b.rollSalt) === b.rollCommit;
+  return newCampaign({
+    seed: o.seed,
+    realms: o.realms,
+    human: o.human,
+    maxSeasons: o.maxSeasons,
+    ...(o.map !== undefined ? { map: o.map } : {}),
+    rulesVersion: rulesVersionOf(b),
+    ...(revealed ? { agendaSeed: b.rollSecret } : {}),
+  });
 }
 
 /** Replays a bundle's seasons and returns the final state (no checks). */
