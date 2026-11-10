@@ -23,6 +23,12 @@ export interface CampaignOptions {
 
 export const RULES_VERSION = 2;
 
+/**
+ * The quick match's map: about half the provinces of a standard one, so realms meet in the first
+ * seasons and a 6-season campaign plays in about a quarter of an hour.
+ */
+export const QUICK_MAP: MapOptions = { radius: 6, minProvinces: 30, maxProvinces: 60 };
+
 /** Breadth-first distances (in moves) from one province to all others. */
 export function distancesFrom(map: GameMap, start: number): number[] {
   const dist = map.provinces.map(() => Infinity);
