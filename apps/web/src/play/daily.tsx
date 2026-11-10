@@ -81,18 +81,31 @@ function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?
 }
 
 /** A challenge's board and the link to share it; `mine` marks the campaign on screen. */
-export function ChallengeBoard({ code, mine, progress }: { code: string; mine?: number; progress?: string }) {
-  const [entries, setEntries] = useState<Entry[] | null>(null);
+export function ChallengeBoard({ code, mine, progress, onMissing }: { code: string; mine?: number; progress?: string; onMissing?: () => void }) {
+  const [board, setBoard] = useState<{ code: string; entries: Entry[] } | null>(null);
+  const [missing, setMissing] = useState(false);
   const [copied, setCopied] = useState(false);
+  // another challenge: start afresh, not with the last one's board or "Copied"
+  useEffect(() => {
+    setBoard(null);
+    setMissing(false);
+    setCopied(false);
+  }, [code]);
   useEffect(() => {
     let live = true;
     api<{ entries: Entry[] }>(`/challenge/${code}`)
-      .then((b) => live && setEntries(b.entries))
-      .catch(() => undefined);
+      .then((b) => live && setBoard({ code, entries: b.entries }))
+      .catch((e: unknown) => {
+        // no such challenge (a mistyped or stale link): say so, rather than load forever
+        if (!live || !/no such challenge/.test((e as Error).message)) return;
+        setMissing(true);
+        onMissing?.();
+      });
     return () => {
       live = false;
     };
   }, [code, mine, progress]);
+  const entries = board?.code === code ? board.entries : null;
   const link = `${window.location.origin}/challenge/${code}`;
   const share = async (): Promise<void> => {
     try {
@@ -117,7 +130,9 @@ export function ChallengeBoard({ code, mine, progress }: { code: string; mine?: 
           {copied ? 'Copied' : 'Copy link'}
         </button>
       </p>
-      {entries === null ? (
+      {missing ? (
+        <p className="fine">This link doesn't lead to a challenge: check it with whoever sent it.</p>
+      ) : entries === null ? (
         <p className="fine">Loading the board…</p>
       ) : done.length === 0 ? (
         <p className="fine">No one has finished this map yet{playing ? ` (${playing} playing)` : ''}.</p>
