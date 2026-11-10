@@ -212,8 +212,9 @@ function agenda(r: Rng, map: GameMap, self: number, capitals: number[], owner: n
 }
 
 /**
- * Rules version 4: a few shrines on open land (not a capital's, not next to one, not a town or a
- * pass), from a stream of their own so the rest of the setup is as in version 3.
+ * Rules version 4: a few shrines on unclaimed land (no realm's at the start, so none in a realm's
+ * home provinces; not a town or a pass), no two side by side, from a stream of their own so the
+ * rest of the setup is as in version 3.
  */
 function placeShrines(seed: string, map: GameMap, owner: number[], towns: boolean[]): boolean[] {
   const r = rng(seed, 'shrines');

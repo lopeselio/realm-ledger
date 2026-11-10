@@ -416,6 +416,7 @@ function captures(s: GameState, events: GameEvent[]): void {
       const loot = Math.floor(fallen.purse.crowns / 2);
       s.realms[taker]!.purse.crowns += loot;
       fallen.purse.crowns -= loot;
+      const ruined: number[] = [];
       for (let q = 0; q < s.owner.length; q++) {
         if (s.owner[q] !== fallen.id) continue;
         s.owner[q] = -1;
@@ -423,12 +424,14 @@ function captures(s: GameState, events: GameEvent[]): void {
         if (s.held) s.held[q] = 0;
         if (s.cities?.[q]) {
           s.cities[q] = false;
-          events.push({ kind: 'ruined', realm: fallen.id, province: q });
+          ruined.push(q);
         }
       }
       s.armies = s.armies.filter((a) => a.realm !== fallen.id);
       s.treaties = s.treaties.filter((t) => !t.realms.includes(fallen.id));
       events.push({ kind: 'fallen', realm: fallen.id, by: taker });
+      // the fall first, then what it left to ruin
+      for (const q of ruined) events.push({ kind: 'ruined', realm: fallen.id, province: q });
     }
   }
 }
