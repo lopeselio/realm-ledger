@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import type { GameState } from '@realm-ledger/rules';
 import { provinceCenter, renderMap, type Overlay } from '../map.ts';
-import { isPhone, PHONE_QUERY } from '../media.ts';
+import { isPhone } from '../media.ts';
 import type { Table3D } from '../table3d.ts';
 import { FRESH_MS, isEmpty, playOnMap, playSounds, type SeasonScript } from '../playback.ts';
 import { reducedMotion } from '../onboarding/storage.ts';
@@ -24,22 +24,6 @@ function canRender3D(): boolean {
   }
 }
 
-/** isPhone, kept up to date as the window turns or resizes. */
-export function usePhone(): boolean {
-  const [phone, setPhone] = useState(isPhone);
-  useEffect(() => {
-    let mq: MediaQueryList;
-    try {
-      mq = window.matchMedia(PHONE_QUERY);
-    } catch {
-      return;
-    }
-    const on = (): void => setPhone(mq.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  return phone;
-}
 
 function initialMode(): Mode {
   try {
@@ -85,19 +69,25 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   const tipRef = useRef<HTMLDivElement>(null);
 
   // ---- the flat map's pinch, pan and zoom buttons ----
-  const [zoom, setZoom] = useState<View2D>({ k: 1, x: 0, y: 0 });
+  const [zoom, setZoomState] = useState<View2D>({ k: 1, x: 0, y: 0 });
   const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
+  // the ref follows every update at once, not only renders, so a gesture starting between a move
+  // and its render starts from where the map really is
+  const setZoom = (next: View2D | ((z: View2D) => View2D)): void => {
+    const z = typeof next === 'function' ? next(zoomRef.current) : next;
+    zoomRef.current = z;
+    setZoomState(z);
+  };
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ start: View2D; dist: number; mid: { x: number; y: number }; at: { x: number; y: number } } | null>(null);
   // a drag that moved the map is not a tap on a province
   const dragged = useRef(false);
-  /** Keeps the zoomed map covering the frame (no empty edge pulled into view). */
   /** The map's frame (its clipping wrapper), unscaled. Measured there: an outer svg's clientWidth may read 0. */
   const frame = (): { w: number; h: number } => {
     const r = svgRef.current?.parentElement?.getBoundingClientRect();
     return { w: r?.width ?? 0, h: r?.height ?? 0 };
   };
+  /** Keeps the zoomed map covering the frame (no empty edge pulled into view). */
   const clamp = (z: View2D): View2D => {
     const { w, h } = frame();
     const k = Math.min(MAX_ZOOM, Math.max(1, z.k));
@@ -119,6 +109,12 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     const r = svgRef.current!.parentElement!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
+  /** A gesture from where these fingers are now: two or more pinch (the first two count), one pans. */
+  const startGesture = (ps: { x: number; y: number }[]) => {
+    const two = ps.length >= 2;
+    const mid = two ? { x: (ps[0]!.x + ps[1]!.x) / 2, y: (ps[0]!.y + ps[1]!.y) / 2 } : ps[0]!;
+    return { start: zoomRef.current, dist: two ? Math.hypot(ps[0]!.x - ps[1]!.x, ps[0]!.y - ps[1]!.y) : 0, mid, at: mid };
+  };
   const onPointerDown = (e: PointerEvent): void => {
     dragged.current = false;
     if (e.pointerType === 'mouse' && zoomRef.current.k === 1) return;
@@ -130,8 +126,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     }
     pointers.current.set(e.pointerId, local(e));
     const ps = [...pointers.current.values()];
-    const mid = ps.length === 2 ? { x: (ps[0]!.x + ps[1]!.x) / 2, y: (ps[0]!.y + ps[1]!.y) / 2 } : ps[0]!;
-    gesture.current = { start: zoomRef.current, dist: ps.length === 2 ? Math.hypot(ps[0]!.x - ps[1]!.x, ps[0]!.y - ps[1]!.y) : 0, mid, at: mid };
+    gesture.current = startGesture(ps);
   };
   const onPointerMove = (e: PointerEvent): void => {
     if (!pointers.current.has(e.pointerId) || !gesture.current) return;
@@ -159,8 +154,8 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   const onPointerEnd = (e: PointerEvent): void => {
     pointers.current.delete(e.pointerId);
     const left = [...pointers.current.values()];
-    // one finger lifted from a pinch: carry on panning from here with the other
-    gesture.current = left.length ? { start: zoomRef.current, dist: 0, mid: left[0]!, at: left[0]! } : null;
+    // a finger lifted: carry on with the ones still down (a pan with one, a pinch with two or more)
+    gesture.current = left.length ? startGesture(left) : null;
   };
 
   // the 3D table calls back long after it is created: always reach the latest handlers

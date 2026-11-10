@@ -5,10 +5,10 @@ import { API, PUBLIC_API, type View } from '../api.ts';
 import { colorOf } from '../map.ts';
 import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
-import { EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
-import { usePhone } from '../components/Board.tsx';
+import { canAct, EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
+import { usePhone } from '../media.ts';
 
-const planningOf = (g: Game): boolean => !!g.view && g.view.phase === 'planning' && !g.busy;
+const planningOf = canAct;
 
 // ---------- your orders ----------
 
