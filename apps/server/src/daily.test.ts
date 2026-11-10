@@ -8,7 +8,7 @@ const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-daily-'));
 process.env.DATA_DIR = dir;
 
 // campaigns on one day's map: two finished (one a conquest), one being played, and one on another day
-function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crowns?: number; conquest?: boolean; player?: string } = {}) {
+function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crowns?: number; conquest?: boolean; player?: string; neverPlayed?: boolean } = {}) {
   const state = newCampaign({ seed, realms: QUICK_MATCH.realms, human: 0, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map });
   state.realms[0]!.purse.crowns = opts.crowns ?? 0;
   if (opts.conquest) {
@@ -22,7 +22,12 @@ function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crow
       phase,
       state,
       pending: { ai: [], jobs: [], deals: [], treaties: [] },
-      bundle: { options: { seed, realms: 3, human: 0, maxSeasons: 6, rulesVersion: 2, map: QUICK_MATCH.map }, seasons: [], replies: [] },
+      bundle: {
+        options: { seed, realms: 3, human: 0, maxSeasons: 6, rulesVersion: 2, map: QUICK_MATCH.map },
+        // every season settled by the sweep without the player's orders
+        seasons: opts.neverPlayed ? Array.from({ length: 6 }, (_, season) => ({ season, forfeited: [0] })) : [],
+        replies: [],
+      },
       envoys: [],
       plans: [],
       reports: [],
@@ -37,16 +42,19 @@ function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crow
 
 describe("the daily challenge's board", () => {
   it("ranks today's finished campaigns by score, a conquest first, then those still playing; an earlier day shows only its finished", async () => {
-    const day = utcDay(Date.now());
+    // one clock for the whole test, so a run across midnight can't change "today"
+    const now = Date.now();
+    const day = utcDay(now);
     const before = '2026-01-02';
     save(1, dailySeed(day), 'over', { crowns: 500 });
     save(2, dailySeed(day), 'over', { crowns: 10, conquest: true, player: 'alice.testnet' });
     save(3, dailySeed(day), 'planning', { crowns: 9000 });
     save(4, dailySeed(before), 'over', { crowns: 9999 });
     save(5, dailySeed(before), 'planning', { crowns: 1 });
+    save(6, dailySeed(day), 'over', { crowns: 99999, neverPlayed: true });
     const host = await import('./host.ts');
     await host.loadAll();
-    const board = host.dailyBoard(day);
+    const board = host.dailyBoard(day, now);
     expect(board.map((e) => [e.id, e.rank, e.conquest])).toEqual([
       [2, 1, true],
       [1, 2, false],
@@ -54,6 +62,6 @@ describe("the daily challenge's board", () => {
     ]);
     expect(board[0]!.player).toBe('alice.testnet');
     // an abandoned campaign from an earlier day isn't "still playing"
-    expect(host.dailyBoard(before).map((e) => e.id)).toEqual([4]);
+    expect(host.dailyBoard(before, now).map((e) => e.id)).toEqual([4]);
   });
 });
