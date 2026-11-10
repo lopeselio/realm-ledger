@@ -6,6 +6,12 @@ import type { View } from '../api.ts';
 import { colorOf } from '../map.ts';
 import type { Game } from './useGame.ts';
 
+/** Whether a view's `scores` are the final scores (an older server sends no `final`: then once it's over). */
+export const isFinal = (v: View): boolean => v.final ?? v.phase === 'over';
+
+/** The figures a standing compares: the final scores once over, land held before (an older server: its scores). */
+export const shownScores = (v: View): number[] => (isFinal(v) ? v.scores : (v.holdings ?? v.scores));
+
 /**
  * The standing, the end always in sight. While a campaign runs it compares what everyone can see,
  * each realm's land held (rivals' treasuries are secret), with your own full score beside it, and
@@ -14,9 +20,8 @@ import type { Game } from './useGame.ts';
 export function StandingBar({ v }: { v: View }) {
   const s = v.state;
   const left = Math.max(0, s.maxSeasons - s.season);
-  // the final scores once it's over; before, land held (an older server sends only `scores`)
-  const final = (v.final ?? v.phase === 'over') ? v.scores : null;
-  const shown = final ?? v.holdings ?? v.scores;
+  const final = isFinal(v) ? v.scores : null;
+  const shown = shownScores(v);
   const ranked = s.realms.map((r) => ({ r, score: shown[r.id] ?? 0 })).sort((a, b) => b.score - a.score || a.r.id - b.r.id);
   return (
     <div className="standing" role="group" aria-label="Standing">
@@ -24,7 +29,7 @@ export function StandingBar({ v }: { v: View }) {
         {v.phase === 'over' ? `Over after ${s.season} seasons` : `Season ${s.season + 1} of ${s.maxSeasons}`}
         {v.phase !== 'over' && <span className="fine"> · {left === 1 ? 'last season' : `${left} left`}</span>}
       </span>
-      <span className="fine standing-what">{final ? 'final scores:' : 'land held:'}</span>
+      <span className="fine standing-what">{final ? 'final scores:' : v.holdings ? 'land held:' : 'scores:'}</span>
       <ol className="standing-realms">
         {ranked.map(({ r, score }) => (
           <li

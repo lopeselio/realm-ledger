@@ -1214,7 +1214,6 @@ export async function runChancellor(
   });
 }
 
-/** The realm that wins: a conqueror, else the highest score when the seasons run out. */
 /** The campaign's winner: the one the rules named, or the best score (a campaign that ended with your fall). */
 function winnerOf(h: Hosted, sc: number[] = scores(h.state)): number {
   return h.state.winner ?? sc.indexOf(Math.max(...sc));
@@ -1243,10 +1242,11 @@ export function publicView(id: number) {
   const over = h.phase === 'over';
   // saves from before lastSeen: what the player sees now
   const lastSeen = h.lastSeen ?? [...visibleProvinces(h.state, HUMAN)];
-  // worked out once: land from the fogged view (it follows the fog), the full scores from the whole
-  // state, which stay on the server until the campaign is over
-  const land = holdings(view);
-  const full = scores(h.state, holdings(h.state));
+  // worked out once: land, which everyone can see (ownership, towns, forts, cities and shrines are
+  // public; the fog hides armies and treasuries), and the full scores, which stay on the server
+  // until the campaign is over
+  const land = holdings(h.state);
+  const full = scores(h.state, land);
   return {
     id: h.id,
     contract: config.contract,
@@ -1257,9 +1257,9 @@ export function publicView(id: number) {
     state: over ? h.state : view,
     // what happened in the fog stays there until the campaign ends; the proof bundle keeps it all
     // the board's playback and the chronicle both read these
-    // (before it's over, a victory event names the scores without them: they'd give away treasuries
+    // (before it's over, eventsFor also holds back a victory's scores, which would give away treasuries
     // while the onchain finish confirms)
-    lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)).map((e) => (e.kind === 'victory' ? { ...e, scores: [] } : e)),
+    lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)),
     envoys: h.envoys.map((e) => ({
       ...e,
       ...(e.signed !== undefined ? { verified: checkReply(h.bundle.replies[e.signed] as SignedReply).ok } : {}),

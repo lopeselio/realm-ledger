@@ -147,6 +147,9 @@ export function eventFor(e: GameEvent, realm: number, seen: Set<number>): GameEv
   if (!seesEvent(e, realm, seen)) return null;
   if (e.kind === 'treaty-broken' && e.realm !== realm && e.against !== realm && !seen.has(e.province)) return { ...e, province: -1 };
   if ((e.kind === 'moved' || e.kind === 'retreated') && e.realm !== realm && !seen.has(e.from)) return { ...e, from: -1 };
+  // a victory's scores include every treasury, which stays secret until the campaign is over
+  // (shown then in full, not through this): the victory itself is told, its scores aren't
+  if (e.kind === 'victory') return { ...e, scores: [] };
   return e;
 }
 

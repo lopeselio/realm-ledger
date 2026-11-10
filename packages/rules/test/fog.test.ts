@@ -77,3 +77,10 @@ describe('what a realm is told of where a rival came from', () => {
   });
 });
 
+
+describe('a victory before the end', () => {
+  it('is told, but without the scores, which hold every treasury', () => {
+    const v: GameEvent = { kind: 'victory', realm: 1, reason: 'last-winter', scores: [10, 20, 30] };
+    expect(eventsFor([v], 0, new Set())).toEqual([{ ...v, scores: [] }]);
+  });
+});

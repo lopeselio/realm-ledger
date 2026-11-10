@@ -5,7 +5,7 @@ import { API, PUBLIC_API, type View } from '../api.ts';
 import { colorOf, provinceNotes } from '../map.ts';
 import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
-import { canAct, EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
+import { canAct, isFinal, shownScores, EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
 import { usePhone } from '../media.ts';
 
 
@@ -338,8 +338,8 @@ export function RealmList({ v }: { v: View }) {
               {r.id === v.human ? ' (you)' : ''}
             </span>
             {/* the final score once it's over; before, land held, the same measure for every realm as the standing's */}
-            <span className="score" title={v.final ? 'final score' : 'land held (treasuries are secret until the end)'}>
-              {(v.final ? v.scores : (v.holdings ?? v.scores))[r.id] ?? ''}
+            <span className="score" title={isFinal(v) ? 'final score' : 'land held (treasuries are secret until the end)'}>
+              {shownScores(v)[r.id] ?? ''}
             </span>
             <span className="meta">
               {land(r.id)} provinces{treaties.length > 0 && r.id !== v.human ? ` · with you: ${treaties.join(', ')}` : ''}
