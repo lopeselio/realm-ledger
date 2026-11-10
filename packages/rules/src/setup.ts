@@ -17,14 +17,15 @@ export interface CampaignOptions {
   map?: MapOptions;
   /**
    * Which rules the campaign plays by: 1 = before the agent market (2026-11-06),
-   * 2 = with it, 3 = rulers' personalities and agendas drawn from `agendaSeed` and left out of
-   * the state hash. Defaults to the current version.
+   * 2 = with it, 3 = rulers' personalities and agendas drawn from `agendaSeed` (the game uses its
+   * roll secret) and left out of the state hash. Defaults to the current version.
    */
   rulesVersion?: number;
   /**
    * From rules version 3: the secret the rulers' personalities and agendas are drawn from, so
-   * they can't be worked out from the public seed. The server reveals it when the campaign ends;
-   * until then a rebuild without it gets other rulers, which the state hash doesn't include.
+   * they can't be worked out from the public seed. The game passes the campaign's roll secret,
+   * committed onchain at the start and revealed at the end. Without it (mid-campaign, before the
+   * reveal) the rulers are stand-ins from the seed, which the state hash doesn't include.
    */
   agendaSeed?: string;
 }

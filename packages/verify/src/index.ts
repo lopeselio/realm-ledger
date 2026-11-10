@@ -80,8 +80,7 @@ export interface ProofBundle {
   campaign: number;
   /** rulesVersion is absent in bundles from before the agent market, which play by version 1 */
   /** `map` is set for a quick match's smaller map */
-  /** `agendaSeed` (rules version 3) is revealed when the campaign ends */
-  options: { seed: string; realms: number; human: number | null; maxSeasons: number; rulesVersion?: number; map?: MapOptions; agendaSeed?: string };
+  options: { seed: string; realms: number; human: number | null; maxSeasons: number; rulesVersion?: number; map?: MapOptions };
   rollCommit: string;
   agendaCommits: string[];
   /** revealed when the campaign ends */
@@ -156,7 +155,7 @@ export function verifyBundle(b: ProofBundle): Check[] {
           : 'a standard seed takes no map size',
   );
   if (!shapeOk) return checks;
-  let state: GameState = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
+  let state: GameState = rebuild(b);
   const after = new Map<number, GameState>();
   push(
     'campaign rebuilt from its seed',
@@ -234,10 +233,21 @@ export function rulesVersionOf(b: ProofBundle): number {
   return b.options.rulesVersion ?? (b.seasons[0] && 'deals' in b.seasons[0] ? 2 : 1);
 }
 
+/**
+ * The campaign's opening state. Rules version 3 draws the rulers from the roll secret (committed
+ * onchain at the start): once the bundle reveals it they are the real ones, before that stand-ins
+ * the state hashes leave out. Only the revealed roll secret is used, never anything else in the
+ * bundle, so a bundle can't choose its own rulers.
+ */
+function rebuild(b: ProofBundle): GameState {
+  const { agendaSeed: _ignored, ...options } = b.options as ProofBundle['options'] & { agendaSeed?: unknown };
+  return newCampaign({ ...options, rulesVersion: rulesVersionOf(b), ...(b.rollSecret !== undefined ? { agendaSeed: b.rollSecret } : {}) });
+}
+
 /** Replays a bundle's seasons and returns the final state (no checks). */
 export function replayBundle(b: ProofBundle): GameState {
   if (!knownShape(b.options)) throw new Error('the bundle names a map that does not exist');
-  let state = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
+  let state = rebuild(b);
   for (const sp of b.seasons)
     state = replaySeason(state, { season: sp.season, treaties: sp.treaties, deals: sp.deals ?? [], orders: sp.seals.map((x) => x.orders), rollSeed: sp.rollSeed, events: [] }).state;
   return state;
