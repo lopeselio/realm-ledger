@@ -90,7 +90,7 @@ const STEPS: TourStep<GuideSignals>[] = [
     title: 'Score and victory',
     body: (
       <p>
-        Each realm’s score: crowns, goods at market price, and every province, town and fort it holds. Highest when the last season turns wins, or be the last realm standing (a realm
+        Each realm’s score: crowns, goods at market price, and every province, town and fort it holds (a city, grown from a town held 4 harvests, and a shrine ✦ count extra). Highest when the last season turns wins, or be the last realm standing (a realm
         falls when its capital is taken).
       </p>
     ),
