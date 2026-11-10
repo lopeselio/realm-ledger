@@ -338,8 +338,8 @@ export function RealmList({ v }: { v: View }) {
               {r.id === v.human ? ' (you)' : ''}
             </span>
             {/* the final score once it's over; before, land held, the same measure for every realm as the standing's */}
-            <span className="score" title={v.scores ? 'final score' : 'land held (treasuries are secret until the end)'}>
-              {v.scores ? (v.scores[r.id] ?? '') : (v.holdings[r.id] ?? '')}
+            <span className="score" title={v.final ? 'final score' : 'land held (treasuries are secret until the end)'}>
+              {(v.final ? v.scores : (v.holdings ?? v.scores))[r.id] ?? ''}
             </span>
             <span className="meta">
               {land(r.id)} provinces{treaties.length > 0 && r.id !== v.human ? ` · with you: ${treaties.join(', ')}` : ''}
