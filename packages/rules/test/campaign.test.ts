@@ -140,6 +140,8 @@ describe('the daily challenge', () => {
     expect(dailyDate(dailySeed(day))).toBe(day);
     expect(dailyDate(dailySeed(day, 2))).toBe(day);
     expect(dailyDate('rl-abc-q')).toBeNull();
+    expect(dailyDate('daily-2026-11-10.0-q')).toBeNull();
+    expect(dailyDate('daily-2026-11-10')).toBeNull();
     expect(knownShape({ seed: dailySeed(day), realms: QUICK_MATCH.realms, maxSeasons: QUICK_MATCH.maxSeasons, map: { ...QUICK_MAP } })).toBe(true);
   });
 });
