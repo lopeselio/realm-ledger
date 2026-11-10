@@ -22,7 +22,9 @@ import { Guide } from '../onboarding/Guide.tsx';
 /** A shared challenge, /challenge/abc123, opens the play page ready to accept it. */
 export function ChallengeLink() {
   const { code } = useParams();
-  return <Navigate to={code && isChallengeCode(code) ? `/play?challenge=${code}` : '/play'} replace />;
+  // forgiving of a pasted link: case, and a stray character at either end from a chat message
+  const clean = (code ?? '').toLowerCase().replace(/^[^0-9a-f]+|[^0-9a-f]+$/g, '');
+  return <Navigate to={`/play?challenge=${encodeURIComponent(isChallengeCode(clean) ? clean : code ?? '')}`} replace />;
 }
 
 /** The old address, /play.html?c=7, opens /play/7. */
@@ -44,6 +46,9 @@ export function Play() {
   const [search] = useSearchParams();
   const asked = search.get('challenge');
   const accepting = id === null && asked && isChallengeCode(asked) ? asked : null;
+  const badLink = id === null && asked !== null && !accepting;
+  // a code that leads to no challenge: no Accept button
+  const [dead, setDead] = useState(false);
   const [signer, setSigner] = useState<Signer | null>(null);
   const game = useGame(id, signer);
   // the thumb dock exists only on a phone (on wider screens the orders panel sits by the map)
@@ -167,6 +172,12 @@ export function Play() {
             <div className="map-wrap empty">
               {id === null ? (
                 <>
+                  {badLink && (
+                    <div className="panel continue">
+                      <h2>That challenge link isn’t right</h2>
+                      <p className="fine">A challenge link ends in a 6-character code, like /challenge/a1b2c3. Check it with whoever sent it, or start your own below.</p>
+                    </div>
+                  )}
                   {accepting && (
                     <div className="panel continue">
                       <h2>You are challenged</h2>
@@ -174,10 +185,12 @@ export function Play() {
                         A friend sent you challenge {accepting}: the same map they played, against {QUICK_MATCH.realms - 1} AI rulers for {QUICK_MATCH.maxSeasons} seasons. Your results go
                         on the challenge's board.
                       </p>
-                      <button type="button" className="primary" disabled={game.busy} onClick={() => void start(QUICK_MATCH.realms, QUICK_MATCH.maxSeasons, true, false, accepting)}>
-                        Accept: play this map
-                      </button>
-                      <ChallengeBoard code={accepting} />
+                      {!dead && (
+                        <button type="button" className="primary" disabled={game.busy} onClick={() => void start(QUICK_MATCH.realms, QUICK_MATCH.maxSeasons, true, false, accepting)}>
+                          Accept: play this map
+                        </button>
+                      )}
+                      <ChallengeBoard code={accepting} onMissing={() => setDead(true)} />
                     </div>
                   )}
                   <Continue signer={signer} />
