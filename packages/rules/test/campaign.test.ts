@@ -9,7 +9,7 @@ import {
   QUICK_MAP,
   QUICK_MATCH,
   QUICK_SEED_SUFFIX,
-  isKnownMap,
+  knownShape,
   replaySeason,
   seasonRollSeed,
   runCampaign,
@@ -115,10 +115,15 @@ describe('the quick match', () => {
     }
   });
 
-  it('knows only the standard map and the quick one', () => {
-    expect(isKnownMap(undefined)).toBe(true);
-    expect(isKnownMap({ ...QUICK_MAP })).toBe(true);
-    expect(isKnownMap({ radius: 100000 })).toBe(false);
-    expect(isKnownMap({ ...QUICK_MAP, radius: 7 })).toBe(false);
+  it('knows only the standard map and the quick match whole, each with its own kind of seed', () => {
+    const quick = { seed: 'rl-a-q', realms: 3, maxSeasons: 6, map: { ...QUICK_MAP } };
+    expect(knownShape({ seed: 'rl-a', realms: 5, maxSeasons: 20 })).toBe(true);
+    expect(knownShape(quick)).toBe(true);
+    expect(knownShape({ ...quick, map: { radius: 100000 } })).toBe(false);
+    expect(knownShape({ ...quick, map: null })).toBe(false);
+    expect(knownShape({ ...quick, realms: 6 })).toBe(false);
+    expect(knownShape({ ...quick, maxSeasons: 20 })).toBe(false);
+    expect(knownShape({ ...quick, seed: 'rl-a' })).toBe(false);
+    expect(knownShape({ seed: 'rl-a-q', realms: 3, maxSeasons: 6 })).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ import {
   type OrderSet,
   type Treaty,
   type MapOptions,
-  isKnownMap,
+  knownShape,
   QUICK_SEED_SUFFIX,
 } from '@realm-ledger/rules';
 
@@ -138,12 +138,11 @@ export function verifyBundle(b: ProofBundle): Check[] {
     checks.push({ name, ok, ...(detail ? { detail } : {}) });
   };
 
-  // the map size is the standard one or exactly the quick match's, and a quick match's seed (which
-  // is recorded onchain) says so: a bundle can't claim another map, nor one too big to build
-  const quickSeed = b.options.seed.endsWith(QUICK_SEED_SUFFIX);
-  const mapOk = isKnownMap(b.options.map) && quickSeed === (b.options.map !== undefined);
-  push('map size matches the seed', mapOk, b.options.map ? 'quick match' : 'standard map');
-  if (!mapOk) return checks;
+  // the standard map, or the quick match whole, as its seed (recorded onchain) says: a bundle
+  // can't claim another map, nor one too big to build
+  const shapeOk = knownShape(b.options);
+  push('map size matches the seed', shapeOk, b.options.seed.endsWith(QUICK_SEED_SUFFIX) ? 'quick match' : 'standard map');
+  if (!shapeOk) return checks;
   let state: GameState = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   const after = new Map<number, GameState>();
   push('campaign rebuilt from its seed', true, `${state.map.provinces.length} provinces, ${state.realms.length} realms`);
@@ -220,7 +219,7 @@ export function rulesVersionOf(b: ProofBundle): number {
 
 /** Replays a bundle's seasons and returns the final state (no checks). */
 export function replayBundle(b: ProofBundle): GameState {
-  if (!isKnownMap(b.options.map)) throw new Error('unknown map size in the bundle');
+  if (!knownShape(b.options)) throw new Error('the bundle names a map that does not exist');
   let state = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   for (const sp of b.seasons)
     state = replaySeason(state, { season: sp.season, treaties: sp.treaties, deals: sp.deals ?? [], orders: sp.seals.map((x) => x.orders), rollSeed: sp.rollSeed, events: [] }).state;
@@ -243,7 +242,8 @@ export async function checkAgainstChain(
   if (!c) return [{ name: `campaign ${b.campaign} exists on ${b.contract}`, ok: false }];
   // once a campaign is over every job is settled, so each onchain treasury must equal the
   // replayed crowns: a hire or refund the bundle missed would show up here
-  if (b.rollSecret !== undefined) {
+  // (not for a bundle naming a map that doesn't exist: verifyBundle already reports that)
+  if (b.rollSecret !== undefined && knownShape(b.options)) {
     const end = replayBundle(b);
     const onchain = (c as unknown as { realms: { treasury: number }[] }).realms.map((r) => r.treasury);
     const replayed = end.realms.map((r) => r.purse.crowns);

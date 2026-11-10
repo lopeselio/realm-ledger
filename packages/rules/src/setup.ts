@@ -1,6 +1,7 @@
 import { NEUTRAL, NEUTRAL_TOWN_MILITIA, START_ARMY, START_PURSE } from './constants.ts';
 import { makeCompanies } from './agents.ts';
 import { generateMap, type MapOptions } from './map.ts';
+import { canonicalJson } from './seal.ts';
 import { newMarket } from './market.ts';
 import { REALM_NAMES } from './names.ts';
 import { rng, type Rng } from './rng.ts';
@@ -27,19 +28,31 @@ export const RULES_VERSION = 2;
  * The quick match's map: about half the provinces of a standard one, so realms meet in the first
  * seasons and a 6-season campaign plays in about a quarter of an hour.
  */
-export const QUICK_MAP: MapOptions = { radius: 6, minProvinces: 30, maxProvinces: 60 };
+export const QUICK_MAP: Readonly<MapOptions> = Object.freeze({ radius: 6, minProvinces: 30, maxProvinces: 60 });
 
 /**
  * The quick match, one fixed shape: 3 realms (you and 2 rivals; more would start next to each
  * other on the small map), 6 seasons, the small map. Its seed ends in QUICK_SEED_SUFFIX, so the
  * seed recorded onchain says it was a quick match.
  */
-export const QUICK_MATCH = { realms: 3, maxSeasons: 6, map: QUICK_MAP } as const;
+export const QUICK_MATCH = Object.freeze({ realms: 3, maxSeasons: 6, map: QUICK_MAP });
 export const QUICK_SEED_SUFFIX = '-q';
 
-/** Whether map options are the standard map (none) or exactly the quick match's. */
-export const isKnownMap = (map: MapOptions | undefined): boolean =>
-  map === undefined || (map.radius === QUICK_MAP.radius && map.minProvinces === QUICK_MAP.minProvinces && map.maxProvinces === QUICK_MAP.maxProvinces && Object.keys(map).length === 3);
+/**
+ * Whether campaign options name a map that exists: the standard map (no `map`) with an ordinary
+ * seed, or the quick match whole (its map, realms and seasons) with a quick seed. Anything else
+ * (another size, a null, a quick seed on another shape) is refused before a map is built.
+ */
+export function knownShape(o: { seed: string; realms?: number; maxSeasons?: number; map?: unknown }): boolean {
+  if (!o.seed.endsWith(QUICK_SEED_SUFFIX)) return o.map === undefined;
+  return (
+    typeof o.map === 'object' &&
+    o.map !== null &&
+    canonicalJson(o.map) === canonicalJson(QUICK_MAP) &&
+    o.realms === QUICK_MATCH.realms &&
+    o.maxSeasons === QUICK_MATCH.maxSeasons
+  );
+}
 
 /** Breadth-first distances (in moves) from one province to all others. */
 export function distancesFrom(map: GameMap, start: number): number[] {

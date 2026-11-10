@@ -165,7 +165,7 @@ describe('rules version of a bundle', () => {
 });
 
 describe('the map a bundle claims', () => {
-  const opts = (seed: string, map?: object) => ({ options: { seed, realms: 3, human: 0, maxSeasons: 6, rulesVersion: 2, ...(map ? { map } : {}) }, seasons: [], replies: [] }) as unknown as ProofBundle;
+  const opts = (seed: string, map?: object) => ({ options: { seed, realms: 3, human: 0, maxSeasons: 6, rulesVersion: 2, ...(map !== undefined ? { map } : {}) }, seasons: [], replies: [] }) as unknown as ProofBundle;
   const mapCheck = (b: ProofBundle) => verifyBundle(b).find((c) => c.name === 'map size matches the seed');
 
   it('takes the standard map, and the quick map with a quick seed', () => {
@@ -179,6 +179,11 @@ describe('the map a bundle claims', () => {
     const huge = verifyBundle(opts('rl-abc-q', { radius: 100000 }));
     expect(huge).toHaveLength(1);
     expect(huge[0]!.ok).toBe(false);
+    // a JSON null, or a quick seed on another shape, is refused the same way
+    expect(verifyBundle(opts('rl-abc-q', null as unknown as object))[0]!.ok).toBe(false);
+    const big = opts('rl-abc-q', { radius: 6, minProvinces: 30, maxProvinces: 60 });
+    big.options.realms = 6;
+    expect(mapCheck(big)?.ok).toBe(false);
   });
 });
 
