@@ -18,21 +18,28 @@ interface Entry {
 
 /** Today's board (UTC), or `date`'s; `mine` marks the campaign on screen, fetched again whenever `progress` changes. */
 export function DailyBoard({ date, mine, progress }: { date?: string; mine?: number; progress?: string }) {
-  const [board, setBoard] = useState<{ date: string; entries: Entry[] } | null>(null);
+  const [board, setBoard] = useState<{ date: string; today: boolean; entries: Entry[] } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
-    api<{ date: string; entries: Entry[] }>(`/daily${date ? `?date=${date}` : ''}`)
-      .then((b) => live && setBoard(b))
+    // another day's board isn't shown while this one loads
+    setBoard((b) => (b && date && b.date !== date ? null : b));
+    api<{ date: string; today?: boolean; entries: Entry[] }>(`/daily${date ? `?date=${date}` : ''}`)
+      .then((b) => {
+        if (!live) return;
+        setFailed(false);
+        setBoard({ ...b, today: b.today ?? b.date === utcDay(Date.now()) });
+      })
       .catch(() => live && setFailed(true));
     return () => {
       live = false;
     };
   }, [date, mine, progress]);
-  if (failed) return null;
+  // nothing to show yet and the board can't be reached: leave it out (a later fetch may bring it)
+  if (failed && !board) return null;
   const done = board?.entries.filter((e) => e.rank !== null) ?? [];
   const playing = board?.entries.filter((e) => e.rank === null).length ?? 0;
-  const today = !board || board.date === utcDay(Date.now());
+  const today = !board || board.today;
   const rivals = QUICK_MATCH.realms - 1;
   return (
     <section className="daily" aria-label="Daily challenge">
