@@ -84,22 +84,31 @@ function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?
 export function ChallengeBoard({ code, mine, progress, onMissing }: { code: string; mine?: number; progress?: string; onMissing?: () => void }) {
   const [board, setBoard] = useState<{ code: string; entries: Entry[] } | null>(null);
   const [missing, setMissing] = useState(false);
+  // the board couldn't be fetched (network, or a server without challenges): shown, not left loading
+  const [unreachable, setUnreachable] = useState(false);
   const [copied, setCopied] = useState(false);
   // another challenge: start afresh, not with the last one's board or "Copied"
   useEffect(() => {
     setBoard(null);
     setMissing(false);
+    setUnreachable(false);
     setCopied(false);
   }, [code]);
   useEffect(() => {
     let live = true;
     api<{ entries: Entry[] }>(`/challenge/${code}`)
-      .then((b) => live && setBoard({ code, entries: b.entries }))
+      .then((b) => {
+        if (!live) return;
+        setUnreachable(false);
+        setBoard({ code, entries: b.entries });
+      })
       .catch((e: unknown) => {
-        // no such challenge (a mistyped or stale link): say so, rather than load forever
-        if (!live || !/no such challenge/.test((e as Error).message)) return;
-        setMissing(true);
-        onMissing?.();
+        if (!live) return;
+        // no such challenge (a mistyped or stale link): say so; anything else: the board is out of reach
+        if (/no such challenge/.test((e as Error).message)) {
+          setMissing(true);
+          onMissing?.();
+        } else setUnreachable(true);
       });
     return () => {
       live = false;
@@ -133,7 +142,7 @@ export function ChallengeBoard({ code, mine, progress, onMissing }: { code: stri
       {missing ? (
         <p className="fine">This link doesn't lead to a challenge: check it with whoever sent it.</p>
       ) : entries === null ? (
-        <p className="fine">Loading the board…</p>
+        <p className="fine">{unreachable ? 'The board can’t be reached right now.' : 'Loading the board…'}</p>
       ) : done.length === 0 ? (
         <p className="fine">No one has finished this map yet{playing ? ` (${playing} playing)` : ''}.</p>
       ) : (
