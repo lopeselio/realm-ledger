@@ -27,29 +27,29 @@ Built at NEAR HACKATHON (1–14 Nov 2026). Tracks: Games With Real Economies, Pr
 
 ```mermaid
 flowchart LR
-  subgraph Browser["Browser · apps/web (Vercel)"]
-    UI["War table, orders, envoys,<br/>Chancellor, boards"]
-    Key["Your seal + salt<br/>(and your wallet's<br/>function-call key)"]
+  subgraph Browser["Browser (Vercel)"]
+    UI["War table<br/>orders · envoys<br/>Chancellor · boards"]
+    Key["Your seal + salt<br/>wallet key"]
   end
-  subgraph Server["Game server · apps/server (Azure)"]
-    Host["Hosts campaigns,<br/>keeps proof bundles"]
-    AI["AI rulers, Chancellor,<br/>companies (agent seats)"]
-    Rules["packages/rules<br/>deterministic engine"]
+  subgraph Server["Game server (Azure)"]
+    Host["Campaigns<br/>proof bundles"]
+    AI["AI rulers<br/>Chancellor<br/>companies"]
+    Rules["Rules engine<br/>packages/rules"]
   end
   subgraph NEAR["NEAR testnet"]
-    Contract["realm-ledger.testnet<br/>seals · reveals · state hashes<br/>treaties · escrow · receipts"]
+    Contract["realm-ledger.testnet<br/>seals · reveals<br/>state hashes<br/>treaties · escrow"]
   end
-  TEE["NEAR AI Cloud<br/>model in a TEE<br/>(signed replies)"]
-  Verifier["packages/verify<br/>pnpm verify:campaign"]
+  TEE["NEAR AI Cloud<br/>model in a TEE<br/>signed replies"]
+  Verifier["Verifier<br/>packages/verify"]
 
-  UI -- "orders, envoys, tasks" --> Host
-  Key -- "seal, reveal (signed in)" --> Contract
+  UI -- orders, envoys, tasks --> Host
+  Key -- seal, reveal --> Contract
   Host --> Rules
   AI --> Rules
-  AI -- "seal, reveal, hire, settle" --> Contract
-  AI -- "envoy words, task parsing" --> TEE
-  Host -- "proof bundle" --> Verifier
-  Contract -- "onchain record" --> Verifier
+  AI -- seal, reveal, hire --> Contract
+  AI -- envoy words --> TEE
+  Host -- proof --> Verifier
+  Contract -- record --> Verifier
 ```
 
 **A season**
