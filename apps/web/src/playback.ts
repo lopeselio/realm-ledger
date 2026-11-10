@@ -81,13 +81,15 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
     Object.assign(layer.style, { left: `${box.left - parent.left - wrap.clientLeft}px`, top: `${box.top - parent.top - wrap.clientTop}px`, width: `${box.width}px`, height: `${box.height}px` });
   };
   place();
-  // re-measure only when the map's transform or frame size changed since the last frame
-  const sig = (): string => `${svg.style.transform}|${wrap.clientWidth}x${wrap.clientHeight}`;
-  let last = sig();
+  // sizes come from an observer; each frame only compares the map's transform string (no layout
+  // read), and re-measures when it changed (a pan or pinch)
+  const sizes = new ResizeObserver(place);
+  sizes.observe(svg);
+  sizes.observe(wrap);
+  let last = svg.style.transform;
   let frame = requestAnimationFrame(function track() {
-    const now = sig();
-    if (now !== last) {
-      last = now;
+    if (svg.style.transform !== last) {
+      last = svg.style.transform;
       place();
     }
     frame = requestAnimationFrame(track);
@@ -157,6 +159,7 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
   const stop = (): void => {
     window.clearTimeout(timer);
     cancelAnimationFrame(frame);
+    sizes.disconnect();
     layer.remove();
   };
   const timer = window.setTimeout(stop, TIMING.capture + TIMING.captureFor + 100);
