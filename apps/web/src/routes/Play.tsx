@@ -94,8 +94,8 @@ export function Play() {
         : `${v.state.realms[v.winner ?? 0]!.name} wins the campaign`
       : `${seasonTitle(v.state.season)} · campaign #${v.id}`;
 
-  const start = async (realms: number, seasons: number): Promise<void> => {
-    const created = await game.newCampaign(realms, seasons);
+  const start = async (realms: number, seasons: number, quick: boolean): Promise<void> => {
+    const created = await game.newCampaign(realms, seasons, quick);
     if (created !== null) navigate(`/play/${created}`, { replace: id === null });
   };
 
@@ -116,7 +116,7 @@ export function Play() {
             <Guide signals={guideSignals} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
-          {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s) => void start(r, s)} />}
+          {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q) => void start(r, s, q)} />}
         </div>
       </header>
 
@@ -247,9 +247,14 @@ function StatusLine({ game }: { game: Game }) {
   );
 }
 
-function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number) => void }) {
-  const [realms, setRealms] = useState(4);
-  const [seasons, setSeasons] = useState(12);
+/** The quick match: 2 rivals on a small map for 6 seasons, about a quarter of an hour. */
+const QUICK = { realms: 3, seasons: 6 };
+
+function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean) => void }) {
+  const [realms, setRealms] = useState(QUICK.realms);
+  // 0 stands for the quick match
+  const [seasons, setSeasons] = useState(0);
+  const quick = seasons === 0;
   return (
     <div className="controls" data-tour="start">
       <label>
@@ -263,12 +268,13 @@ function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number,
       <label>
         Length
         <select value={seasons} onChange={(e) => setSeasons(Number(e.target.value))}>
+          <option value={0}>Quick · 6 seasons, small map (~15 min)</option>
           <option value={8}>8 seasons</option>
           <option value={12}>12 seasons</option>
           <option value={20}>20 seasons</option>
         </select>
       </label>
-      <button type="button" className="primary" disabled={busy} onClick={() => onStart(realms, seasons)}>
+      <button type="button" className="primary" disabled={busy} onClick={() => onStart(realms, quick ? QUICK.seasons : seasons, quick)}>
         New campaign
       </button>
     </div>
