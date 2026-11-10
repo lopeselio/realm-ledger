@@ -318,7 +318,7 @@ svg.playback { position: absolute; pointer-events: none; }
 
 /* ---- the flat map's zoom: the map is clipped to its frame, the hover tip isn't ---- */
 .map-clip { position: relative; overflow: hidden; }
-.zoom-tools { position: absolute; right: 8px; bottom: 8px; display: grid; gap: 6px; z-index: 2; }
+.zoom-tools { position: absolute; right: 8px; top: 8px; display: grid; gap: 6px; z-index: 2; }
 .zoom-tools button { width: 40px; height: 40px; padding: 0; font-size: 1.3rem; line-height: 1; background: rgba(23, 17, 13, 0.85); }
 .zoom-tools button:disabled { opacity: 0.4; }
 
@@ -353,7 +353,8 @@ html.phone .phone-dock {
 html.phone .dock-selection { margin-bottom: 8px; font-size: 0.9rem; }
 html.phone .dock-selection p { margin: 0 0 6px; }
 html.phone .dock-selection .actions { display: flex; flex-wrap: wrap; gap: 6px; }
-html.phone .dock-selection button { color: var(--ink); background: rgba(255, 255, 255, 0.55); border-color: rgba(43, 33, 24, 0.3); }
+html.phone .dock-selection button { color: var(--ink); background: rgba(255, 255, 255, 0.55); }
+html.phone .dock-selection button:not(.target) { border-color: rgba(43, 33, 24, 0.3); }
 html.phone .dock-selection button.target { width: 100%; display: flex; flex-direction: column; align-items: flex-start; text-align: left; border-left-width: 4px; }
 html.phone .dock-selection .targets { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
 html.phone .dock-bar { display: flex; gap: 10px; align-items: center; }
@@ -364,9 +365,5 @@ html.phone .dock-bar .end-season:disabled { opacity: 0.55; }
 html.phone body.has-dock { padding-bottom: calc(var(--dock-h, 72px) + 16px); }
 html.phone .phone-dock { max-height: 45vh; }
 html.phone .dock-hint { margin: 0 0 6px; }
-/* the dock's march targets keep their odds stripe, and its disabled buttons look it */
-html.phone .dock-selection button.target.safe { border-left-color: #6f8a5b; }
-html.phone .dock-selection button.target.good { border-left-color: var(--good); }
-html.phone .dock-selection button.target.even { border-left-color: var(--brass-dim); }
-html.phone .dock-selection button.target.bad { border-left-color: var(--bad); }
+/* the dock's disabled buttons look it */
 html.phone .dock-selection button:disabled { opacity: 0.5; cursor: not-allowed; }

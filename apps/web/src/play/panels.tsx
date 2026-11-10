@@ -8,7 +8,6 @@ import type { Game } from './useGame.ts';
 import { canAct, EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
 import { usePhone } from '../media.ts';
 
-const planningOf = canAct;
 
 // ---------- your orders ----------
 
@@ -19,7 +18,7 @@ export function Selection({ game, v }: { game: Game; v: View }) {
   const p = s.map.provinces[sel]!;
   const army = game.armyAt(sel);
   const mine = s.owner[sel] === v.human;
-  const off = !planningOf(game);
+  const off = !canAct(game);
   return (
     <>
       <p>
@@ -62,7 +61,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [qty, setQty] = useState(5);
   const [good, setGood] = useState<Good>('grain');
-  const planning = planningOf(game);
+  const planning = canAct(game);
   const phone = usePhone();
   const me = v.state.realms[v.human]!;
   const forecasts = useMarchForecasts(v, game.orders);
@@ -126,7 +125,7 @@ export function ChancellorPanel({ game, v }: { game: Game; v: View }) {
   const [task, setTask] = useState('');
   const [budget, setBudget] = useState(25);
   const s = v.state;
-  const can = planningOf(game) && v.tasksLeft > 0;
+  const can = canAct(game) && v.tasksLeft > 0;
   const company = (id: number): string => v.companies.find((c) => c.id === id)?.name ?? `company ${id}`;
   const pname = (id: number): string => s.map.provinces[id]?.name ?? '?';
   const submit = async (e: FormEvent): Promise<void> => {
@@ -252,7 +251,7 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
   const [amount, setAmount] = useState(6);
   // keep the chosen rival while it lives; otherwise the first one left
   const to = rivals.some((r) => r.id === toChoice) ? toChoice! : (rivals[0]?.id ?? 0);
-  const can = planningOf(game) && v.envoysLeft > 0;
+  const can = canAct(game) && v.envoysLeft > 0;
 
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();

@@ -344,8 +344,9 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
             display: three ? 'none' : 'block',
             transform: zoom.k > 1 ? `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.k})` : undefined,
             transformOrigin: '0 0',
-            // the page scrolls by a finger until the map is zoomed; then a finger pans the map
-            touchAction: zoom.k > 1 ? 'none' : 'pan-y',
+            // the map takes every touch: a page scroll that began on it would cancel a pinch before
+            // the second finger lands (the page scrolls from anywhere else)
+            touchAction: 'none',
           }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
