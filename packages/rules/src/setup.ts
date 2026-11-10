@@ -56,6 +56,23 @@ export const dailySeed = (date: string, attempt = 0): string => `daily-${date}${
 /** The UTC day of a time, as YYYY-MM-DD. */
 export const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
+/**
+ * A challenge between friends: a quick match on a map named by a short code that one player shares
+ * with another by link. Everyone with the code plays that map against AI rulers; a board compares
+ * their results. Like the daily, an attempt number covers a map that can't be laid out.
+ */
+export const challengeSeed = (code: string, attempt = 0): string => `duel-${code}${attempt ? `.${attempt}` : ''}${QUICK_SEED_SUFFIX}`;
+
+/** A challenge's code: 6 lowercase hex digits. */
+export const isChallengeCode = (code: string): boolean => /^[0-9a-f]{6}$/.test(code);
+
+/** The code a challenge's seed is for, or null if it isn't one. */
+export function challengeCode(seed: string): string | null {
+  if (!seed.endsWith(QUICK_SEED_SUFFIX)) return null;
+  const m = /^duel-([0-9a-f]{6})(?:\.[1-9]\d*)?$/.exec(seed.slice(0, -QUICK_SEED_SUFFIX.length));
+  return m ? m[1]! : null;
+}
+
 /** Whether `s` is a real UTC calendar day written YYYY-MM-DD (2026-99-99 isn't). */
 export function isUtcDay(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && utcDay(Date.parse(`${s}T00:00:00Z`)) === s;
