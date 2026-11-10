@@ -158,7 +158,11 @@ export function verifyBundle(b: ProofBundle): Check[] {
   if (!shapeOk) return checks;
   let state: GameState = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   const after = new Map<number, GameState>();
-  push('campaign rebuilt from its seed', true, `${state.map.provinces.length} provinces, ${state.realms.length} realms`);
+  push(
+    'campaign rebuilt from its seed',
+    true,
+    `${state.map.provinces.length} provinces, ${state.realms.length} realms${state.secretRulers && b.rollSecret === undefined ? '; rulers are stand-ins until the roll secret is revealed (the state hashes leave them out)' : ''}`,
+  );
 
   // commitments made at campaign start
   if (b.rollSecret !== undefined && b.rollSalt !== undefined) {
