@@ -27,6 +27,9 @@ import {
   QUICK_MAP,
   QUICK_MATCH,
   QUICK_SEED_SUFFIX,
+  dailySeed,
+  dailyDate,
+  utcDay,
   scores,
   sealOrders,
   seasonName,
@@ -384,9 +387,15 @@ function get(id: number): Hosted {
 
 // ---------- create ----------
 
-/** Starts a campaign. `quick`: the quick match (QUICK_MATCH); its realms and seasons are fixed, so `realms` and `seasons` are not read. */
-export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false): Promise<Hosted> {
+/**
+ * Starts a campaign. `quick`: the quick match (QUICK_MATCH); its realms and seasons are fixed, so
+ * `realms` and `seasons` are not read. `daily`: today's daily challenge, a quick match on the
+ * day's map (the same for everyone).
+ */
+export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false, daily = false): Promise<Hosted> {
+  if (daily) quick = true;
   if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
+  const today = utcDay(Date.now());
   if (player !== undefined) {
     if (!/^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/.test(player) || player.length < 2 || player.length > 64)
       throw new GameError('that is not a NEAR account id');
@@ -400,15 +409,16 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   // a quick match's seed says so, and the seed is recorded onchain; the map size goes in the
   // proof's options, so the verifier rebuilds the same map. A seed whose small map can't be laid
   // out within its province range is rare: try a few
-  const build = () => {
-    const seed = `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
+  const build = (attempt: number) => {
+    // the day's seed is the same for everyone (its attempt number too, since the same seed fails the same way)
+    const seed = daily ? dailySeed(today, attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
     const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
     return { seed, options, state: newCampaign(options) };
   };
   let made: ReturnType<typeof build> | null = null;
   for (let i = 0; i < 5 && !made; i++) {
     try {
-      made = build();
+      made = build(i);
     } catch (e) {
       // only a small map that couldn't be laid out is worth another seed; anything else is a bug
       if (!/^no map with /.test((e as Error).message)) throw e;
@@ -1241,6 +1251,49 @@ export interface CampaignSummary {
  * Recent campaigns, newest first; `ids` and `player` narrow the list (either matches) to the
  * campaigns someone could resume, and then unfinished ones come first.
  */
+/** One line of a day's challenge board. */
+export interface DailyEntry {
+  id: number;
+  /** the wallet that ruled it, or null for a guest seat */
+  player: string | null;
+  phase: Hosted['phase'];
+  season: number;
+  maxSeasons: number;
+  /** your realm's campaign score now (final once the campaign is over) */
+  score: number;
+  /** you took every rival capital */
+  conquest: boolean;
+  /** rank among the finished campaigns, 1 = best; null while playing */
+  rank: number | null;
+}
+
+/**
+ * A day's challenge board: every campaign on that day's map, finished ones ranked by your realm's
+ * final score (a conquest first), then those still being played. Each links to its proof.
+ */
+export function dailyBoard(date: string): DailyEntry[] {
+  const entries = [...campaigns.values()]
+    .filter((h) => dailyDate(h.state.seed) === date)
+    .map((h) => {
+      const over = h.phase === 'over';
+      return {
+        id: h.id,
+        player: h.player ?? null,
+        phase: h.phase,
+        season: h.state.season,
+        maxSeasons: h.state.maxSeasons,
+        score: scores(h.state)[HUMAN] ?? 0,
+        conquest: over && h.state.winner === HUMAN && h.state.realms.every((r) => r.id === HUMAN || !r.alive),
+        rank: null as number | null,
+        createdAt: h.createdAt,
+      };
+    });
+  const done = entries.filter((e) => e.phase === 'over').sort((a, b) => Number(b.conquest) - Number(a.conquest) || b.score - a.score || a.createdAt - b.createdAt);
+  done.forEach((e, i) => (e.rank = i + 1));
+  const playing = entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score);
+  return [...done, ...playing].map(({ createdAt: _, ...e }) => e);
+}
+
 export function list(filter: { ids?: number[]; player?: string } = {}): CampaignSummary[] {
   const narrowed = filter.ids !== undefined || filter.player !== undefined;
   const ids = new Set(filter.ids ?? []);
