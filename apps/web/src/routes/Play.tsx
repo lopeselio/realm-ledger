@@ -47,8 +47,9 @@ export function Play() {
   const asked = search.get('challenge');
   const accepting = id === null && asked && isChallengeCode(asked) ? asked : null;
   const badLink = id === null && asked !== null && !accepting;
-  // a code that leads to no challenge: no Accept button
-  const [dead, setDead] = useState(false);
+  // a code that leads to no challenge: no Accept button (for this code; another one starts afresh)
+  const [deadCode, setDeadCode] = useState<string | null>(null);
+  const dead = deadCode !== null && deadCode === accepting;
   const [signer, setSigner] = useState<Signer | null>(null);
   const game = useGame(id, signer);
   // the thumb dock exists only on a phone (on wider screens the orders panel sits by the map)
@@ -190,7 +191,7 @@ export function Play() {
                           Accept: play this map
                         </button>
                       )}
-                      <ChallengeBoard code={accepting} onMissing={() => setDead(true)} />
+                      <ChallengeBoard code={accepting} onMissing={() => setDeadCode(accepting)} />
                     </div>
                   )}
                   <Continue signer={signer} />
