@@ -1,7 +1,7 @@
 // The game against the AI rulers: the campaign view from the server, your draft orders, and
 // the flows that seal, reveal, hire and send envoys. Flows run one at a time (`busy`).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { canonicalJson, newSalt, sealOrders, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt, ORDERS_REFUSED, QUICK_SEED_SUFFIX } from '@realm-ledger/rules';
+import { canonicalJson, newSalt, sealOrders, type GameState, type Order, type OrderSet, type Treaty, revealable, forfeitOpensAt, ORDERS_REFUSED, QUICK_SEED_SUFFIX, dailyDate } from '@realm-ledger/rules';
 import { api, type ChancellorTask, type Envoy, type View } from '../api.ts';
 import { view as chainView } from '../chain.ts';
 import { sealSound, unlockSound } from '../sound.ts';
@@ -363,7 +363,12 @@ export function useGame(id: number | null, signer: Signer | null) {
       rememberCampaign(v.id);
       // a server that predates the quick match ignores it and builds a full-size map: say so
       const ignored = quick && !v.state.seed.endsWith(QUICK_SEED_SUFFIX);
-      say(`Campaign ${v.id} is onchain.${ignored ? ' This server doesn’t offer the quick match’s small map yet, so it is a full-size map.' : ''} Plan your first season.`);
+      const notDaily = daily && !ignored && !dailyDate(v.state.seed);
+      say(
+        `Campaign ${v.id} is onchain.${ignored ? ' This server doesn’t offer the quick match’s small map yet, so it is a full-size map.' : ''}${
+          notDaily ? ' This server doesn’t offer the daily challenge yet, so it is an ordinary quick match, not on the day’s board.' : ''
+        } Plan your first season.`,
+      );
     });
     return created;
   };

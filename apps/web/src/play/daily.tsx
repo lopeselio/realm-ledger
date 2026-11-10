@@ -2,6 +2,7 @@
 // ranked by your realm's final score, each linked to its campaign (and from there its proof).
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
+import { QUICK_MATCH, utcDay } from '@realm-ledger/rules';
 import { api } from '../api.ts';
 
 interface Entry {
@@ -15,8 +16,8 @@ interface Entry {
   rank: number | null;
 }
 
-/** Today's board (UTC), or `date`'s; `mine` marks the campaign on screen. */
-export function DailyBoard({ date, mine }: { date?: string; mine?: number }) {
+/** Today's board (UTC), or `date`'s; `mine` marks the campaign on screen, fetched again whenever `progress` changes. */
+export function DailyBoard({ date, mine, progress }: { date?: string; mine?: number; progress?: string }) {
   const [board, setBoard] = useState<{ date: string; entries: Entry[] } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -27,18 +28,24 @@ export function DailyBoard({ date, mine }: { date?: string; mine?: number }) {
     return () => {
       live = false;
     };
-  }, [date, mine]);
+  }, [date, mine, progress]);
   if (failed) return null;
   const done = board?.entries.filter((e) => e.rank !== null) ?? [];
   const playing = board?.entries.filter((e) => e.rank === null).length ?? 0;
+  const today = !board || board.date === utcDay(Date.now());
+  const rivals = QUICK_MATCH.realms - 1;
   return (
     <section className="daily" aria-label="Daily challenge">
       <h2>Daily challenge{board ? ` · ${board.date}` : ''}</h2>
-      <p className="fine">Everyone gets the same map today: a quick match against 2 AI rulers. Best final score wins the day; taking every rival capital beats any score.</p>
+      <p className="fine">
+        Everyone gets the same map {today ? 'today' : 'that day'}: a quick match against {rivals} AI rulers. Best final score wins the day; taking every rival capital beats any score.
+      </p>
       {!board ? (
         <p className="fine">Loading the board…</p>
       ) : done.length === 0 ? (
-        <p className="fine">No one has finished today's map yet{playing ? ` (${playing} playing)` : ''}. Choose “Daily challenge” as the length and start.</p>
+        <p className="fine">
+          {today ? `No one has finished today's map yet${playing ? ` (${playing} playing)` : ''}. Choose “Daily challenge” as the length and start.` : 'No one finished that day’s map.'}
+        </p>
       ) : (
         <>
           <ol className="daily-board">

@@ -194,7 +194,7 @@ export function Play() {
           </div>
           {dailyDate(v.state.seed) && (
             <div className="panel">
-              <DailyBoard date={dailyDate(v.state.seed)!} mine={v.id} />
+              <DailyBoard date={dailyDate(v.state.seed)!} mine={v.id} progress={`${v.season}:${v.phase}`} />
             </div>
           )}
         </section>
