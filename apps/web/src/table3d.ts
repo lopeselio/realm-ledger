@@ -412,7 +412,8 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       if (capitals.has(p.id)) {
         const k = painted(models.keep, hex, enamelCache);
         k.position.set(x - 0.25, y, z - 0.2);
-        k.scale.setScalar(1.6);
+        // a capital grown into a city stands taller too
+        k.scale.setScalar(s.cities?.[p.id] ? 2.1 : 1.6);
         pieces.add(k);
       } else if (s.towns[p.id]) {
         const t = painted(models.town, hex, enamelCache);
