@@ -25,6 +25,8 @@ import {
   replaySeason,
   RULES_VERSION,
   QUICK_MAP,
+  QUICK_MATCH,
+  QUICK_SEED_SUFFIX,
   scores,
   sealOrders,
   seasonName,
@@ -382,8 +384,9 @@ function get(id: number): Hosted {
 
 // ---------- create ----------
 
-/** Starts a campaign. `quick`: the quick match's smaller map (the season count is still `seasons`). */
+/** Starts a campaign. `quick`: the quick match (QUICK_MATCH), whatever `realms` and `seasons` say. */
 export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false): Promise<Hosted> {
+  if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
   if (player !== undefined) {
     if (!/^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/.test(player) || player.length < 2 || player.length > 64)
       throw new GameError('that is not a NEAR account id');
@@ -394,7 +397,8 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   }
   if (!Number.isInteger(realms) || realms < 3 || realms > 6) throw new GameError('realms must be 3 to 6');
   if (!Number.isInteger(seasons) || seasons < 4 || seasons > 20) throw new GameError('seasons must be 4 to 20');
-  const seed = `rl-${hex(6)}`;
+  // a quick match's seed says so, and the seed is recorded onchain
+  const seed = `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
   // the map size goes in the proof's options, so the verifier rebuilds the same map
   const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
   const state = newCampaign(options);
