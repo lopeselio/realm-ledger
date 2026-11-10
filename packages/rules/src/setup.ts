@@ -212,13 +212,15 @@ function agenda(r: Rng, map: GameMap, self: number, capitals: number[], owner: n
 }
 
 /**
- * Rules version 4: a few shrines on unclaimed land (no realm's at the start, so none in a realm's
- * home provinces; not a town or a pass), no two side by side, from a stream of their own so the
- * rest of the setup is as in version 3.
+ * Rules version 4: a few shrines on unclaimed land that borders no realm's home (so none is an
+ * easy walk-in for whoever starts beside it), not a town or a pass, no two side by side, from a
+ * stream of their own so the rest of the setup is as in version 3. Each is guarded by a militia.
  */
 function placeShrines(seed: string, map: GameMap, owner: number[], towns: boolean[]): boolean[] {
   const r = rng(seed, 'shrines');
-  const open = map.provinces.filter((p) => owner[p.id] === -1 && !towns[p.id] && p.terrain !== 'pass').map((p) => p.id);
+  const open = map.provinces
+    .filter((p) => owner[p.id] === -1 && !towns[p.id] && p.terrain !== 'pass' && !p.neighbors.some((n) => owner[n]! >= 0))
+    .map((p) => p.id);
   r.shuffle(open);
   const shrines = new Array<boolean>(map.provinces.length).fill(false);
   const want = Math.max(2, Math.floor(map.provinces.length / 20));
@@ -274,6 +276,10 @@ export function newCampaign(opts: CampaignOptions): GameState {
     armies.push({ realm: NEUTRAL, province: id, ...NEUTRAL_TOWN_MILITIA });
   }
 
+  // rules version 4: shrines, each with a militia (after the towns' in the army list)
+  const shrines = rulesVersion >= 4 ? placeShrines(opts.seed, map, owner, towns) : null;
+  if (shrines) shrines.forEach((x, id) => x && armies.push({ realm: NEUTRAL, province: id, ...NEUTRAL_TOWN_MILITIA }));
+
   // the rulers: from the seed itself before rules version 3, from their own secret since
   const secretRulers = rulesVersion >= 3;
   const rr = secretRulers ? rng(opts.agendaSeed ?? opts.seed, 'rulers') : r;
@@ -305,7 +311,7 @@ export function newCampaign(opts: CampaignOptions): GameState {
     // rules version 1 predates the agent market; leaving these out keeps its state hashes
     ...(rulesVersion >= 2 ? { companies: makeCompanies(opts.seed), lastBattles: 0 } : {}),
     ...(secretRulers ? { secretRulers: true } : {}),
-    ...(rulesVersion >= 4 ? { cities: new Array<boolean>(P).fill(false), held: new Array<number>(P).fill(0), shrines: placeShrines(opts.seed, map, owner, towns) } : {}),
+    ...(shrines ? { cities: new Array<boolean>(P).fill(false), held: new Array<number>(P).fill(0), shrines } : {}),
     winner: null,
   };
 }

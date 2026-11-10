@@ -9,7 +9,7 @@ export const GRAIN_FACTOR = [1, 1, 2, 0] as const;
 
 export const TOWN_CROWNS = 4;
 export const CAPITAL_CROWNS = 6;
-/** Rules version 4: a town held through this many harvests by one realm grows into a city. */
+/** Rules version 4: a town (not a capital) held through this many harvests in peace by one realm grows into a city. */
 export const CITY_AFTER = 4;
 /** Rules version 4: a city's extra crowns each harvest, on top of a town's (or capital's). */
 export const CITY_BONUS = 3;
