@@ -43,7 +43,8 @@ export const QUICK_SEED_SUFFIX = '-q';
  * seed, or the quick match whole (its map, realms and seasons) with a quick seed. Anything else
  * (another size, a null, a quick seed on another shape) is refused before a map is built.
  */
-export function knownShape(o: { seed: string; realms?: number; maxSeasons?: number; map?: unknown }): boolean {
+export function knownShape(o: { seed: unknown; realms?: unknown; maxSeasons?: unknown; map?: unknown }): boolean {
+  if (typeof o.seed !== 'string') return false;
   if (!o.seed.endsWith(QUICK_SEED_SUFFIX)) return o.map === undefined;
   return (
     typeof o.map === 'object' &&
