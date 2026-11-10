@@ -127,8 +127,6 @@ export interface Hosted {
   rollSecret: string;
   rollSalt: string;
   agendaSalts: string[];
-  /** rules version 3: the secret the rulers were drawn from, revealed in the proof at the end */
-  agendaSeed?: string;
   /** onchain treaty id for each signed treaty, keyed "kind:a:b" */
   treatyIds: Record<string, number>;
   nextTreatyId: number;
@@ -411,9 +409,10 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   // a quick match's seed says so, and the seed is recorded onchain; the map size goes in the
   // proof's options, so the verifier rebuilds the same map. A seed whose small map can't be laid
   // out within its province range is rare: try a few
-  // the rulers' own secret (rules version 3): their personalities and agendas can't be worked out
-  // from the seed, which is public onchain. Kept here, out of the proof's options, until the end
-  const agendaSeed = hex();
+  // the rulers come from the battle-roll secret (rules version 3): committed onchain now, revealed
+  // at the end, so their personalities and agendas can't be worked out from the public seed, and
+  // can't be changed later either
+  const rollSecret = hex();
   // the day, read once (after the account check, so a request straddling midnight gets the new
   // day): every attempt is for the same day
   const day = utcDay(Date.now());
@@ -422,7 +421,7 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
     // (the day read now, after the account check: a request straddling midnight gets the new day)
     const seed = daily ? dailySeed(day, attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
     const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
-    return { seed, options, state: newCampaign({ ...options, agendaSeed }) };
+    return { seed, options, state: newCampaign({ ...options, agendaSeed: rollSecret }) };
   };
   let made: ReturnType<typeof build> | null = null;
   for (let i = 0; i < 5 && !made; i++) {
@@ -435,7 +434,6 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
     }
   }
   const { seed, options, state } = made!;
-  const rollSecret = hex();
   const rollSalt = hex();
   const agendaSalts = state.realms.map(() => hex());
   const rollCommit = commit(rollSecret, rollSalt);
@@ -475,7 +473,6 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
     reports: [],
     chancellorBudget: 0,
     intents: [],
-    agendaSeed,
     ...(player ? { player } : {}),
     bundle: {
       version: 1,
@@ -1197,8 +1194,6 @@ async function finish(h: Hosted): Promise<void> {
   h.bundle.rollSecret = h.rollSecret;
   h.bundle.rollSalt = h.rollSalt;
   h.bundle.agendaSalts = h.agendaSalts;
-  // the rulers' secret, revealed with their agendas: now anyone can rebuild them from the proof
-  if (h.agendaSeed) h.bundle.options.agendaSeed = h.agendaSeed;
   h.phase = 'over';
 }
 
