@@ -22,6 +22,7 @@ import {
   type Treaty,
   type MapOptions,
   knownShape,
+  QUICK_MATCH,
   QUICK_SEED_SUFFIX,
 } from '@realm-ledger/rules';
 
@@ -141,7 +142,18 @@ export function verifyBundle(b: ProofBundle): Check[] {
   // the standard map, or the quick match whole, as its seed (recorded onchain) says: a bundle
   // can't claim another map, nor one too big to build
   const shapeOk = knownShape(b.options);
-  push('map size matches the seed', shapeOk, typeof b.options.seed === 'string' && b.options.seed.endsWith(QUICK_SEED_SUFFIX) ? 'quick match' : 'standard map');
+  const quickSeed = typeof b.options.seed === 'string' && b.options.seed.endsWith(QUICK_SEED_SUFFIX);
+  push(
+    'map size matches the seed',
+    shapeOk,
+    shapeOk
+      ? quickSeed ? 'quick match' : 'standard map'
+      : typeof b.options.seed !== 'string'
+        ? 'no seed'
+        : quickSeed
+          ? `a quick seed needs the quick match: ${QUICK_MATCH.realms} realms, ${QUICK_MATCH.maxSeasons} seasons, the small map`
+          : 'a standard seed takes no map size',
+  );
   if (!shapeOk) return checks;
   let state: GameState = newCampaign({ ...b.options, rulesVersion: rulesVersionOf(b) });
   const after = new Map<number, GameState>();

@@ -10,8 +10,7 @@ import {
   runCampaign,
   scores,
   stateHash,
-  type GameState,
-} from '@realm-ledger/rules';
+  type GameState, QUICK_MATCH, QUICK_SEED_SUFFIX } from '@realm-ledger/rules';
 import { campaigns, CONTRACT, type ChainCampaign } from '../chain.ts';
 import { provinceTip, colorOf } from '../map.ts';
 import { Board } from '../components/Board.tsx';
@@ -22,9 +21,11 @@ import { nearblocks, seasonTitle } from '../format.ts';
 const DEFAULT_SEED = 'ember-pass';
 
 function playOut(seed: string, realms: number) {
-  const result = runCampaign({ seed, realms });
+  // a quick match's seed plays the quick match, as it did in the game
+  const opts = seed.endsWith(QUICK_SEED_SUFFIX) ? { seed, realms: QUICK_MATCH.realms, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map } : { seed, realms };
+  const result = runCampaign(opts);
   // rebuild every season's state by replaying the recorded orders: this is what the verifier does
-  const states: GameState[] = [newCampaign({ seed, realms, human: null })];
+  const states: GameState[] = [newCampaign({ ...opts, human: null })];
   for (const h of result.history) states.push(replaySeason(states.at(-1)!, h).state);
   const hash = stateHash(result.state);
   return { history: result.history, states, hash, replayOk: stateHash(states.at(-1)!) === hash };

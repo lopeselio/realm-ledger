@@ -410,6 +410,8 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
     try {
       made = build();
     } catch (e) {
+      // only a small map that couldn't be laid out is worth another seed; anything else is a bug
+      if (!/^no map with /.test((e as Error).message)) throw e;
       if (i === 4) throw new GameError(`no map could be laid out: ${(e as Error).message}`, 500);
     }
   }

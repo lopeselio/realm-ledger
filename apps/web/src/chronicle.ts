@@ -16,7 +16,7 @@ export function chronicle(before: GameState, events: GameEvent[]): Line[] {
   for (const e of events) {
     switch (e.kind) {
       case 'victory':
-        big.push({ tone: 'big', text: `${realm(e.realm)} wins the campaign ${e.reason === 'conquest' ? 'by conquest' : 'at the last winter'}.` });
+        big.push({ tone: 'big', text: `${realm(e.realm)} wins the campaign ${e.reason === 'conquest' ? 'by conquest' : 'with the best score when the last season ended'}.` });
         break;
       case 'fallen':
         big.push({ tone: 'big', text: `${realm(e.realm)} falls. ${realm(e.by)} holds its capital.` });
