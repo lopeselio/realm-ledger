@@ -5,7 +5,8 @@ import { API, PUBLIC_API, type View } from '../api.ts';
 import { colorOf } from '../map.ts';
 import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
-import { forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
+import { EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
+import { usePhone } from '../components/Board.tsx';
 
 const planningOf = (g: Game): boolean => !!g.view && g.view.phase === 'planning' && !g.busy;
 
@@ -62,12 +63,14 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
   const [qty, setQty] = useState(5);
   const [good, setGood] = useState<Good>('grain');
   const planning = planningOf(game);
+  const phone = usePhone();
   const me = v.state.realms[v.human]!;
   const forecasts = useMarchForecasts(v, game.orders);
   return (
     <section className="panel" data-tour="orders" id="orders">
       <h2>Your orders</h2>
-      <div className="selection">{v.phase === 'planning' && <Selection game={game} v={v} />}</div>
+      {/* on a phone the selection lives in the dock under your thumb */}
+      <div className="selection">{v.phase === 'planning' && !phone && <Selection game={game} v={v} />}</div>
       <ol className="orders">
         {game.orders.length ? (
           game.orders.map((o, i) => {
@@ -110,9 +113,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
       <p className="purse" data-tour="purse">
         Treasury: {me.purse.crowns} crowns · {GOODS.map((g) => `${me.purse[g]} ${g}`).join(' · ')}
       </p>
-      <button type="button" className="primary wide end-season" data-tour="seal" disabled={!planning} onClick={() => void game.seal()}>
-        {game.stage?.campaign === v.id ? 'Ending the season…' : `End season: seal ${game.orders.length === 1 ? '1 order' : `${game.orders.length} orders`}`}
-      </button>
+      <EndSeasonButton game={game} v={v} />
       <p className="fine">Your browser hashes your orders with a secret salt. Only the hash goes onchain until every ruler has sealed.</p>
       {v.phase === 'sealed' && game.forfeitAt !== null && <ForfeitButton game={game} at={game.forfeitAt} />}
     </section>

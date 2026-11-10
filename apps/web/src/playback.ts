@@ -81,8 +81,15 @@ export function playOnMap(svg: SVGSVGElement, s: GameState, sc: SeasonScript): (
     Object.assign(layer.style, { left: `${box.left - parent.left - wrap.clientLeft}px`, top: `${box.top - parent.top - wrap.clientTop}px`, width: `${box.width}px`, height: `${box.height}px` });
   };
   place();
+  // re-measure only when the map's transform or frame size changed since the last frame
+  const sig = (): string => `${svg.style.transform}|${wrap.clientWidth}x${wrap.clientHeight}`;
+  let last = sig();
   let frame = requestAnimationFrame(function track() {
-    place();
+    const now = sig();
+    if (now !== last) {
+      last = now;
+      place();
+    }
     frame = requestAnimationFrame(track);
   });
   svg.after(layer);

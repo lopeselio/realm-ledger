@@ -333,7 +333,7 @@ svg.playback { position: absolute; pointer-events: none; }
   .map-wrap { border-width: 6px; }
   #map { max-height: 62vh; }
   /* a thumb needs about 44px */
-  button, select, input { min-height: 44px; }
+  button, select, input[type='text'], input[type='number'], input:not([type]) { min-height: 44px; }
   .panel button { padding: 9px 12px; }
   .panel button.x { min-height: 32px; min-width: 32px; }
   .turn-steps li { font-size: 0.75rem; }
@@ -361,6 +361,7 @@ svg.playback { position: absolute; pointer-events: none; }
   .dock-orders { color: var(--ink); font-weight: 700; white-space: nowrap; }
   .dock-bar .end-season { flex: 1; background: #7a1f16; color: var(--parchment); border-color: #7a1f16; font-weight: 700; font-size: 1.05rem; }
   .dock-bar .end-season:disabled { opacity: 0.55; }
-  /* room under the page for the dock */
-  body { padding-bottom: 120px; }
+  /* room under the page for the dock, however tall it is now (set by PhoneDock) */
+  body { padding-bottom: calc(var(--dock-h, 72px) + 16px); }
+  .phone-dock { max-height: 45vh; }
 }

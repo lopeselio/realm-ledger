@@ -1,6 +1,6 @@
 // The season at a glance: the standing of every realm, where ending the season has got to,
 // and what a march would meet.
-import { useMemo, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { forecastMarch, friendly, pickTroops, treatyBetween, plannedMarches, type Forecast, type ForecastSide, type GameState, type Order } from '@realm-ledger/rules';
 import type { View } from '../api.ts';
 import { colorOf } from '../map.ts';
@@ -70,21 +70,41 @@ export function TurnSteps({ game, v }: { game: Game; v: View }) {
  * where the orders panel sits beside the map.
  */
 export function PhoneDock({ game, v, selection }: { game: Game; v: View; selection: ReactNode }) {
+  const dock = useRef<HTMLDivElement>(null);
+  // the page keeps room under itself for the dock as it grows and shrinks
+  useLayoutEffect(() => {
+    const el = dock.current;
+    if (!el) return;
+    const o = new ResizeObserver(() => document.body.style.setProperty('--dock-h', `${el.offsetHeight}px`));
+    o.observe(el);
+    return () => {
+      o.disconnect();
+      document.body.style.removeProperty('--dock-h');
+    };
+  }, []);
   if (v.phase === 'over') return null;
-  const n = game.orders.length;
-  const planning = v.phase === 'planning' && !game.busy;
   return (
-    <div className="phone-dock" role="region" aria-label="Your move">
+    <div className="phone-dock" role="region" aria-label="Your move" ref={dock}>
       {v.phase === 'planning' && game.selected !== undefined && <div className="dock-selection">{selection}</div>}
       <div className="dock-bar">
         <a href="#orders" className="dock-orders">
-          {n === 1 ? '1 order' : `${n} orders`}
+          {ordersCount(game.orders.length)}
         </a>
-        <button type="button" className="primary end-season" disabled={!planning} onClick={() => void game.seal()}>
-          {game.stage?.campaign === v.id ? 'Ending the season…' : 'End season'}
-        </button>
+        <EndSeasonButton game={game} v={v} short />
       </div>
     </div>
+  );
+}
+
+const ordersCount = (n: number): string => (n === 1 ? '1 order' : `${n} orders`);
+
+/** Seals your orders and ends the season; one button for the orders panel and the phone dock. */
+export function EndSeasonButton({ game, v, short = false }: { game: Game; v: View; short?: boolean }) {
+  const planning = v.phase === 'planning' && !game.busy;
+  return (
+    <button type="button" className={`primary end-season${short ? '' : ' wide'}`} {...(short ? {} : { 'data-tour': 'seal' })} disabled={!planning} onClick={() => void game.seal()}>
+      {game.stage?.campaign === v.id ? 'Ending the season…' : short ? 'End season' : `End season: seal ${ordersCount(game.orders.length)}`}
+    </button>
   );
 }
 
