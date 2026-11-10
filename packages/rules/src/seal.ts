@@ -36,7 +36,13 @@ export const verifySeal = (seal: string, orders: OrderSet, salt: string): boolea
 export const commit = (value: unknown, salt: string): string => sha256Hex(`${canonicalJson(value)}|${salt}`);
 
 /** Fingerprint of a whole game state, for replay checks. */
-export const stateHash = (s: GameState): string => sha256Hex(canonicalJson(s));
+/**
+ * The hash of a state, as posted onchain each season. Under rules version 3 (`secretRulers`) the
+ * rulers' personalities and agendas are left out: they come from a secret revealed only at the
+ * end, and are committed onchain on their own, so a replay mid-campaign still matches.
+ */
+export const stateHash = (s: GameState): string =>
+  sha256Hex(canonicalJson(s.secretRulers ? { ...s, realms: s.realms.map(({ personality: _p, agenda: _a, ...r }) => r) } : s));
 
 /** The realm contract's MAX_ORDERS_JSON (contracts/realm/src/lib.rs): the largest reveal, in UTF-8 bytes. */
 export const MAX_REVEAL_BYTES = 8_000;
