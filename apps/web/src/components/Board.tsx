@@ -4,6 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import type { GameState } from '@realm-ledger/rules';
 import { provinceCenter, renderMap, type Overlay } from '../map.ts';
+import { isPhone, PHONE_QUERY } from '../media.ts';
 import type { Table3D } from '../table3d.ts';
 import { FRESH_MS, isEmpty, playOnMap, playSounds, type SeasonScript } from '../playback.ts';
 import { reducedMotion } from '../onboarding/storage.ts';
@@ -18,19 +19,6 @@ const PREF = 'realm-ledger:board';
 function canRender3D(): boolean {
   try {
     return !!(navigator as Navigator & { gpu?: unknown }).gpu || !!document.createElement('canvas').getContext('webgl2');
-  } catch {
-    return false;
-  }
-}
-
-/**
- * A phone or small tablet held by thumb: a narrow screen, or a touch one up to tablet width.
- * style.css repeats this query for the phone layout; change both together.
- */
-export const PHONE_QUERY = '(max-width: 640px), (pointer: coarse) and (max-width: 900px)';
-export function isPhone(): boolean {
-  try {
-    return window.matchMedia(PHONE_QUERY).matches;
   } catch {
     return false;
   }
@@ -160,11 +148,12 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
       // pinch about the fingers' midpoint, and follow it as it moves
       setZoom(clamp({ k, x: mid.x - (g.mid.x - g.start.x) * f, y: mid.y - (g.mid.y - g.start.y) * f }));
       dragged.current = true;
-    } else if (ps.length === 1 && g.start.k > 1) {
+    } else if (ps.length === 1) {
       const dx = ps[0]!.x - g.at.x;
       const dy = ps[0]!.y - g.at.y;
+      // a finger that moved is a swipe, not a tap, zoomed or not
       if (Math.hypot(dx, dy) > 6) dragged.current = true;
-      if (dragged.current) setZoom(clamp({ ...g.start, x: g.start.x + dx, y: g.start.y + dy }));
+      if (dragged.current && g.start.k > 1) setZoom(clamp({ ...g.start, x: g.start.x + dx, y: g.start.y + dy }));
     }
   };
   const onPointerEnd = (e: PointerEvent): void => {
@@ -270,7 +259,8 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    const o = new ResizeObserver(() => setZoom((z) => (z.k > 1 ? clamp(z) : z)));
+    // (not while hidden for the 3D table: a 0×0 frame would pin the view to its corner)
+    const o = new ResizeObserver(() => setZoom((z) => (z.k > 1 && frame().h > 0 && frame().w > 0 ? clamp(z) : z)));
     o.observe(svg);
     return () => o.disconnect();
   }, []);
@@ -366,6 +356,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
           onPointerMove={onPointerMove}
           onPointerUp={onPointerEnd}
           onPointerCancel={onPointerEnd}
+          onLostPointerCapture={onPointerEnd}
           onClick={(e) => {
             if (dragged.current) {
               dragged.current = false;
