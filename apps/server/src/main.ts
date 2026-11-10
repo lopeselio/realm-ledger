@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { OrderSet, Treaty } from '@realm-ledger/rules';
+import { dailySeed, utcDay, type OrderSet, type Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
-import { confirmTreaty, createCampaign, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
+import { confirmTreaty, createCampaign, dailyBoard, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 import { healthMonitor } from './health.ts';
 import { RPCS } from './chain.ts';
@@ -12,7 +12,9 @@ const health = healthMonitor({ urls: RPCS });
 // Small JSON API for the game. No framework: a handful of routes.
 //   GET  /api/health
 //   GET  /api/campaigns?ids=&player=         recent campaigns, or just these ids / this ruler's
-//   POST /api/campaigns        {realms, seasons, player?, quick?}  start a campaign (you play realm 0;
+//   GET  /api/daily?date=      the daily challenge's board (today, UTC, by default)
+//   POST /api/campaigns        {realms, seasons, player?, quick?, daily?}  start a campaign (you play realm 0;
+//                              `daily`: today's challenge, a quick match on the day's map;
 //                              `quick`: a smaller map, for a short match;
 //                              with `player`, your own NEAR account rules it and signs its moves)
 //   POST /api/campaigns/:id/treaty {treaty}  after proposing an accepted treaty from your wallet
@@ -72,6 +74,12 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // whether the chain side will last: the contract's free storage NEAR, the referee, every seat's gas.
   if (parts[1] === 'health') return send(res, 200, { ...(await health()), model: config.nearAi.model, nearAi: nearAiEnabled() });
 
+  // the daily challenge's board, for today unless ?date=YYYY-MM-DD
+  if (parts[1] === 'daily' && parts.length === 2 && req.method === 'GET') {
+    const asked = url.searchParams.get('date');
+    const date = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : utcDay(Date.now());
+    return send(res, 200, { date, seed: dailySeed(date), entries: dailyBoard(date) });
+  }
   if (parts[1] !== 'campaigns') return send(res, 404, { error: 'not found' });
   if (parts.length === 2) {
     if (req.method === 'GET') {
@@ -88,7 +96,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.socket.remoteAddress ?? '?';
       if (!allowCreate(ip)) throw new GameError('too many new campaigns from here; try again later', 429);
       const b = await body(req);
-      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20), typeof b.player === 'string' && b.player ? b.player : undefined, b.quick === true);
+      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20), typeof b.player === 'string' && b.player ? b.player : undefined, b.quick === true, b.daily === true);
       return send(res, 201, publicView(h.id));
     }
   }
