@@ -48,12 +48,17 @@ export const dailySeed = (date: string, attempt = 0): string => `daily-${date}${
 /** The UTC day of a time, as YYYY-MM-DD. */
 export const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
+/** Whether `s` is a real UTC calendar day written YYYY-MM-DD (2026-99-99 isn't). */
+export function isUtcDay(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && utcDay(Date.parse(`${s}T00:00:00Z`)) === s;
+}
+
 /** The day a daily challenge's seed is for, or null if it isn't one. */
 export function dailyDate(seed: string): string | null {
   if (!seed.endsWith(QUICK_SEED_SUFFIX)) return null;
   // attempt numbers start at 1 (attempt 0 has none), as dailySeed writes them
   const m = /^daily-(\d{4}-\d{2}-\d{2})(?:\.[1-9]\d*)?$/.exec(seed.slice(0, -QUICK_SEED_SUFFIX.length));
-  return m ? m[1]! : null;
+  return m && isUtcDay(m[1]!) ? m[1]! : null;
 }
 
 /**
