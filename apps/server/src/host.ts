@@ -374,6 +374,7 @@ export async function loadAll(): Promise<number> {
         h.bundle.options.rulesVersion = h.bundle.seasons?.length ? rulesVersionOf(h.bundle) : h.state.companies?.length ? 2 : 1;
       for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
       campaigns.set(h.id, h);
+      noteChallenge(h.state.seed);
     } catch (e) {
       // one unreadable or malformed file must not hide every campaign after it, or stop the server
       console.error(`load ${f}: ${(e as Error).message}; skipped`);
@@ -398,7 +399,10 @@ function get(id: number): Hosted {
 export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false, daily = false, challenge?: string | true): Promise<Hosted> {
   if (daily || challenge !== undefined) quick = true;
   // a challenge: a new one (a fresh code), or one a friend shared, which must exist
-  const code = challenge === true ? hex(3) : challenge;
+  if (daily && challenge !== undefined) throw new GameError('a campaign is a daily or a challenge, not both');
+  // a new code no one has used (drawn again on the rare clash), or one a friend shared, which must exist
+  let code = challenge;
+  if (code === true) do code = hex(3); while (challengeExists(code));
   if (typeof challenge === 'string' && (!isChallengeCode(challenge) || !challengeExists(challenge))) throw new GameError('no such challenge');
   if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
 
@@ -494,6 +498,9 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
     createdAt: Date.now(),
   };
   campaigns.set(id, h);
+  noteChallenge(seed);
+  // its board now has one more player
+  boardChanged(seed);
   await save(h);
   return h;
 }
@@ -1314,7 +1321,7 @@ function boardOf(seed: string): string | null {
 /** A campaign moved on: its board is rebuilt on the next ask. */
 export function boardChanged(seed: string): void {
   const key = boardOf(seed);
-  if (key) boardCache.delete(key);
+  if (key) (key.startsWith('day:') ? boardCache : challengeCache).delete(key);
 }
 
 export function dailyBoard(date: string, now = Date.now()): DailyEntry[] {
@@ -1326,19 +1333,29 @@ export function challengeBoard(code: string, now = Date.now()): DailyEntry[] {
   return cachedBoard(`challenge:${code}`, now);
 }
 
+// the codes of every challenge started, so checking a link doesn't scan every campaign
+const challengeCodes = new Set<string>();
+function noteChallenge(seed: string): void {
+  const code = challengeCode(seed);
+  if (code) challengeCodes.add(code);
+}
+
 /** Whether anyone has started this challenge's map (a link to a code no one made is refused). */
-export const challengeExists = (code: string): boolean => [...campaigns.values()].some((h) => challengeCode(h.state.seed) === code);
+export const challengeExists = (code: string): boolean => challengeCodes.has(code);
 
 function cachedBoard(key: string, now: number): DailyEntry[] {
-  const hit = boardCache.get(key);
+  // daily boards and challenge boards keep separate caches, so many challenges can't push today's daily out
+  const cache = key.startsWith('day:') ? boardCache : challengeCache;
+  const hit = cache.get(key);
   if (hit && now - hit.at < BOARD_TTL_MS) return hit.entries;
   const fresh = buildBoard(key, now);
-  // least recently built out first (Map keeps insertion order), so other boards can't push today out
-  boardCache.delete(key);
-  if (boardCache.size >= BOARD_DAYS) boardCache.delete(boardCache.keys().next().value!);
-  boardCache.set(key, { at: now, entries: fresh });
+  // least recently built out first (Map keeps insertion order)
+  cache.delete(key);
+  if (cache.size >= BOARD_DAYS) cache.delete(cache.keys().next().value!);
+  cache.set(key, { at: now, entries: fresh });
   return fresh;
 }
+const challengeCache = new Map<string, { at: number; entries: DailyEntry[] }>();
 
 function buildBoard(key: string, now: number): DailyEntry[] {
   const entries = [...campaigns.values()]
@@ -1378,8 +1395,11 @@ function buildBoard(key: string, now: number): DailyEntry[] {
     });
   done.forEach((e, i) => (e.rank = i + 1));
   // a daily's unfinished campaigns count as being played only today (an earlier day's were
-  // abandoned); a challenge's always do
-  const playing = !key.startsWith('day:') || key === `day:${utcDay(now)}` ? entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score) : [];
+  // abandoned); a challenge's only if started in the last two days (an older one was left)
+  const recent = (e: (typeof entries)[number]): boolean => key === `day:${utcDay(now)}` || (key.startsWith('challenge:') && now - e.createdAt < 2 * 86_400_000);
+  const playing = entries
+    .filter((e) => e.phase !== 'over' && recent(e))
+    .sort((a, b) => b.score - a.score);
   return [...done, ...playing].map(({ createdAt: _, ...e }) => e);
 }
 
