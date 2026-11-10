@@ -1274,9 +1274,12 @@ export function publicView(id: number) {
     player: h.player ?? null,
     chancellor: chancellorAccount(),
     proposeTreaty: h.pendingTreaty ? { from: h.pendingTreaty.realms[0], to: h.pendingTreaty.realms[1], kind: h.pendingTreaty.kind, amount: h.pendingTreaty.amount ?? 0 } : null,
-    // while it runs, what everyone can see (holdings: rivals' treasuries are secret, and the fogged
-    // view would count them as nothing); once it's over, the final scores that chose the winner
-    scores: over ? scores(h.state) : holdings(h.state),
+    // what everyone can see, every realm's land, towns, forts, cities and shrines (rivals'
+    // treasuries are secret, and the fogged view would count them as nothing); your own full score;
+    // and, once there is a winner, the final scores that chose it
+    holdings: holdings(h.state),
+    yourScore: scores(h.state)[HUMAN] ?? 0,
+    scores: h.state.winner !== null ? scores(h.state) : null,
   };
 }
 

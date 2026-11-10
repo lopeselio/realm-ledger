@@ -6,40 +6,51 @@ import type { View } from '../api.ts';
 import { colorOf } from '../map.ts';
 import type { Game } from './useGame.ts';
 
-/** Every realm's campaign score, leader first; the end of the campaign is always in sight. */
+/**
+ * The standing, the end always in sight. While a campaign runs it compares what everyone can see,
+ * each realm's land held (rivals' treasuries are secret), with your own full score beside it, and
+ * marks no leader (treasuries decide). Once there's a winner it shows the final scores and marks it.
+ */
 export function StandingBar({ v }: { v: View }) {
   const s = v.state;
   const left = Math.max(0, s.maxSeasons - s.season);
-  const ranked = s.realms.map((r) => ({ r, score: v.scores[r.id] ?? 0 })).sort((a, b) => b.score - a.score || a.r.id - b.r.id);
-  // the winner once there is one; before that, the realm the last winter would crown (the best
-  // score among the living, ties to the lower realm id, as in the rules)
-  const leader = v.winner ?? ranked.find((x) => x.r.alive)?.r.id ?? null;
+  const final = v.scores;
+  const shown = final ?? v.holdings;
+  const ranked = s.realms.map((r) => ({ r, score: shown[r.id] ?? 0 })).sort((a, b) => b.score - a.score || a.r.id - b.r.id);
   return (
     <div className="standing" role="group" aria-label="Standing">
       <span className="standing-season">
         {v.phase === 'over' ? `Over after ${s.season} seasons` : `Season ${s.season + 1} of ${s.maxSeasons}`}
         {v.phase !== 'over' && <span className="fine"> · {left === 1 ? 'last season' : `${left} left`}</span>}
       </span>
-      <span className="fine standing-what">{v.phase === 'over' ? 'final scores:' : 'land held (treasuries count at the end):'}</span>
+      <span className="fine standing-what">{final ? 'final scores:' : 'land held:'}</span>
       <ol className="standing-realms">
         {ranked.map(({ r, score }) => (
-          <li key={r.id} className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`} title={
-              v.phase === 'over'
+          <li
+            key={r.id}
+            className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`}
+            title={
+              final
                 ? `${r.name}: final score ${score} (treasury at market price, plus land, towns, cities, shrines and forts)`
                 : `${r.name}: holds ${score} in land, towns, cities, shrines and forts (treasuries stay secret until the end, when they count too)`
-            }>
+            }
+          >
             <span className="chip" style={{ background: colorOf(r.id) }} aria-hidden="true" />
             <span className="standing-name">{r.id === v.human ? 'You' : r.name}</span>
             <strong>{r.alive ? score : 'fallen'}</strong>
-            {/* the realm the last winter would crown: ties go to the lower realm id, as in the rules */}
-            {r.id === leader && (
-              <span className="lead" role="img" aria-label={v.winner === null ? 'leading' : 'winner'}>
+            {r.id === v.winner && (
+              <span className="lead" role="img" aria-label="winner">
                 ▲
               </span>
             )}
           </li>
         ))}
       </ol>
+      {!final && (
+        <span className="fine" title="your treasury and goods at market price, plus your land: the score that counts at the end">
+          your score so far: <strong>{v.yourScore}</strong> (rivals' treasuries count at the end)
+        </span>
+      )}
     </div>
   );
 }

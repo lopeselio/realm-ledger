@@ -337,7 +337,10 @@ export function RealmList({ v }: { v: View }) {
               {r.name}
               {r.id === v.human ? ' (you)' : ''}
             </span>
-            <span className="score">{v.scores[r.id] ?? ''}</span>
+            {/* the final score once there's a winner; before, land held (your own full score for you) */}
+            <span className="score" title={v.scores ? 'final score' : r.id === v.human ? 'your score so far' : 'land held (its treasury is secret)'}>
+              {v.scores ? (v.scores[r.id] ?? '') : r.id === v.human ? v.yourScore : (v.holdings[r.id] ?? '')}
+            </span>
             <span className="meta">
               {land(r.id)} provinces{treaties.length > 0 && r.id !== v.human ? ` · with you: ${treaties.join(', ')}` : ''}
               {secret && r.agenda.text !== 'unknown' && (
