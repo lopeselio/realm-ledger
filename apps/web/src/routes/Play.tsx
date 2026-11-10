@@ -20,11 +20,13 @@ import { scriptFor } from '../playback.ts';
 import { Guide } from '../onboarding/Guide.tsx';
 
 /** A shared challenge, /challenge/abc123, opens the play page ready to accept it. */
+/** A challenge code as pasted, forgiven its case and a stray character at either end from a chat message. */
+const cleanCode = (raw: string): string => raw.toLowerCase().replace(/^[^0-9a-f]+|[^0-9a-f]+$/g, '');
+
 export function ChallengeLink() {
   const { code } = useParams();
-  // forgiving of a pasted link: case, and a stray character at either end from a chat message
-  const clean = (code ?? '').toLowerCase().replace(/^[^0-9a-f]+|[^0-9a-f]+$/g, '');
-  return <Navigate to={`/play?challenge=${encodeURIComponent(isChallengeCode(clean) ? clean : code ?? '')}`} replace />;
+  const clean = cleanCode(code ?? '');
+  return <Navigate to={`/play?challenge=${encodeURIComponent(isChallengeCode(clean) ? clean : (code ?? ''))}`} replace />;
 }
 
 /** The old address, /play.html?c=7, opens /play/7. */
@@ -45,7 +47,8 @@ export function Play() {
   // a challenge a friend shared (/challenge/:code lands here with ?challenge=code)
   const [search] = useSearchParams();
   const asked = search.get('challenge');
-  const accepting = id === null && asked && isChallengeCode(asked) ? asked : null;
+  const askedCode = asked !== null ? cleanCode(asked) : null;
+  const accepting = id === null && askedCode && isChallengeCode(askedCode) ? askedCode : null;
   const badLink = id === null && asked !== null && !accepting;
   // a code that leads to no challenge: no Accept button (for this code; another one starts afresh)
   const [deadCode, setDeadCode] = useState<string | null>(null);

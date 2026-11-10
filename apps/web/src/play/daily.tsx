@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { QUICK_MATCH, utcDay } from '@realm-ledger/rules';
-import { api } from '../api.ts';
+import { api, ApiError } from '../api.ts';
 
 interface Entry {
   id: number;
@@ -81,6 +81,7 @@ function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?
 }
 
 /** A challenge's board and the link to share it; `mine` marks the campaign on screen. */
+/** `mine` set: your own challenge campaign, with the link to share; unset: the accept page, without it. */
 export function ChallengeBoard({ code, mine, progress, onMissing }: { code: string; mine?: number; progress?: string; onMissing?: () => void }) {
   const [board, setBoard] = useState<{ code: string; entries: Entry[] } | null>(null);
   const [missing, setMissing] = useState(false);
@@ -104,8 +105,8 @@ export function ChallengeBoard({ code, mine, progress, onMissing }: { code: stri
       })
       .catch((e: unknown) => {
         if (!live) return;
-        // no such challenge (a mistyped or stale link): say so; anything else: the board is out of reach
-        if (/no such challenge/.test((e as Error).message)) {
+        // not found (a mistyped or stale link): say so; anything else: the board is out of reach
+        if (e instanceof ApiError && e.status === 404) {
           setMissing(true);
           onMissing?.();
         } else setUnreachable(true);
@@ -129,16 +130,20 @@ export function ChallengeBoard({ code, mine, progress, onMissing }: { code: stri
   return (
     <section className="daily" aria-label="Challenge">
       <h2>Challenge {code}</h2>
-      <p className="fine">
-        Send this link to a friend: they play the same map against {QUICK_MATCH.realms - 1} AI rulers ({QUICK_MATCH.maxSeasons} seasons), and this board compares your results. Best final
-        score wins; taking every rival capital beats any score.
-      </p>
-      <p className="challenge-link">
-        <input readOnly value={link} aria-label="Challenge link" onFocus={(e) => e.currentTarget.select()} />{' '}
-        <button type="button" onClick={() => void share()}>
-          {copied ? 'Copied' : 'Copy link'}
-        </button>
-      </p>
+      {mine !== undefined && (
+        <>
+          <p className="fine">
+            Send this link to a friend: they play the same map against {QUICK_MATCH.realms - 1} AI rulers ({QUICK_MATCH.maxSeasons} seasons), and this board compares your results. Best
+            final score wins; taking every rival capital beats any score.
+          </p>
+          <p className="challenge-link">
+            <input readOnly value={link} aria-label="Challenge link" onFocus={(e) => e.currentTarget.select()} />{' '}
+            <button type="button" onClick={() => void share()}>
+              {copied ? 'Copied' : 'Copy link'}
+            </button>
+          </p>
+        </>
+      )}
       {missing ? (
         <p className="fine">This link doesn't lead to a challenge: check it with whoever sent it.</p>
       ) : entries === null ? (
