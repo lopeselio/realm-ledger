@@ -73,9 +73,13 @@ describe("the daily challenge's board", () => {
     await host.loadAll();
   });
 
-  it("ranks only the day's newest rules version, whose scores compare", () => {
-    expect(host.dailyBoard('2026-01-03', now).map((e) => e.id)).toEqual([12]);
-    expect(host.dailyBoard('2026-01-04', now).map((e) => e.id)).toEqual([13]);
+  it('ranks each rules version of a day on its own, the newest first, and hides no one', () => {
+    expect(host.dailyBoard('2026-01-03', now).map((e) => [e.id, e.rulesVersion, e.rank])).toEqual([
+      [12, 4, 1],
+      [11, 3, 1],
+    ]);
+    // a newer campaign opened and left doesn't push the finished ones off
+    expect(host.dailyBoard('2026-01-04', now).map((e) => [e.id, e.rank])).toEqual([[13, 1]]);
   });
 
   it("ranks today's finished campaigns by score, a conquest first, then those still playing; an earlier day shows only its finished", async () => {
