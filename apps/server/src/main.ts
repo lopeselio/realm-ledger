@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { dailySeed, utcDay, type OrderSet, type Treaty } from '@realm-ledger/rules';
+import { dailySeed, isUtcDay, utcDay, type OrderSet, type Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
 import { confirmTreaty, createCampaign, dailyBoard, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
@@ -77,10 +77,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // the daily challenge's board, for today unless ?date=YYYY-MM-DD
   if (parts[1] === 'daily' && parts.length === 2 && req.method === 'GET') {
     const asked = url.searchParams.get('date');
-    // a real calendar day (2026-99-99 isn't one), else today
-    const date = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && !Number.isNaN(Date.parse(`${asked}T00:00:00Z`)) && utcDay(Date.parse(`${asked}T00:00:00Z`)) === asked ? asked : utcDay(Date.now());
+    // a real calendar day within the last month (dailies older than that aren't kept on boards), else today
+    const now = Date.now();
+    const today = utcDay(now);
+    const recent = (d: string): boolean => d <= today && now - Date.parse(`${d}T00:00:00Z`) < 31 * 86_400_000;
+    const date = asked && isUtcDay(asked) && recent(asked) ? asked : today;
     // `today` by the server's clock, so the page and the board agree about which day it is
-    return send(res, 200, { date, today: date === utcDay(Date.now()), seed: dailySeed(date), entries: dailyBoard(date) });
+    return send(res, 200, { date, today: date === today, seed: dailySeed(date), entries: dailyBoard(date, now) });
   }
   if (parts[1] !== 'campaigns') return send(res, 404, { error: 'not found' });
   if (parts.length === 2) {

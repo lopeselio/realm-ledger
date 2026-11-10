@@ -52,6 +52,8 @@ describe("the daily challenge's board", () => {
     save(4, dailySeed(before), 'over', { crowns: 9999 });
     save(5, dailySeed(before), 'planning', { crowns: 1 });
     save(6, dailySeed(day), 'over', { crowns: 99999, neverPlayed: true });
+    // alice again, worse: a wallet counts once, by its best
+    save(7, dailySeed(day), 'over', { crowns: 400, player: 'alice.testnet' });
     const host = await import('./host.ts');
     await host.loadAll();
     const board = host.dailyBoard(day, now);
