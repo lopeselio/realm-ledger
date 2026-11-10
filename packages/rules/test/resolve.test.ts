@@ -362,3 +362,16 @@ describe('holdings and scores', () => {
     expect(scores(richer)[1]).toBe(sc[1]! + 100);
   });
 });
+
+describe('what holdings count', () => {
+  it('a province, a town, each fort level, a city and a shrine, each by its SCORE', () => {
+    const s = lineWorld(5);
+    s.realms[0]!.purse.crowns = 0;
+    s.owner = [0, 0, -1, -1, 1];
+    s.towns = [true, false, false, false, true];
+    s.forts = [2, 0, 0, 0, 0];
+    s.cities = [false, true, false, false, false];
+    s.shrines = [false, true, false, false, false];
+    expect(holdings(s)[0]).toBe(2 * SCORE.province + SCORE.town + 2 * SCORE.fort + SCORE.city + SCORE.shrine);
+  });
+});

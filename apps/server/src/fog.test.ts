@@ -10,6 +10,8 @@ process.env.DATA_DIR = dir;
 // a campaign whose last season had a march in sight, one in the fog, and one arriving from the fog
 function save(id: number, phase: 'planning' | 'over') {
   const state = newCampaign({ seed: 'fog-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 2 });
+  // a finished campaign has its winner
+  if (phase === 'over') state.winner = 1;
   const seen = visibleProvinces(state, 0);
   const inSight = [...seen].find((p) => state.owner[p] !== 0)!;
   const fog = state.map.provinces.map((p) => p.id).filter((p) => !seen.has(p));
@@ -49,5 +51,11 @@ describe('the season the player is shown', () => {
     const shown = host.publicView(1).lastEvents;
     expect(shown).toEqual([{ kind: 'moved', realm: 1, from: -1, to: a.inSight, troops: { levies: 1, regulars: 0, mercs: 0 } }]);
     expect(host.publicView(2).lastEvents).toHaveLength(3);
+    // while it runs: land for everyone, your own full score, no final scores; once won, the final scores
+    const running = host.publicView(1);
+    expect(running.scores).toBeNull();
+    expect(running.holdings).toHaveLength(3);
+    expect(running.yourScore).toBeGreaterThan(running.holdings[0]!);
+    expect(host.publicView(2).scores).toHaveLength(3);
   });
 });

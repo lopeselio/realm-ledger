@@ -58,7 +58,12 @@ export interface View {
   winner: number | null;
   /** your sealed orders for the last settled season were never revealed, so they were forfeited */
   lastForfeited?: boolean;
-  scores: number[];
+  /** every realm's land, towns, forts, cities and shrines: what everyone can see while it runs */
+  holdings: number[];
+  /** your own full score (treasury and goods too) */
+  yourScore: number;
+  /** the final scores, once the campaign has a winner; null before */
+  scores: number[] | null;
   companies: Company[];
   plans: ChancellorTask[];
   reports: { season: number; job: number; report: SpyReport; passed: boolean }[];
