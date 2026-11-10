@@ -457,8 +457,9 @@ function harvest(s: GameState, pillaged: Set<number>, events: GameEvent[]): void
     g.iron += y.iron;
     g.gold += y.gold;
     if (s.towns[p]) g.crowns += (s.realms[s.owner[p]!]!.capital === p ? CAPITAL_CROWNS : TOWN_CROWNS) + (s.cities?.[p] ? CITY_BONUS : 0);
-    // rules version 4: a town held through a harvest grows; after CITY_AFTER it is a city
-    if (s.held && s.cities && s.towns[p]) {
+    // rules version 4: a town (not a capital, which is already its realm's seat) held through a
+    // harvest grows; after CITY_AFTER it is a city
+    if (s.held && s.cities && s.towns[p] && s.realms[s.owner[p]!]!.capital !== p) {
       s.held[p]! += 1;
       if (!s.cities[p] && s.held[p]! >= CITY_AFTER) {
         s.cities[p] = true;

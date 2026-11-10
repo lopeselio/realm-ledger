@@ -276,15 +276,23 @@ describe('cities and shrines (rules version 4)', () => {
     for (const p of shrines) {
       expect(v4.owner[p]).toBe(-1);
       expect(v4.towns[p]).toBe(false);
+      // not beside any realm's home, and guarded
+      expect(v4.map.provinces[p]!.neighbors.every((n) => v4.owner[n] === -1)).toBe(true);
+      expect(v4.armies.some((a) => a.province === p && a.realm === -1)).toBe(true);
     }
     expect(v3.shrines).toBeUndefined();
     expect(v4.owner).toEqual(v3.owner);
     expect(v4.towns).toEqual(v3.towns);
+    // only the shrines' militias are added to the armies
+    expect(v4.armies.slice(0, v3.armies.length)).toEqual(v3.armies);
   });
 
-  it('grows a town held through enough harvests into a city, worth more, and a capture sacks it back', () => {
+  it('grows a town (not a capital) held through enough harvests into a city, worth more', () => {
     let s = newCampaign({ seed: 'growth', realms: 3, human: 0, maxSeasons: 20, rulesVersion: 4 });
-    const capital = s.realms[0]!.capital;
+    const seat = s.realms[0]!.capital;
+    // a town of realm 0's next to its capital
+    const capital = s.map.provinces[seat]!.neighbors.find((n) => s.owner[n] === 0)!;
+    s.towns[capital] = true;
     const crowns = (st: typeof s) => st.realms[0]!.purse.crowns;
     let grew = false;
     for (let i = 0; i < CITY_AFTER; i++) {
@@ -296,6 +304,8 @@ describe('cities and shrines (rules version 4)', () => {
     }
     expect(grew).toBe(true);
     expect(s.cities![capital]).toBe(true);
+    // the capital itself is its realm's seat, and doesn't grow
+    expect(s.cities![seat]).toBe(false);
     const asTown = { ...s, cities: s.cities!.map(() => false) };
     expect(scores(s)[0]! - scores(asTown)[0]!).toBe(SCORE.city);
   });
