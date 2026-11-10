@@ -84,8 +84,6 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
     if (s.towns[p.id]) parts.push(`<rect x="${x - 5}" y="${y - 13}" width="10" height="8" fill="#efe3c8" stroke="#2b2118" stroke-width="1"/><path d="M${x - 6},${y - 13} l6,-5 l6,5z" fill="#7a3b2c"/>`);
     // a city: a second, taller house to the left of the town's (clear of a capital's crown above it)
     if (s.cities?.[p.id]) parts.push(`<rect x="${x - 13}" y="${y - 15}" width="7" height="11" fill="#efe3c8" stroke="#2b2118" stroke-width="1"/><path d="M${x - 14},${y - 15} l4.5,-5 l4.5,5z" fill="#7a3b2c"/>`);
-    // a shrine: a brass star
-    if (s.shrines?.[p.id]) parts.push(`<text x="${x - 9}" y="${y + 1}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.5">✦</text>`);
     if (s.forts[p.id]! > 0) parts.push(`<circle cx="${x}" cy="${y}" r="${12 + s.forts[p.id]!}" fill="none" stroke="#c9a227" stroke-width="${1 + s.forts[p.id]!}" stroke-dasharray="3 2" opacity="0.9"/>`);
     if (capitals.has(p.id)) parts.push(`<text x="${x}" y="${y - 14}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.6">♛</text>`);
     parts.push('</g>');
@@ -121,6 +119,12 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
           `<text x="${x + ox}" y="${y + 8.3}" text-anchor="middle" font-size="${n > 99 ? 6.5 : 8.5}" font-family="Alegreya Sans, sans-serif" font-weight="700" fill="#fff">${n}</text></g>`,
       );
     });
+  }
+  // shrines: a brass star drawn over the armies, so a shrine being fought over still shows
+  for (const p of s.map.provinces) {
+    if (!s.shrines?.[p.id]) continue;
+    const [x, y] = center(p.q, p.r);
+    parts.push(`<text x="${x + 11}" y="${y - 3}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.6" pointer-events="none">✦</text>`);
   }
   // planned marches
   for (const [from, to] of overlay.arrows ?? []) {

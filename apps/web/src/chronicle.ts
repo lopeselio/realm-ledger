@@ -35,6 +35,9 @@ export function chronicle(before: GameState, events: GameEvent[]): Line[] {
       case 'captured':
         normal.push({ tone: 'normal', text: `${realm(e.realm)} takes ${place(e.province)}${e.from >= 0 ? ` from ${realm(e.from)}` : ''}${e.sacked ? ', and sacks the city back to a town' : ''}.` });
         break;
+      case 'ruined':
+        normal.push({ tone: 'normal', text: `With ${realm(e.realm)} gone, the city of ${place(e.province)} dwindles back to a town.` });
+        break;
       case 'grew':
         normal.push({ tone: 'normal', text: `${place(e.province)} has grown into a city under ${realm(e.realm)}.` });
         break;
