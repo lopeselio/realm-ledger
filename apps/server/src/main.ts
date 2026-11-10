@@ -15,7 +15,8 @@ const health = healthMonitor({ urls: RPCS });
 //   GET  /api/daily?date=      the daily challenge's board (today, UTC, by default)
 //   GET  /api/challenge/:code  a challenge between friends: its board
 //                              (POST /api/campaigns {challenge: true} starts one, {challenge: code} joins it)
-//   POST /api/campaigns        {realms, seasons, player?, quick?, daily?}  start a campaign (you play realm 0;
+//   POST /api/campaigns        {realms, seasons, player?, quick?, daily?, challenge?}  start a campaign (you play realm 0;
+//                              `challenge`: true starts a challenge between friends, a code joins one; not with `daily`;
 //                              `daily`: today's challenge, a quick match on the day's map;
 //                              `quick`: a smaller map, for a short match;
 //                              with `player`, your own NEAR account rules it and signs its moves)

@@ -374,7 +374,7 @@ export async function loadAll(): Promise<number> {
         h.bundle.options.rulesVersion = h.bundle.seasons?.length ? rulesVersionOf(h.bundle) : h.state.companies?.length ? 2 : 1;
       for (const j of [...h.pending.jobs, ...(h.bundle.jobs ?? [])]) jobFloor = Math.max(jobFloor, j.job + 1);
       campaigns.set(h.id, h);
-      noteChallenge(h.state.seed);
+      noteChallenge(h.state.seed, h.id);
     } catch (e) {
       // one unreadable or malformed file must not hide every campaign after it, or stop the server
       console.error(`load ${f}: ${(e as Error).message}; skipped`);
@@ -398,11 +398,16 @@ function get(id: number): Hosted {
  */
 export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false, daily = false, challenge?: string | true): Promise<Hosted> {
   if (daily || challenge !== undefined) quick = true;
-  // a challenge: a new one (a fresh code), or one a friend shared, which must exist
   if (daily && challenge !== undefined) throw new GameError('a campaign is a daily or a challenge, not both');
   // a new code no one has used (drawn again on the rare clash), or one a friend shared, which must exist
   let code = challenge;
-  if (code === true) do code = hex(3); while (challengeExists(code));
+  if (code === true) {
+    // (a code reserved by a create still in flight counts as taken; one that failed stays unused)
+    do code = hex(3);
+    while (challengeCodes.has(code));
+    // held from now, before the slow onchain call, so a create running alongside can't draw it too
+    challengeCodes.set(code, challengeCodes.get(code) ?? new Set());
+  }
   if (typeof challenge === 'string' && (!isChallengeCode(challenge) || !challengeExists(challenge))) throw new GameError('no such challenge');
   if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
 
@@ -498,7 +503,7 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
     createdAt: Date.now(),
   };
   campaigns.set(id, h);
-  noteChallenge(seed);
+  noteChallenge(seed, id);
   // its board now has one more player
   boardChanged(seed);
   await save(h);
@@ -1308,7 +1313,11 @@ export interface DailyEntry {
 // campaigns settles a season (so a finish shows at once), and kept to a few days at most
 const boardCache = new Map<string, { at: number; entries: DailyEntry[] }>();
 const BOARD_TTL_MS = 15_000;
+/** boards kept per cache: a few days, a few challenges */
 const BOARD_DAYS = 8;
+const challengeCache = new Map<string, { at: number; entries: DailyEntry[] }>();
+/** Daily boards and challenge boards keep separate caches, so many challenges can't push today's daily out. */
+const cacheFor = (key: string) => (key.startsWith('day:') ? boardCache : challengeCache);
 
 /** Which board a campaign belongs to: `day:DATE` for a daily, `challenge:CODE` between friends, else none. */
 function boardOf(seed: string): string | null {
@@ -1321,7 +1330,7 @@ function boardOf(seed: string): string | null {
 /** A campaign moved on: its board is rebuilt on the next ask. */
 export function boardChanged(seed: string): void {
   const key = boardOf(seed);
-  if (key) (key.startsWith('day:') ? boardCache : challengeCache).delete(key);
+  if (key) cacheFor(key).delete(key);
 }
 
 export function dailyBoard(date: string, now = Date.now()): DailyEntry[] {
@@ -1333,19 +1342,21 @@ export function challengeBoard(code: string, now = Date.now()): DailyEntry[] {
   return cachedBoard(`challenge:${code}`, now);
 }
 
-// the codes of every challenge started, so checking a link doesn't scan every campaign
-const challengeCodes = new Set<string>();
-function noteChallenge(seed: string): void {
+// every challenge's campaigns by code, so a link check or a board doesn't scan every campaign
+const challengeCodes = new Map<string, Set<number>>();
+function noteChallenge(seed: string, id: number): void {
   const code = challengeCode(seed);
-  if (code) challengeCodes.add(code);
+  if (!code) return;
+  const ids = challengeCodes.get(code) ?? new Set<number>();
+  ids.add(id);
+  challengeCodes.set(code, ids);
 }
 
 /** Whether anyone has started this challenge's map (a link to a code no one made is refused). */
-export const challengeExists = (code: string): boolean => challengeCodes.has(code);
+export const challengeExists = (code: string): boolean => (challengeCodes.get(code)?.size ?? 0) > 0;
 
 function cachedBoard(key: string, now: number): DailyEntry[] {
-  // daily boards and challenge boards keep separate caches, so many challenges can't push today's daily out
-  const cache = key.startsWith('day:') ? boardCache : challengeCache;
+  const cache = cacheFor(key);
   const hit = cache.get(key);
   if (hit && now - hit.at < BOARD_TTL_MS) return hit.entries;
   const fresh = buildBoard(key, now);
@@ -1355,10 +1366,14 @@ function cachedBoard(key: string, now: number): DailyEntry[] {
   cache.set(key, { at: now, entries: fresh });
   return fresh;
 }
-const challengeCache = new Map<string, { at: number; entries: DailyEntry[] }>();
+
 
 function buildBoard(key: string, now: number): DailyEntry[] {
-  const entries = [...campaigns.values()]
+  // a challenge's campaigns come from its index; a day's from a scan (one board per day, cached)
+  const pool = key.startsWith('challenge:')
+    ? [...(challengeCodes.get(key.slice('challenge:'.length)) ?? [])].flatMap((id) => campaigns.get(id) ?? [])
+    : [...campaigns.values()];
+  const entries = pool
     .filter((h) => boardOf(h.state.seed) === key)
     // a campaign the player didn't play out isn't a result: at least half its seasons must have
     // settled with the player's orders (the rest the sweep settled without them)
