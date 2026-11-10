@@ -21,7 +21,8 @@ import { nearblocks, seasonTitle } from '../format.ts';
 const DEFAULT_SEED = 'ember-pass';
 
 function playOut(seed: string, realms: number) {
-  // a quick match's seed plays the quick match, as it did in the game
+  // a quick match's seed plays the quick match's shape (an AI-only replay: rulers here come from
+  // the seed, so a game's own campaign, whose rulers came from its roll secret, plays differently)
   const opts = seed.endsWith(QUICK_SEED_SUFFIX) ? { seed, realms: QUICK_MATCH.realms, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map } : { seed, realms };
   const result = runCampaign(opts);
   // rebuild every season's state by replaying the recorded orders: this is what the verifier does
