@@ -173,6 +173,13 @@ export interface GameState {
   /** battles fought last season; mercenaries charge more in wartime. Absent in rules version 1. */
   lastBattles?: number;
   /**
+   * Rules version 4: cities (towns grown by being held), how many harvests each town has been held
+   * by its owner, and shrines (worth score to whoever holds them). Absent before version 4.
+   */
+  cities?: boolean[];
+  held?: number[];
+  shrines?: boolean[];
+  /**
    * Rules version 3: the rulers' personalities and agendas come from a secret revealed at the end,
    * so the state hash leaves them out (they are bound by that secret's onchain commitment).
    */
@@ -214,7 +221,8 @@ export type GameEvent =
     }
   | { kind: 'retreated'; realm: number; from: number; to: number }
   | { kind: 'destroyed'; realm: number; province: number }
-  | { kind: 'captured'; realm: number; province: number; from: number }
+  | { kind: 'captured'; realm: number; province: number; from: number; sacked?: true }
+  | { kind: 'grew'; realm: number; province: number }
   | { kind: 'fallen'; realm: number; by: number }
   | { kind: 'treaty-broken'; realm: number; against: number; treaty: Treaty['kind']; province: number }
   | { kind: 'tribute'; from: number; to: number; amount: number }

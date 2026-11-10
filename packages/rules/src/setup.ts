@@ -18,7 +18,7 @@ export interface CampaignOptions {
   /**
    * Which rules the campaign plays by: 1 = before the agent market (2026-11-06),
    * 2 = with it, 3 = rulers' personalities and agendas drawn from `agendaSeed` (the game uses its
-   * roll secret) and left out of the state hash. Defaults to the current version.
+   * roll secret) and left out of the state hash, 4 = towns grow into cities, and shrines. Defaults to the current version.
    */
   rulesVersion?: number;
   /**
@@ -30,7 +30,7 @@ export interface CampaignOptions {
   agendaSeed?: string;
 }
 
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 
 /**
  * The quick match's map: about half the provinces of a standard one, so realms meet in the first
@@ -212,6 +212,26 @@ function agenda(r: Rng, map: GameMap, self: number, capitals: number[], owner: n
 }
 
 /** Builds the starting state of a campaign. Deterministic in its options. */
+/**
+ * Rules version 4: a few shrines on open land (not a capital's, not next to one, not a town or a
+ * pass), from a stream of their own so the rest of the setup is as in version 3.
+ */
+function placeShrines(seed: string, map: GameMap, owner: number[], towns: boolean[]): boolean[] {
+  const r = rng(seed, 'shrines');
+  const open = map.provinces.filter((p) => owner[p.id] === -1 && !towns[p.id] && p.terrain !== 'pass').map((p) => p.id);
+  r.shuffle(open);
+  const shrines = new Array<boolean>(map.provinces.length).fill(false);
+  const want = Math.max(2, Math.floor(map.provinces.length / 20));
+  const placed: number[] = [];
+  for (const id of open) {
+    if (placed.length >= want) break;
+    if (placed.some((t) => map.provinces[t]!.neighbors.includes(id))) continue;
+    placed.push(id);
+    shrines[id] = true;
+  }
+  return shrines;
+}
+
 export function newCampaign(opts: CampaignOptions): GameState {
   const n = opts.realms ?? 5;
   if (n < 2 || n > REALM_NAMES.length) throw new Error(`realms must be 2..${REALM_NAMES.length}`);
@@ -284,6 +304,7 @@ export function newCampaign(opts: CampaignOptions): GameState {
     // rules version 1 predates the agent market; leaving these out keeps its state hashes
     ...(rulesVersion >= 2 ? { companies: makeCompanies(opts.seed), lastBattles: 0 } : {}),
     ...(secretRulers ? { secretRulers: true } : {}),
+    ...(rulesVersion >= 4 ? { cities: new Array<boolean>(P).fill(false), held: new Array<number>(P).fill(0), shrines: placeShrines(opts.seed, map, owner, towns) } : {}),
     winner: null,
   };
 }

@@ -10,6 +10,8 @@ import {
   TOWN_CROWNS,
   TROOPS_PER_GRAIN,
   UPKEEP,
+  CITY_AFTER,
+  CITY_BONUS,
 } from './constants.ts';
 import { moveStock, settleMarket, sellPrice } from './market.ts';
 import {
@@ -403,7 +405,11 @@ function captures(s: GameState, events: GameEvent[]): void {
     const taker = takers[0]!.realm;
     s.owner[p] = taker;
     s.forts[p] = Math.max(0, s.forts[p]! - 1);
-    events.push({ kind: 'captured', realm: taker, province: p, from: owner });
+    // rules version 4: a new owner starts holding it afresh, and a city taken is sacked back to a town
+    const sacked = !!s.cities?.[p];
+    if (s.held) s.held[p] = 0;
+    if (sacked) s.cities![p] = false;
+    events.push({ kind: 'captured', realm: taker, province: p, from: owner, ...(sacked ? { sacked: true as const } : {}) });
     const fallen = s.realms.find((r) => r.alive && r.id === owner && r.capital === p);
     if (fallen) {
       fallen.alive = false;
@@ -438,7 +444,15 @@ function harvest(s: GameState, pillaged: Set<number>, events: GameEvent[]): void
     g.timber += y.timber;
     g.iron += y.iron;
     g.gold += y.gold;
-    if (s.towns[p]) g.crowns += s.realms[s.owner[p]!]!.capital === p ? CAPITAL_CROWNS : TOWN_CROWNS;
+    if (s.towns[p]) g.crowns += (s.realms[s.owner[p]!]!.capital === p ? CAPITAL_CROWNS : TOWN_CROWNS) + (s.cities?.[p] ? CITY_BONUS : 0);
+    // rules version 4: a town held through a harvest grows; after CITY_AFTER it is a city
+    if (s.held && s.cities && s.towns[p]) {
+      s.held[p]! += 1;
+      if (!s.cities[p] && s.held[p]! >= CITY_AFTER) {
+        s.cities[p] = true;
+        events.push({ kind: 'grew', realm: s.owner[p]!, province: p });
+      }
+    }
   });
   for (const [realm, g] of gains) {
     const purse = s.realms[realm]!.purse;
