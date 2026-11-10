@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { COST, GOODS, type GameState, type Good, type Treaty } from '@realm-ledger/rules';
 import { API, PUBLIC_API, type View } from '../api.ts';
-import { colorOf } from '../map.ts';
+import { colorOf, provinceNotes } from '../map.ts';
 import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
 import { canAct, EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
@@ -29,6 +29,7 @@ export function Selection({ game, v }: { game: Game; v: View }) {
             ? 'Your province.'
             : ''}
       </p>
+      {provinceNotes(s, sel).length > 0 && <p className="fine">{provinceNotes(s, sel).join(' · ')}</p>}
       {army && <MarchTargets game={game} v={v} from={sel} />}
       {mine && (
         <div className="actions">

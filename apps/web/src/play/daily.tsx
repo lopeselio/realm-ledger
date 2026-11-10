@@ -15,6 +15,8 @@ interface Entry {
   score: number;
   conquest: boolean;
   rank: number | null;
+  /** the rules version: a day spanning a rules change ranks each on its own */
+  rulesVersion?: number;
 }
 
 /** Today's board (UTC), or `date`'s; `mine` marks the campaign on screen, fetched again whenever `progress` changes. */
@@ -63,6 +65,22 @@ export function DailyBoard({ date, mine, progress }: { date?: string; mine?: num
 
 /** The ranked finishes (the top ten, and yours if it ranks lower), then how many are still playing. */
 function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?: number | undefined }) {
+  // a day that spans a rules change: each version ranked on its own, the newest first
+  const groups = [...new Set(done.map((e) => e.rulesVersion))].map((v) => done.filter((e) => e.rulesVersion === v));
+  return (
+    <>
+      {groups.map((group, g) => (
+        <div key={g}>
+          {g > 0 && <p className="fine">Under the earlier rules (version {group[0]?.rulesVersion}), ranked apart:</p>}
+          <RankedList done={group} mine={mine} />
+        </div>
+      ))}
+      {playing > 0 && <p className="fine">{playing} still playing.</p>}
+    </>
+  );
+}
+
+function RankedList({ done, mine }: { done: Entry[]; mine?: number | undefined }) {
   return (
     <>
       <ol className="daily-board">
@@ -75,7 +93,6 @@ function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?
           </li>
         ))}
       </ol>
-      {playing > 0 && <p className="fine">{playing} still playing.</p>}
     </>
   );
 }
