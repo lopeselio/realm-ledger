@@ -91,6 +91,16 @@ export async function api<T>(path: string, body?: object): Promise<T> {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  if (!res.ok) throw new ApiError(data.error ?? `HTTP ${res.status}`, res.status);
   return data;
+}
+
+/** A failed API call, with its HTTP status (0 when the server couldn't be reached at all). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
 }
