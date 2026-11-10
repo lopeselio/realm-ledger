@@ -8,10 +8,12 @@ const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-fog-'));
 process.env.DATA_DIR = dir;
 
 // a campaign whose last season had a march in sight, one in the fog, and one arriving from the fog
-function save(id: number, phase: 'planning' | 'over') {
+function save(id: number, phase: 'planning' | 'over', opts: { winner?: number | null } = {}) {
   const state = newCampaign({ seed: 'fog-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 2 });
-  // a finished campaign has its winner
-  if (phase === 'over') state.winner = 1;
+  // a finished campaign has its winner (unless set otherwise); a running one can already have one
+  // while the onchain finish completes
+  if (phase === 'over' && opts.winner !== null) state.winner = 1;
+  if (opts.winner !== undefined && opts.winner !== null) state.winner = opts.winner;
   const seen = visibleProvinces(state, 0);
   const inSight = [...seen].find((p) => state.owner[p] !== 0)!;
   const fog = state.map.provinces.map((p) => p.id).filter((p) => !seen.has(p));
@@ -46,8 +48,12 @@ describe('the season the player is shown', () => {
   it('keeps what was in sight, masks where a rival came from, hides the rest; all of it once over', async () => {
     const a = save(1, 'planning');
     save(2, 'over');
+    // the season that ended it resolved, the onchain finish not yet confirmed: still running
+    save(3, 'planning', { winner: 2 });
+    // you fell while rivals survive: over, with no winner in the state
+    save(4, 'over', { winner: null });
     const host = await import('./host.ts');
-    expect(await host.loadAll()).toBe(2);
+    expect(await host.loadAll()).toBe(4);
     const shown = host.publicView(1).lastEvents;
     expect(shown).toEqual([{ kind: 'moved', realm: 1, from: -1, to: a.inSight, troops: { levies: 1, regulars: 0, mercs: 0 } }]);
     expect(host.publicView(2).lastEvents).toHaveLength(3);
@@ -57,5 +63,11 @@ describe('the season the player is shown', () => {
     expect(running.holdings).toHaveLength(3);
     expect(running.yourScore).toBeGreaterThan(running.holdings[0]!);
     expect(host.publicView(2).scores).toHaveLength(3);
+    // no rival's full score (and so treasury) before it's over, even with a winner in the state
+    expect(host.publicView(3).scores).toBeNull();
+    // over without a winner in the state: final scores, and the best of them named
+    const fell = host.publicView(4);
+    expect(fell.scores).toHaveLength(3);
+    expect(fell.winner).toBe(fell.scores!.indexOf(Math.max(...fell.scores!)));
   });
 });

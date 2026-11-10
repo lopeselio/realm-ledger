@@ -46,7 +46,7 @@ export function StandingBar({ v }: { v: View }) {
           </li>
         ))}
       </ol>
-      {!final && (
+      {!final && v.phase !== 'over' && (
         <span className="fine" title="your treasury and goods at market price, plus your land: the score that counts at the end">
           your score so far: <strong>{v.yourScore}</strong> (rivals' treasuries count at the end)
         </span>

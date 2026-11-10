@@ -1243,6 +1243,8 @@ export function publicView(id: number) {
   const over = h.phase === 'over';
   // saves from before lastSeen: what the player sees now
   const lastSeen = h.lastSeen ?? [...visibleProvinces(h.state, HUMAN)];
+  // worked out once: the full scores stay on the server until the campaign is over
+  const full = scores(h.state);
   return {
     id: h.id,
     contract: config.contract,
@@ -1260,7 +1262,7 @@ export function publicView(id: number) {
     })),
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
-    winner: over ? winnerOf(h) : null,
+    winner: over ? (h.state.winner ?? full.indexOf(Math.max(...full))) : null,
     /** your sealed orders for the last settled season were never revealed, so they were forfeited */
     lastForfeited: h.bundle.seasons.at(-1)?.forfeited?.includes(HUMAN) ?? false,
     companies: (h.state.companies ?? []).map((c) => ({ id: c.id, name: c.name, kind: c.kind, greed: c.greed, base: c.base, size: c.size })),
@@ -1276,10 +1278,10 @@ export function publicView(id: number) {
     proposeTreaty: h.pendingTreaty ? { from: h.pendingTreaty.realms[0], to: h.pendingTreaty.realms[1], kind: h.pendingTreaty.kind, amount: h.pendingTreaty.amount ?? 0 } : null,
     // what everyone can see, every realm's land, towns, forts, cities and shrines (rivals'
     // treasuries are secret, and the fogged view would count them as nothing); your own full score;
-    // and, once there is a winner, the final scores that chose it
+    // and, once the campaign is over (as for the unfogged state and the winner), the final scores
     holdings: holdings(h.state),
-    yourScore: scores(h.state)[HUMAN] ?? 0,
-    scores: h.state.winner !== null ? scores(h.state) : null,
+    yourScore: full[HUMAN] ?? 0,
+    scores: over ? full : null,
   };
 }
 
