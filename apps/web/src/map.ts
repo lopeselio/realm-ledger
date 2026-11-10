@@ -1,4 +1,4 @@
-import { CITY_AFTER, NEUTRAL, troopCount, type GameState } from '@realm-ledger/rules';
+import { CITY_AFTER, CITY_BONUS, NEUTRAL, SCORE, troopCount, type GameState } from '@realm-ledger/rules';
 
 export const REALM_COLORS = ['#b23a3a', '#2f5fa8', '#c9a227', '#2e8b7a', '#7a4fa3', '#c96f2b', '#5c6b7a', '#b5577b'];
 
@@ -62,6 +62,7 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
 
   const capitals = new Map(s.realms.filter((r) => r.alive).map((r) => [r.capital, r.id]));
   const parts: string[] = [];
+  const shrineMarks: string[] = [];
   // terrain
   for (const t of s.map.tiles) {
     if (t.province >= 0) continue;
@@ -85,6 +86,8 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
     // a city: a second, taller house to the left of the town's (clear of a capital's crown above it)
     if (s.cities?.[p.id]) parts.push(`<rect x="${x - 13}" y="${y - 15}" width="7" height="11" fill="#efe3c8" stroke="#2b2118" stroke-width="1"/><path d="M${x - 14},${y - 15} l4.5,-5 l4.5,5z" fill="#7a3b2c"/>`);
     if (s.forts[p.id]! > 0) parts.push(`<circle cx="${x}" cy="${y}" r="${12 + s.forts[p.id]!}" fill="none" stroke="#c9a227" stroke-width="${1 + s.forts[p.id]!}" stroke-dasharray="3 2" opacity="0.9"/>`);
+    // a shrine: a brass star, added after the armies (below)
+    if (s.shrines?.[p.id]) shrineMarks.push(`<text x="${x + 11}" y="${y - 3}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.6" pointer-events="none">✦</text>`);
     if (capitals.has(p.id)) parts.push(`<text x="${x}" y="${y - 14}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.6">♛</text>`);
     parts.push('</g>');
   }
@@ -120,12 +123,8 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
       );
     });
   }
-  // shrines: a brass star drawn over the armies, so a shrine being fought over still shows
-  for (const p of s.map.provinces) {
-    if (!s.shrines?.[p.id]) continue;
-    const [x, y] = center(p.q, p.r);
-    parts.push(`<text x="${x + 11}" y="${y - 3}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.6" pointer-events="none">✦</text>`);
-  }
+  // shrines: drawn over the armies, so a shrine being fought over still shows
+  parts.push(...shrineMarks);
   // planned marches
   for (const [from, to] of overlay.arrows ?? []) {
     const a = s.map.provinces[from]!;
@@ -144,6 +143,18 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
 
 /** How far a held town is from growing (a harvest lost to fighting there doesn't count). */
 const growsText = (left: number): string => `grows into a city after ${left} more harvest${left === 1 ? '' : 's'} held in peace`;
+
+/**
+ * Rules version 4 notes on a province, for places without a hover (the orders panel, the phone
+ * dock): a city, how near a held town is to growing into one, a shrine and what it is worth.
+ */
+export function provinceNotes(s: GameState, id: number): string[] {
+  const notes: string[] = [];
+  if (s.cities?.[id]) notes.push(`a city (+${CITY_BONUS} crowns a harvest, +${SCORE.city} points)`);
+  else if (s.held && s.towns[id] && s.owner[id]! >= 0) notes.push(`a town; ${growsText(Math.max(1, CITY_AFTER - s.held[id]!))}`);
+  if (s.shrines?.[id]) notes.push(`a shrine: ${SCORE.shrine} points to whoever holds it at the end`);
+  return notes;
+}
 
 /** Hover text for one province. */
 export function provinceTip(s: GameState, id: number): string {
