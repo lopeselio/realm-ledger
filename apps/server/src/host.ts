@@ -395,7 +395,7 @@ function get(id: number): Hosted {
 export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false, daily = false): Promise<Hosted> {
   if (daily) quick = true;
   if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
-  const today = utcDay(Date.now());
+
   if (player !== undefined) {
     if (!/^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/.test(player) || player.length < 2 || player.length > 64)
       throw new GameError('that is not a NEAR account id');
@@ -411,7 +411,8 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   // out within its province range is rare: try a few
   const build = (attempt: number) => {
     // the day's seed is the same for everyone (its attempt number too, since the same seed fails the same way)
-    const seed = daily ? dailySeed(today, attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
+    // (the day read now, after the account check: a request straddling midnight gets the new day)
+    const seed = daily ? dailySeed(utcDay(Date.now()), attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
     const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
     return { seed, options, state: newCampaign(options) };
   };
@@ -1247,10 +1248,6 @@ export interface CampaignSummary {
   winner: number | null;
 }
 
-/**
- * Recent campaigns, newest first; `ids` and `player` narrow the list (either matches) to the
- * campaigns someone could resume, and then unfinished ones come first.
- */
 /** One line of a day's challenge board. */
 export interface DailyEntry {
   id: number;
@@ -1269,9 +1266,21 @@ export interface DailyEntry {
 
 /**
  * A day's challenge board: every campaign on that day's map, finished ones ranked by your realm's
- * final score (a conquest first), then those still being played. Each links to its proof.
+ * final score (a conquest first), then, for today, those still being played. Each links to its proof.
  */
+const boardCache = new Map<string, { at: number; entries: DailyEntry[] }>();
+const BOARD_TTL_MS = 15_000;
+
 export function dailyBoard(date: string): DailyEntry[] {
+  // a short cache: the start page asks on every visit, and a board changes only as campaigns end
+  const hit = boardCache.get(date);
+  if (hit && Date.now() - hit.at < BOARD_TTL_MS) return hit.entries;
+  const fresh = buildBoard(date);
+  boardCache.set(date, { at: Date.now(), entries: fresh });
+  return fresh;
+}
+
+function buildBoard(date: string): DailyEntry[] {
   const entries = [...campaigns.values()]
     .filter((h) => dailyDate(h.state.seed) === date)
     .map((h) => {
@@ -1290,10 +1299,15 @@ export function dailyBoard(date: string): DailyEntry[] {
     });
   const done = entries.filter((e) => e.phase === 'over').sort((a, b) => Number(b.conquest) - Number(a.conquest) || b.score - a.score || a.createdAt - b.createdAt);
   done.forEach((e, i) => (e.rank = i + 1));
-  const playing = entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score);
+  // only today's unfinished campaigns count as being played; an earlier day's were abandoned
+  const playing = date === utcDay(Date.now()) ? entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score) : [];
   return [...done, ...playing].map(({ createdAt: _, ...e }) => e);
 }
 
+/**
+ * Recent campaigns, newest first; `ids` and `player` narrow the list (either matches) to the
+ * campaigns someone could resume, and then unfinished ones come first.
+ */
 export function list(filter: { ids?: number[]; player?: string } = {}): CampaignSummary[] {
   const narrowed = filter.ids !== undefined || filter.player !== undefined;
   const ids = new Set(filter.ids ?? []);
