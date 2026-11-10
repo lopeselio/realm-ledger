@@ -22,7 +22,7 @@ export function StandingBar({ v }: { v: View }) {
       </span>
       <ol className="standing-realms">
         {ranked.map(({ r, score }) => (
-          <li key={r.id} className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`} title={`${r.name}: ${score} (treasury at market price, plus land, towns and forts)`}>
+          <li key={r.id} className={`${r.id === v.human ? 'you' : ''} ${r.alive ? '' : 'fallen'}`} title={`${r.name}: ${score} (treasury at market price, plus land, towns, cities, shrines and forts)`}>
             <span className="chip" style={{ background: colorOf(r.id) }} aria-hidden="true" />
             <span className="standing-name">{r.id === v.human ? 'You' : r.name}</span>
             <strong>{r.alive ? score : 'fallen'}</strong>
