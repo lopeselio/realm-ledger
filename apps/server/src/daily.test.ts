@@ -88,6 +88,11 @@ describe("the daily challenge's board", () => {
     expect(host.challengeExists('ffffff')).toBe(false);
     await expect(host.createCampaign(3, 6, undefined, true, false, 'ffffff')).rejects.toThrow('no such challenge');
     await expect(host.createCampaign(3, 6, undefined, true, true, 'a1b2c3')).rejects.toThrow('not both');
+    // the fixtures' challenge was made under rules version 2: a join now would get another setup, so it's refused
+    await expect(host.createCampaign(3, 6, undefined, true, false, 'a1b2c3')).rejects.toThrow('older rules');
+    // the board names the seed the challenge's campaigns really play
+    expect(host.challengeSeedOf('a1b2c3')).toBe(challengeSeed('a1b2c3'));
+    expect(host.challengeSeedOf('ffffff')).toBeNull();
   });
 });
 

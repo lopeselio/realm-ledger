@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { challengeSeed, dailySeed, isChallengeCode, isUtcDay, utcDay, type OrderSet, type Treaty } from '@realm-ledger/rules';
+import { dailySeed, isChallengeCode, isUtcDay, utcDay, type OrderSet, type Treaty } from '@realm-ledger/rules';
 import { config } from './config.ts';
 import type { Goal } from '@realm-ledger/rules';
-import { challengeBoard, challengeExists, confirmTreaty, createCampaign, dailyBoard, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
+import { challengeBoard, challengeExists, challengeSeedOf, confirmTreaty, createCampaign, dailyBoard, GameError, list, loadAll, proof, publicView, reconcileAll, revealSeason, runChancellor, sealSeason, sendEnvoy, sweepAbandoned } from './host.ts';
 import { nearAiEnabled } from './nearai.ts';
 import { healthMonitor } from './health.ts';
 import { RPCS } from './chain.ts';
@@ -92,7 +92,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (parts[1] === 'challenge' && parts.length === 3 && req.method === 'GET') {
     const code = parts[2]!;
     if (!isChallengeCode(code) || !challengeExists(code)) return send(res, 404, { error: 'no such challenge' });
-    return send(res, 200, { code, seed: challengeSeed(code), entries: challengeBoard(code) });
+    return send(res, 200, { code, seed: challengeSeedOf(code), entries: challengeBoard(code) });
   }
   if (parts[1] !== 'campaigns') return send(res, 404, { error: 'not found' });
   if (parts.length === 2) {
