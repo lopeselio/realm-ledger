@@ -409,10 +409,13 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   // a quick match's seed says so, and the seed is recorded onchain; the map size goes in the
   // proof's options, so the verifier rebuilds the same map. A seed whose small map can't be laid
   // out within its province range is rare: try a few
+  // the day, read once (after the account check, so a request straddling midnight gets the new
+  // day): every attempt is for the same day
+  const day = utcDay(Date.now());
   const build = (attempt: number) => {
     // the day's seed is the same for everyone (its attempt number too, since the same seed fails the same way)
     // (the day read now, after the account check: a request straddling midnight gets the new day)
-    const seed = daily ? dailySeed(utcDay(Date.now()), attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
+    const seed = daily ? dailySeed(day, attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
     const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
     return { seed, options, state: newCampaign(options) };
   };
@@ -955,7 +958,6 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     h.state = state;
     // the events and what the player saw of them change together (spies' provinces join below)
     h.lastEvents = events;
-    boardChanged(h.state.seed);
     h.lastSeen = [...new Set([...visibleProvinces(before, HUMAN), ...visibleProvinces(state, HUMAN)])];
     // workers deliver; buyers check the work against the resolved season and pay or refund
     const refunds = await closeJobs(h, state, before.season);
@@ -969,6 +971,9 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     const over = state.winner !== null || !state.realms[HUMAN]!.alive;
     if (over) await finish(h);
     await save(h);
+    // the day's board is rebuilt from the campaign as it now stands (finished, refunds applied):
+    // a board built while this ran might have caught it halfway
+    boardChanged(h.state.seed);
   });
 }
 
@@ -1285,7 +1290,9 @@ export function dailyBoard(date: string, now = Date.now()): DailyEntry[] {
   const hit = boardCache.get(date);
   if (hit && now - hit.at < BOARD_TTL_MS) return hit.entries;
   const fresh = buildBoard(date, now);
-  if (boardCache.size >= BOARD_DAYS) boardCache.clear();
+  // least recently built out first (Map keeps insertion order), so other days can't push today out
+  boardCache.delete(date);
+  if (boardCache.size >= BOARD_DAYS) boardCache.delete(boardCache.keys().next().value!);
   boardCache.set(date, { at: now, entries: fresh });
   return fresh;
 }
@@ -1293,9 +1300,12 @@ export function dailyBoard(date: string, now = Date.now()): DailyEntry[] {
 function buildBoard(date: string, now: number): DailyEntry[] {
   const entries = [...campaigns.values()]
     .filter((h) => dailyDate(h.state.seed) === date)
-    // a campaign the player never played (every season settled without their orders, by the
-    // sweep) isn't a result
-    .filter((h) => !(h.bundle.seasons.length > 0 && h.bundle.seasons.every((x) => x.forfeited?.includes(HUMAN))))
+    // a campaign the player didn't play out isn't a result: at least half its seasons must have
+    // settled with the player's orders (the rest the sweep settled without them)
+    .filter((h) => {
+      const missed = h.bundle.seasons.filter((x) => x.forfeited?.includes(HUMAN)).length;
+      return h.bundle.seasons.length === 0 || missed * 2 <= h.bundle.seasons.length;
+    })
     .map((h) => {
       const over = h.phase === 'over';
       return {
@@ -1310,7 +1320,19 @@ function buildBoard(date: string, now: number): DailyEntry[] {
         createdAt: h.createdAt,
       };
     });
-  const done = entries.filter((e) => e.phase === 'over').sort((a, b) => Number(b.conquest) - Number(a.conquest) || b.score - a.score || a.createdAt - b.createdAt);
+  const order = (a: (typeof entries)[number], b: (typeof entries)[number]): number =>
+    Number(b.conquest) - Number(a.conquest) || b.score - a.score || a.createdAt - b.createdAt;
+  // a wallet counts once, by its best finish (a guest seat can't be told apart, so each counts)
+  const best = new Map<string, (typeof entries)[number]>();
+  const done = entries
+    .filter((e) => e.phase === 'over')
+    .sort(order)
+    .filter((e) => {
+      if (e.player === null) return true;
+      if (best.has(e.player)) return false;
+      best.set(e.player, e);
+      return true;
+    });
   done.forEach((e, i) => (e.rank = i + 1));
   // only today's unfinished campaigns count as being played; an earlier day's were abandoned
   const playing = date === utcDay(now) ? entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score) : [];
