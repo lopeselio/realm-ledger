@@ -7,6 +7,9 @@ import {
   newCampaign,
   newSalt,
   QUICK_MAP,
+  QUICK_MATCH,
+  QUICK_SEED_SUFFIX,
+  isKnownMap,
   replaySeason,
   seasonRollSeed,
   runCampaign,
@@ -97,15 +100,25 @@ describe('season roll seeds', () => {
 });
 
 describe('the quick match', () => {
-  it('plays a small map to a winner in 6 seasons, and replays from its options alone', () => {
-    const opts = { seed: 'quick-test', realms: 3, maxSeasons: 6, map: QUICK_MAP };
-    const { state, history } = runCampaign(opts);
-    expect(state.map.provinces.length).toBeLessThanOrEqual(60);
-    expect(history).toHaveLength(6);
-    expect(state.winner).not.toBeNull();
-    // what the verifier does: rebuild from the options, replay every season
-    let s = newCampaign({ ...opts, human: null });
-    for (const h of history) s = replaySeason(s, h).state;
-    expect(stateHash(s)).toBe(stateHash(state));
+  it('plays its small map to a winner in 6 seasons, and replays from its options alone', () => {
+    for (let i = 0; i < 12; i++) {
+      const opts = { seed: `quick-test-${i}${QUICK_SEED_SUFFIX}`, realms: QUICK_MATCH.realms, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map };
+      const { state, history } = runCampaign(opts);
+      expect(state.map.provinces.length).toBeGreaterThanOrEqual(30);
+      expect(state.map.provinces.length).toBeLessThanOrEqual(60);
+      expect(history).toHaveLength(6);
+      expect(state.winner).not.toBeNull();
+      // what the verifier does: rebuild from the options, replay every season
+      let s = newCampaign({ ...opts, human: null });
+      for (const h of history) s = replaySeason(s, h).state;
+      expect(stateHash(s)).toBe(stateHash(state));
+    }
+  });
+
+  it('knows only the standard map and the quick one', () => {
+    expect(isKnownMap(undefined)).toBe(true);
+    expect(isKnownMap({ ...QUICK_MAP })).toBe(true);
+    expect(isKnownMap({ radius: 100000 })).toBe(false);
+    expect(isKnownMap({ ...QUICK_MAP, radius: 7 })).toBe(false);
   });
 });

@@ -29,6 +29,18 @@ export const RULES_VERSION = 2;
  */
 export const QUICK_MAP: MapOptions = { radius: 6, minProvinces: 30, maxProvinces: 60 };
 
+/**
+ * The quick match, one fixed shape: 3 realms (you and 2 rivals; more would start next to each
+ * other on the small map), 6 seasons, the small map. Its seed ends in QUICK_SEED_SUFFIX, so the
+ * seed recorded onchain says it was a quick match.
+ */
+export const QUICK_MATCH = { realms: 3, maxSeasons: 6, map: QUICK_MAP } as const;
+export const QUICK_SEED_SUFFIX = '-q';
+
+/** Whether map options are the standard map (none) or exactly the quick match's. */
+export const isKnownMap = (map: MapOptions | undefined): boolean =>
+  map === undefined || (map.radius === QUICK_MAP.radius && map.minProvinces === QUICK_MAP.minProvinces && map.maxProvinces === QUICK_MAP.maxProvinces && Object.keys(map).length === 3);
+
 /** Breadth-first distances (in moves) from one province to all others. */
 export function distancesFrom(map: GameMap, start: number): number[] {
   const dist = map.provinces.map(() => Infinity);
