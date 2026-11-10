@@ -45,7 +45,7 @@ export function DailyBoard({ date, mine, progress }: { date?: string; mine?: num
     <section className="daily" aria-label="Daily challenge">
       <h2>Daily challenge{board ? ` · ${board.date}` : ''}</h2>
       <p className="fine">
-        Everyone gets the same map {today ? 'today' : 'that day'}: a quick match against {rivals} AI rulers. Best final score wins the day; taking every rival capital beats any score.
+        Everyone gets the same map {today ? 'today' : 'that day'}: a quick match against {rivals} AI rulers (their secret aims are your campaign's own). Best final score wins the day; taking every rival capital beats any score.
       </p>
       {!board ? (
         <p className="fine">Loading the board…</p>
