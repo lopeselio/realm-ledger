@@ -12,7 +12,8 @@ const health = healthMonitor({ urls: RPCS });
 // Small JSON API for the game. No framework: a handful of routes.
 //   GET  /api/health
 //   GET  /api/campaigns?ids=&player=         recent campaigns, or just these ids / this ruler's
-//   POST /api/campaigns        {realms, seasons, player?}  start a campaign (you play realm 0;
+//   POST /api/campaigns        {realms, seasons, player?, quick?}  start a campaign (you play realm 0;
+//                              `quick`: a smaller map, for a short match;
 //                              with `player`, your own NEAR account rules it and signs its moves)
 //   POST /api/campaigns/:id/treaty {treaty}  after proposing an accepted treaty from your wallet
 //   GET  /api/campaigns/:id                  your view of it (fog of war applied)
@@ -87,7 +88,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.socket.remoteAddress ?? '?';
       if (!allowCreate(ip)) throw new GameError('too many new campaigns from here; try again later', 429);
       const b = await body(req);
-      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20), typeof b.player === 'string' && b.player ? b.player : undefined);
+      const h = await createCampaign(Number(b.realms ?? 4), Number(b.seasons ?? 20), typeof b.player === 'string' && b.player ? b.player : undefined, b.quick === true);
       return send(res, 201, publicView(h.id));
     }
   }
