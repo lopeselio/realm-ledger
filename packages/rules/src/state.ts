@@ -113,6 +113,7 @@ export function seesEvent(e: GameEvent, realm: number, seen: Set<number>): boole
     case 'built':
     case 'destroyed':
     case 'grew':
+    case 'ruined':
       return e.realm === realm || sees(e.province);
     case 'moved':
     case 'retreated':

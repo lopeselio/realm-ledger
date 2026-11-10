@@ -421,7 +421,10 @@ function captures(s: GameState, events: GameEvent[]): void {
         s.owner[q] = -1;
         // (rules version 4) unclaimed land holds no city and no count towards one
         if (s.held) s.held[q] = 0;
-        if (s.cities) s.cities[q] = false;
+        if (s.cities?.[q]) {
+          s.cities[q] = false;
+          events.push({ kind: 'ruined', realm: fallen.id, province: q });
+        }
       }
       s.armies = s.armies.filter((a) => a.realm !== fallen.id);
       s.treaties = s.treaties.filter((t) => !t.realms.includes(fallen.id));

@@ -223,6 +223,8 @@ export type GameEvent =
   | { kind: 'destroyed'; realm: number; province: number }
   | { kind: 'captured'; realm: number; province: number; from: number; sacked?: true }
   | { kind: 'grew'; realm: number; province: number }
+  /** rules version 4: a fallen realm's city left unclaimed falls back to a town */
+  | { kind: 'ruined'; realm: number; province: number }
   | { kind: 'fallen'; realm: number; by: number }
   | { kind: 'treaty-broken'; realm: number; against: number; treaty: Treaty['kind']; province: number }
   | { kind: 'tribute'; from: number; to: number; amount: number }
