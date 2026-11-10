@@ -1320,8 +1320,10 @@ export interface DailyEntry {
   score: number;
   /** you took every rival capital */
   conquest: boolean;
-  /** rank among the finished campaigns, 1 = best; null while playing */
+  /** rank among the finished campaigns under the same rules version, 1 = best; null while playing */
   rank: number | null;
+  /** the rules the campaign plays by: a day spanning a rules change ranks each version on its own */
+  rulesVersion: number;
 }
 
 /**
@@ -1398,15 +1400,8 @@ function buildBoard(key: string, now: number): DailyEntry[] {
   const pool = key.startsWith('challenge:')
     ? [...(challengeCodes.get(key.slice('challenge:'.length)) ?? [])].flatMap((id) => campaigns.get(id) ?? [])
     : [...campaigns.values()].filter((h) => boardOf(h.state.seed) === key);
-  // a day that spans a rules change has campaigns under two versions, whose scores don't compare:
-  // the board shows the newest version among the day's finished results (an unplayed newer
-  // campaign doesn't hide them), or the newest of all while none has finished. A challenge's
-  // joins share its creator's version already
   const versionOf = (h: Hosted): number => h.bundle.options.rulesVersion ?? 1;
-  const finished = pool.filter((h) => h.phase === 'over');
-  const newest = Math.max(0, ...(finished.length ? finished : pool).map(versionOf));
   const entries = pool
-    .filter((h) => versionOf(h) === newest)
     // a campaign the player didn't play out isn't a result: at least half its seasons must have
     // settled with the player's orders (the rest the sweep settled without them)
     .filter((h) => {
@@ -1424,29 +1419,35 @@ function buildBoard(key: string, now: number): DailyEntry[] {
         score: scores(h.state)[HUMAN] ?? 0,
         conquest: over && h.state.winner === HUMAN && h.state.realms.every((r) => r.id === HUMAN || !r.alive),
         rank: null as number | null,
+        rulesVersion: versionOf(h),
         createdAt: h.createdAt,
       };
     });
-  const order = (a: (typeof entries)[number], b: (typeof entries)[number]): number =>
-    Number(b.conquest) - Number(a.conquest) || b.score - a.score || a.createdAt - b.createdAt;
-  // a wallet counts once, by its best finish (a guest seat can't be told apart, so each counts)
-  const best = new Map<string, (typeof entries)[number]>();
-  const done = entries
-    .filter((e) => e.phase === 'over')
-    .sort(order)
-    .filter((e) => {
-      if (e.player === null) return true;
-      if (best.has(e.player)) return false;
-      best.set(e.player, e);
-      return true;
-    });
-  done.forEach((e, i) => (e.rank = i + 1));
+  type Row = (typeof entries)[number];
+  const order = (a: Row, b: Row): number => Number(b.conquest) - Number(a.conquest) || b.score - a.score || a.createdAt - b.createdAt;
+  // a day that spans a rules change has campaigns under two versions, whose scores don't compare:
+  // each version is ranked on its own, the newest first (a challenge's joins share one version)
+  const versions = [...new Set(entries.map((e) => e.rulesVersion))].sort((a, b) => b - a);
+  const done: Row[] = [];
+  for (const v of versions) {
+    // a wallet counts once per version, by its best finish (a guest seat can't be told apart, so each counts)
+    const best = new Set<string>();
+    const ranked = entries
+      .filter((e) => e.rulesVersion === v && e.phase === 'over')
+      .sort(order)
+      .filter((e) => {
+        if (e.player === null) return true;
+        if (best.has(e.player)) return false;
+        best.add(e.player);
+        return true;
+      });
+    ranked.forEach((e, i) => (e.rank = i + 1));
+    done.push(...ranked);
+  }
   // a daily's unfinished campaigns count as being played only today (an earlier day's were
   // abandoned); a challenge's only if started in the last two days (an older one was left)
-  const recent = (e: (typeof entries)[number]): boolean => key === `day:${utcDay(now)}` || (key.startsWith('challenge:') && now - e.createdAt < 2 * 86_400_000);
-  const playing = entries
-    .filter((e) => e.phase !== 'over' && recent(e))
-    .sort((a, b) => b.score - a.score);
+  const recent = (e: Row): boolean => key === `day:${utcDay(now)}` || (key.startsWith('challenge:') && now - e.createdAt < 2 * 86_400_000);
+  const playing = entries.filter((e) => e.phase !== 'over' && recent(e)).sort((a, b) => b.rulesVersion - a.rulesVersion || b.score - a.score);
   return [...done, ...playing].map(({ createdAt: _, ...e }) => e);
 }
 
