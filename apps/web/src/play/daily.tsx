@@ -1,5 +1,6 @@
-// The daily challenge's board: everyone plays the same map on a UTC day; finished campaigns are
-// ranked by your realm's final score, each linked to its campaign (and from there its proof).
+// The boards: the daily challenge's (everyone plays the same map on a UTC day) and a challenge
+// between friends (everyone with the link plays its map). Finished campaigns are ranked by your
+// realm's final score, each linked to its campaign (and from there its proof).
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { QUICK_MATCH, utcDay } from '@realm-ledger/rules';
@@ -54,20 +55,74 @@ export function DailyBoard({ date, mine, progress }: { date?: string; mine?: num
           {today ? `No one has finished today's map yet${playing ? ` (${playing} playing)` : ''}. Choose “Daily challenge” as the length and start.` : 'No one finished that day’s map.'}
         </p>
       ) : (
-        <>
-          <ol className="daily-board">
-            {/* the top ten, and your own result if it ranks lower */}
-            {[...done.slice(0, 10), ...done.slice(10).filter((e) => e.id === mine)].map((e) => (
-              <li key={e.id} className={e.id === mine ? 'mine' : ''}>
-                <span className="daily-rank">{e.rank}</span>
-                <span className="daily-who">{e.player ?? `guest #${e.id}`}</span>
-                <strong>{e.conquest ? 'conquest' : e.score}</strong>
-                <Link to={`/play/${e.id}`}>campaign</Link>
-              </li>
-            ))}
-          </ol>
-          {playing > 0 && <p className="fine">{playing} still playing.</p>}
-        </>
+        <Ranked done={done} playing={playing} mine={mine} />
+      )}
+    </section>
+  );
+}
+
+/** The ranked finishes (the top ten, and yours if it ranks lower), then how many are still playing. */
+function Ranked({ done, playing, mine }: { done: Entry[]; playing: number; mine?: number | undefined }) {
+  return (
+    <>
+      <ol className="daily-board">
+        {[...done.slice(0, 10), ...done.slice(10).filter((e) => e.id === mine)].map((e) => (
+          <li key={e.id} className={e.id === mine ? 'mine' : ''}>
+            <span className="daily-rank">{e.rank}</span>
+            <span className="daily-who">{e.player ?? `guest #${e.id}`}</span>
+            <strong>{e.conquest ? 'conquest' : e.score}</strong>
+            <Link to={`/play/${e.id}`}>campaign</Link>
+          </li>
+        ))}
+      </ol>
+      {playing > 0 && <p className="fine">{playing} still playing.</p>}
+    </>
+  );
+}
+
+/** A challenge's board and the link to share it; `mine` marks the campaign on screen. */
+export function ChallengeBoard({ code, mine, progress }: { code: string; mine?: number; progress?: string }) {
+  const [entries, setEntries] = useState<Entry[] | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api<{ entries: Entry[] }>(`/challenge/${code}`)
+      .then((b) => live && setEntries(b.entries))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [code, mine, progress]);
+  const link = `${window.location.origin}/challenge/${code}`;
+  const share = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+    } catch {
+      // the link is on screen to copy by hand
+    }
+  };
+  const done = entries?.filter((e) => e.rank !== null) ?? [];
+  const playing = entries?.filter((e) => e.rank === null).length ?? 0;
+  return (
+    <section className="daily" aria-label="Challenge">
+      <h2>Challenge {code}</h2>
+      <p className="fine">
+        Send this link to a friend: they play the same map against {QUICK_MATCH.realms - 1} AI rulers ({QUICK_MATCH.maxSeasons} seasons), and this board compares your results. Best final
+        score wins; taking every rival capital beats any score.
+      </p>
+      <p className="challenge-link">
+        <input readOnly value={link} aria-label="Challenge link" onFocus={(e) => e.currentTarget.select()} />{' '}
+        <button type="button" onClick={() => void share()}>
+          {copied ? 'Copied' : 'Copy link'}
+        </button>
+      </p>
+      {entries === null ? (
+        <p className="fine">Loading the board…</p>
+      ) : done.length === 0 ? (
+        <p className="fine">No one has finished this map yet{playing ? ` (${playing} playing)` : ''}.</p>
+      ) : (
+        <Ranked done={done} playing={playing} mine={mine} />
       )}
     </section>
   );

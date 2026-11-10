@@ -377,3 +377,6 @@ html.phone .dock-selection button:disabled { opacity: 0.5; cursor: not-allowed; 
 .daily-rank { font-family: var(--font-mono); color: var(--brass-dim); }
 .daily-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .daily-board strong { font-family: var(--font-mono); }
+
+.challenge-link { display: flex; gap: 6px; align-items: center; }
+.challenge-link input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink); background: rgba(255, 255, 255, 0.6); }

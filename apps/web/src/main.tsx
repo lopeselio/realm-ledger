@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { watchPhone } from './media.ts';
 import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import { Watch } from './routes/Watch.tsx';
-import { LegacyPlay, Play } from './routes/Play.tsx';
+import { ChallengeLink, LegacyPlay, Play } from './routes/Play.tsx';
 
 function NotFound() {
   return (
@@ -28,6 +28,7 @@ createRoot(document.getElementById('root')!).render(
         <Route index element={<Watch />} />
         <Route path="play/:id?" element={<Play />} />
         <Route path="play.html" element={<LegacyPlay />} />
+        <Route path="challenge/:code" element={<ChallengeLink />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
