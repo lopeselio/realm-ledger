@@ -50,7 +50,9 @@ export const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0
 
 /** The day a daily challenge's seed is for, or null if it isn't one. */
 export function dailyDate(seed: string): string | null {
-  const m = /^daily-(\d{4}-\d{2}-\d{2})(?:\.\d+)?-q$/.exec(seed);
+  if (!seed.endsWith(QUICK_SEED_SUFFIX)) return null;
+  // attempt numbers start at 1 (attempt 0 has none), as dailySeed writes them
+  const m = /^daily-(\d{4}-\d{2}-\d{2})(?:\.[1-9]\d*)?$/.exec(seed.slice(0, -QUICK_SEED_SUFFIX.length));
   return m ? m[1]! : null;
 }
 
