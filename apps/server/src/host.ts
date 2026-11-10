@@ -397,18 +397,33 @@ function get(id: number): Hosted {
  * day's map (the same for everyone).
  */
 export async function createCampaign(realms: number, seasons = 20, player?: string, quick = false, daily = false, challenge?: string | true): Promise<Hosted> {
-  if (daily || challenge !== undefined) quick = true;
   if (daily && challenge !== undefined) throw new GameError('a campaign is a daily or a challenge, not both');
-  // a new code no one has used (drawn again on the rare clash), or one a friend shared, which must exist
-  let code = challenge;
-  if (code === true) {
-    // (a code reserved by a create still in flight counts as taken; one that failed stays unused)
-    do code = hex(3);
-    while (challengeCodes.has(code));
-    // held from now, before the slow onchain call, so a create running alongside can't draw it too
-    challengeCodes.set(code, challengeCodes.get(code) ?? new Set());
+  if (typeof challenge === 'string') {
+    // joining: the creator's own seed and setup, so everyone on the code plays the very same map
+    const first = [...(challengeCodes.get(challenge) ?? [])].map((id) => campaigns.get(id)).find((h) => h !== undefined);
+    if (!isChallengeCode(challenge) || !first) throw new GameError('no such challenge');
+    if ((first.bundle.options.rulesVersion ?? 1) !== RULES_VERSION) throw new GameError('this challenge was made under older rules; start a new one');
+    return createInner(realms, seasons, player, true, false, { code: challenge, seed: first.bundle.options.seed });
   }
-  if (typeof challenge === 'string' && (!isChallengeCode(challenge) || !challengeExists(challenge))) throw new GameError('no such challenge');
+  if (challenge !== true) return createInner(realms, seasons, player, quick, daily);
+  // a new code no one has used (one reserved by a create still in flight counts as taken), held
+  // from now, before the slow onchain call, so a create running alongside can't draw it too; let
+  // go again if this create fails
+  let code: string;
+  do code = hex(3);
+  while (challengeCodes.has(code));
+  challengeCodes.set(code, new Set());
+  try {
+    return await createInner(realms, seasons, player, true, false, { code });
+  } catch (e) {
+    if (challengeCodes.get(code)?.size === 0) challengeCodes.delete(code);
+    throw e;
+  }
+}
+
+/** Builds and registers one campaign; `challenge` names its code, and for a join the creator's seed. */
+async function createInner(realms: number, seasons: number, player: string | undefined, quick: boolean, daily: boolean, challenge?: { code: string; seed?: string }): Promise<Hosted> {
+  if (daily || challenge) quick = true;
   if (quick) ({ realms, maxSeasons: seasons } = QUICK_MATCH);
 
   if (player !== undefined) {
@@ -434,7 +449,11 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   const build = (attempt: number) => {
     // the day's seed is the same for everyone (its attempt number too, since the same seed fails the same way)
     // (the day read now, after the account check: a request straddling midnight gets the new day)
-    const seed = daily ? dailySeed(day, attempt) : code !== undefined ? challengeSeed(code, attempt) : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
+    const seed = daily
+      ? dailySeed(day, attempt)
+      : challenge
+        ? (challenge.seed ?? challengeSeed(challenge.code, attempt))
+        : `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
     const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
     return { seed, options, state: newCampaign({ ...options, agendaSeed: rollSecret }) };
   };
@@ -504,8 +523,8 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   };
   campaigns.set(id, h);
   noteChallenge(seed, id);
-  // its board now has one more player
-  boardChanged(seed);
+  // a challenge's board now has one more player (a daily's shows players as they finish)
+  if (challengeCode(seed)) boardChanged(seed);
   await save(h);
   return h;
 }
@@ -1352,6 +1371,12 @@ function noteChallenge(seed: string, id: number): void {
   challengeCodes.set(code, ids);
 }
 
+/** The seed a challenge's campaigns play (the creator's, whichever attempt laid out its map). */
+export const challengeSeedOf = (code: string): string | null => {
+  const id = [...(challengeCodes.get(code) ?? [])][0];
+  return id !== undefined ? (campaigns.get(id)?.state.seed ?? null) : null;
+};
+
 /** Whether anyone has started this challenge's map (a link to a code no one made is refused). */
 export const challengeExists = (code: string): boolean => (challengeCodes.get(code)?.size ?? 0) > 0;
 
@@ -1372,9 +1397,8 @@ function buildBoard(key: string, now: number): DailyEntry[] {
   // a challenge's campaigns come from its index; a day's from a scan (one board per day, cached)
   const pool = key.startsWith('challenge:')
     ? [...(challengeCodes.get(key.slice('challenge:'.length)) ?? [])].flatMap((id) => campaigns.get(id) ?? [])
-    : [...campaigns.values()];
+    : [...campaigns.values()].filter((h) => boardOf(h.state.seed) === key);
   const entries = pool
-    .filter((h) => boardOf(h.state.seed) === key)
     // a campaign the player didn't play out isn't a result: at least half its seasons must have
     // settled with the player's orders (the rest the sweep settled without them)
     .filter((h) => {
