@@ -172,6 +172,11 @@ export interface GameState {
   companies?: Company[];
   /** battles fought last season; mercenaries charge more in wartime. Absent in rules version 1. */
   lastBattles?: number;
+  /**
+   * Rules version 3: the rulers' personalities and agendas come from a secret revealed at the end,
+   * so the state hash leaves them out (they are committed onchain on their own).
+   */
+  secretRulers?: boolean;
   /** set when the campaign is over */
   winner: number | null;
 }

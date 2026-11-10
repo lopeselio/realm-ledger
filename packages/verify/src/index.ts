@@ -80,7 +80,8 @@ export interface ProofBundle {
   campaign: number;
   /** rulesVersion is absent in bundles from before the agent market, which play by version 1 */
   /** `map` is set for a quick match's smaller map */
-  options: { seed: string; realms: number; human: number | null; maxSeasons: number; rulesVersion?: number; map?: MapOptions };
+  /** `agendaSeed` (rules version 3) is revealed when the campaign ends */
+  options: { seed: string; realms: number; human: number | null; maxSeasons: number; rulesVersion?: number; map?: MapOptions; agendaSeed?: string };
   rollCommit: string;
   agendaCommits: string[];
   /** revealed when the campaign ends */

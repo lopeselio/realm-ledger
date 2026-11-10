@@ -17,12 +17,19 @@ export interface CampaignOptions {
   map?: MapOptions;
   /**
    * Which rules the campaign plays by: 1 = before the agent market (2026-11-06),
-   * 2 = with it. Defaults to the current version.
+   * 2 = with it, 3 = rulers' personalities and agendas drawn from `agendaSeed` and left out of
+   * the state hash. Defaults to the current version.
    */
   rulesVersion?: number;
+  /**
+   * From rules version 3: the secret the rulers' personalities and agendas are drawn from, so
+   * they can't be worked out from the public seed. The server reveals it when the campaign ends;
+   * until then a rebuild without it gets other rulers, which the state hash doesn't include.
+   */
+  agendaSeed?: string;
 }
 
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 3;
 
 /**
  * The quick match's map: about half the provinces of a standard one, so realms meet in the first
@@ -228,6 +235,9 @@ export function newCampaign(opts: CampaignOptions): GameState {
     armies.push({ realm: NEUTRAL, province: id, ...NEUTRAL_TOWN_MILITIA });
   }
 
+  // the rulers: from the seed itself before rules version 3, from their own secret since
+  const secretRulers = rulesVersion >= 3;
+  const rr = secretRulers ? rng(opts.agendaSeed ?? opts.seed, 'rulers') : r;
   const realms: Realm[] = capitals.map((capital, id) => ({
     id,
     name: REALM_NAMES[id]!,
@@ -235,10 +245,10 @@ export function newCampaign(opts: CampaignOptions): GameState {
     capital,
     alive: true,
     purse: { ...START_PURSE },
-    personality: personality(r),
+    personality: personality(rr),
     agenda: { kind: 'hoard', text: '' },
   }));
-  for (const realm of realms) realm.agenda = agenda(r, map, realm.id, capitals, owner);
+  for (const realm of realms) realm.agenda = agenda(rr, map, realm.id, capitals, owner);
 
   return {
     seed: opts.seed,
@@ -255,6 +265,7 @@ export function newCampaign(opts: CampaignOptions): GameState {
     betrayals: [],
     // rules version 1 predates the agent market; leaving these out keeps its state hashes
     ...(rulesVersion >= 2 ? { companies: makeCompanies(opts.seed), lastBattles: 0 } : {}),
+    ...(secretRulers ? { secretRulers: true } : {}),
     winner: null,
   };
 }

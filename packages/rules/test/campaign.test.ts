@@ -145,3 +145,37 @@ describe('the daily challenge', () => {
     expect(knownShape({ seed: dailySeed(day), realms: QUICK_MATCH.realms, maxSeasons: QUICK_MATCH.maxSeasons, map: { ...QUICK_MAP } })).toBe(true);
   });
 });
+
+describe("rulers' secret (rules version 3)", () => {
+  const opts = { seed: 'secret-rulers', realms: 4, maxSeasons: 8, rulesVersion: 3 };
+
+  it("draws personalities and agendas from the secret, not the public seed", () => {
+    const a = newCampaign({ ...opts, human: 0, agendaSeed: 'one' });
+    const b = newCampaign({ ...opts, human: 0, agendaSeed: 'two' });
+    const guess = newCampaign({ ...opts, human: 0 });
+    // same map and start
+    expect(canonicalJson(a.map)).toBe(canonicalJson(b.map));
+    expect(a.owner).toEqual(b.owner);
+    // other rulers: the seed alone doesn't give the real ones
+    expect(canonicalJson(a.realms.map((r) => [r.personality, r.agenda]))).not.toBe(canonicalJson(b.realms.map((r) => [r.personality, r.agenda])));
+    expect(canonicalJson(a.realms.map((r) => r.agenda))).not.toBe(canonicalJson(guess.realms.map((r) => r.agenda)));
+    // but the state hash, posted onchain, doesn't depend on them
+    expect(stateHash(a)).toBe(stateHash(b));
+    expect(stateHash(a)).toBe(stateHash(guess));
+  });
+
+  it('replays every season to the same hashes without the secret, as a verifier does mid-campaign', () => {
+    const { state, history } = runCampaign({ ...opts, agendaSeed: 'hidden' });
+    let s = newCampaign({ ...opts, human: null });
+    for (const h of history) s = replaySeason(s, h).state;
+    expect(stateHash(s)).toBe(stateHash(state));
+  });
+
+  it('leaves earlier versions as they were: rulers from the seed, in the hash', () => {
+    const v2 = newCampaign({ ...opts, rulesVersion: 2, human: 0, agendaSeed: 'ignored' });
+    expect(canonicalJson(v2.realms.map((r) => r.agenda))).toBe(canonicalJson(newCampaign({ ...opts, rulesVersion: 2, human: 0 }).realms.map((r) => r.agenda)));
+    expect('secretRulers' in v2).toBe(false);
+    const changed = { ...v2, realms: v2.realms.map((r) => ({ ...r, agenda: { ...r.agenda, text: 'other' } })) };
+    expect(stateHash(changed)).not.toBe(stateHash(v2));
+  });
+});
