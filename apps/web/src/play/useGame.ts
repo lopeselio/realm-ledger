@@ -18,7 +18,7 @@ export interface EnvoyDraft {
   proposal?: { kind: Treaty['kind']; amount?: number };
 }
 
-const INTRO = 'Choose how many rivals and how long, then start. Each campaign is created onchain.';
+const INTRO = 'Choose a length (the quick match, or a full map with the rivals you pick), then start. Each campaign is created onchain.';
 
 /** Whether two orders are the same order. */
 const sameOrder = (a: Order, b: Order): boolean => canonicalJson(a) === canonicalJson(b);
@@ -347,8 +347,11 @@ export function useGame(id: number | null, signer: Signer | null) {
     await withBusy('Creating the campaign onchain and fetching the model attestation…', async () => {
       const s = signerRef.current;
       const v = await api<View>('/campaigns', {
-        // a quick match's shape is fixed by the server
-        ...(quick ? { quick: true } : { realms, seasons }),
+        // a quick match's shape is fixed by the server; the realms and seasons sent with it are the
+        // same, for a server that predates the quick match (it gets a short game, if a full map)
+        realms,
+        seasons,
+        ...(quick ? { quick: true } : {}),
         // signed in: your own account rules realm 0 onchain
         ...(s ? { player: s.accountId } : {}),
       });

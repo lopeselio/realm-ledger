@@ -64,7 +64,7 @@ const SLIDES: Slide[] = [
     body: (
       <>
         <p>
-          Choose how many rivals and how many seasons, then press <strong>New campaign</strong>. Or pick up one you started from the list.
+          Choose a length (the quick match takes about 15 minutes), then press <strong>New campaign</strong>. Or pick up one you started from the list.
         </p>
         <p>Sign in with a NEAR testnet wallet to rule from your own account, or play as a guest with no wallet.</p>
         <p className="ob-note">The walkthrough points at each part of the table as you play. The “?” button reopens this guide at any time.</p>
