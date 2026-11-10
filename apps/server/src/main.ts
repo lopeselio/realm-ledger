@@ -79,7 +79,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const asked = url.searchParams.get('date');
     // a real calendar day (2026-99-99 isn't one), else today
     const date = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && !Number.isNaN(Date.parse(`${asked}T00:00:00Z`)) && utcDay(Date.parse(`${asked}T00:00:00Z`)) === asked ? asked : utcDay(Date.now());
-    return send(res, 200, { date, seed: dailySeed(date), entries: dailyBoard(date) });
+    // `today` by the server's clock, so the page and the board agree about which day it is
+    return send(res, 200, { date, today: date === utcDay(Date.now()), seed: dailySeed(date), entries: dailyBoard(date) });
   }
   if (parts[1] !== 'campaigns') return send(res, 404, { error: 'not found' });
   if (parts.length === 2) {

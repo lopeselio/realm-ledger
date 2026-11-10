@@ -955,6 +955,7 @@ export async function revealSeason(id: number, orders: OrderSet | null, salt: st
     h.state = state;
     // the events and what the player saw of them change together (spies' provinces join below)
     h.lastEvents = events;
+    boardChanged(h.state.seed);
     h.lastSeen = [...new Set([...visibleProvinces(before, HUMAN), ...visibleProvinces(state, HUMAN)])];
     // workers deliver; buyers check the work against the resolved season and pay or refund
     const refunds = await closeJobs(h, state, before.season);
@@ -1268,21 +1269,33 @@ export interface DailyEntry {
  * A day's challenge board: every campaign on that day's map, finished ones ranked by your realm's
  * final score (a conquest first), then, for today, those still being played. Each links to its proof.
  */
+// a short cache: the start page asks on every visit. Dropped for a day whenever one of its
+// campaigns settles a season (so a finish shows at once), and kept to a few days at most
 const boardCache = new Map<string, { at: number; entries: DailyEntry[] }>();
 const BOARD_TTL_MS = 15_000;
+const BOARD_DAYS = 8;
 
-export function dailyBoard(date: string): DailyEntry[] {
-  // a short cache: the start page asks on every visit, and a board changes only as campaigns end
+/** A campaign of this day moved on: its board is rebuilt on the next ask. */
+export function boardChanged(seed: string): void {
+  const date = dailyDate(seed);
+  if (date) boardCache.delete(date);
+}
+
+export function dailyBoard(date: string, now = Date.now()): DailyEntry[] {
   const hit = boardCache.get(date);
-  if (hit && Date.now() - hit.at < BOARD_TTL_MS) return hit.entries;
-  const fresh = buildBoard(date);
-  boardCache.set(date, { at: Date.now(), entries: fresh });
+  if (hit && now - hit.at < BOARD_TTL_MS) return hit.entries;
+  const fresh = buildBoard(date, now);
+  if (boardCache.size >= BOARD_DAYS) boardCache.clear();
+  boardCache.set(date, { at: now, entries: fresh });
   return fresh;
 }
 
-function buildBoard(date: string): DailyEntry[] {
+function buildBoard(date: string, now: number): DailyEntry[] {
   const entries = [...campaigns.values()]
     .filter((h) => dailyDate(h.state.seed) === date)
+    // a campaign the player never played (every season settled without their orders, by the
+    // sweep) isn't a result
+    .filter((h) => !(h.bundle.seasons.length > 0 && h.bundle.seasons.every((x) => x.forfeited?.includes(HUMAN))))
     .map((h) => {
       const over = h.phase === 'over';
       return {
@@ -1300,7 +1313,7 @@ function buildBoard(date: string): DailyEntry[] {
   const done = entries.filter((e) => e.phase === 'over').sort((a, b) => Number(b.conquest) - Number(a.conquest) || b.score - a.score || a.createdAt - b.createdAt);
   done.forEach((e, i) => (e.rank = i + 1));
   // only today's unfinished campaigns count as being played; an earlier day's were abandoned
-  const playing = date === utcDay(Date.now()) ? entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score) : [];
+  const playing = date === utcDay(now) ? entries.filter((e) => e.phase !== 'over').sort((a, b) => b.score - a.score) : [];
   return [...done, ...playing].map(({ createdAt: _, ...e }) => e);
 }
 
