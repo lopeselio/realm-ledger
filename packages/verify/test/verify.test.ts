@@ -38,8 +38,16 @@ describe('TEE reply signatures', () => {
     expect(checkReply(reply).ok).toBe(true);
   });
 
+  it('pass with the hashes in place of the bytes, as served mid-campaign, and fail on a wrong hash', () => {
+    const { request, response, ...rest } = reply;
+    const withheld = { ...rest, requestHash: sha256Hex(request!), responseHash: sha256Hex(response!) };
+    expect(checkReply(withheld)).toMatchObject({ ok: true });
+    expect(checkReply({ ...withheld, responseHash: sha256Hex('other') }).ok).toBe(false);
+    expect(checkReply(rest).ok).toBe(false);
+  });
+
   it('fail when a single byte of the response changes', () => {
-    const tampered = { ...reply, response: reply.response.replace('"assistant"', '"Assistant"') };
+    const tampered = { ...reply, response: reply.response!.replace('"assistant"', '"Assistant"') };
     expect(tampered.response).not.toBe(reply.response);
     expect(checkReply(tampered).ok).toBe(false);
   });
@@ -218,6 +226,12 @@ describe('a finished rules-v3 campaign', () => {
 
   it('rebuilds the real rulers from the revealed roll secret, and their agendas match', () => {
     expect(agendas(finished())?.ok).toBe(true);
+  });
+
+  it("uses the roll secret only once it matches its commitment", () => {
+    const b = finished();
+    (b as { rollSalt?: string }).rollSalt = undefined;
+    expect(agendas(b)?.ok).toBe(false);
   });
 
   it("ignores rulers a bundle names for itself: only the roll secret counts", () => {
