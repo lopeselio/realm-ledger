@@ -18,6 +18,7 @@ export function Selection({ game, v }: { game: Game; v: View }) {
   const p = s.map.provinces[sel]!;
   const army = game.armyAt(sel);
   const mine = s.owner[sel] === v.human;
+  const notes = provinceNotes(s, sel);
   const off = !canAct(game);
   return (
     <>
@@ -29,7 +30,7 @@ export function Selection({ game, v }: { game: Game; v: View }) {
             ? 'Your province.'
             : ''}
       </p>
-      {provinceNotes(s, sel).length > 0 && <p className="fine">{provinceNotes(s, sel).join(' · ')}</p>}
+      {notes.length > 0 && <p className="fine">{notes.join(' · ')}</p>}
       {army && <MarchTargets game={game} v={v} from={sel} />}
       {mine && (
         <div className="actions">
