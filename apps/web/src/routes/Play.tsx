@@ -1,7 +1,7 @@
 // "/play" and "/play/:id": rule one realm against the AI rulers.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
-import { visibleProvinces } from '@realm-ledger/rules';
+import { QUICK_MATCH, visibleProvinces } from '@realm-ledger/rules';
 import { provinceTip } from '../map.ts';
 import { Board, type BoardOverlay } from '../components/Board.tsx';
 import { usePhone } from '../media.ts';
@@ -247,34 +247,43 @@ function StatusLine({ game }: { game: Game }) {
   );
 }
 
-/** The quick match: 2 rivals on a small map for 6 seasons, about a quarter of an hour. */
-const QUICK = { realms: 3, seasons: 6 };
+/** The lengths on offer: the quick match (fixed: 2 rivals, 6 seasons, a small map) or a full-size map. */
+const LENGTHS = {
+  quick: { label: 'Quick · 2 rivals, 6 seasons, small map (~15 min)', seasons: QUICK_MATCH.maxSeasons, quick: true },
+  '8': { label: '8 seasons', seasons: 8, quick: false },
+  '12': { label: '12 seasons', seasons: 12, quick: false },
+  '20': { label: '20 seasons', seasons: 20, quick: false },
+} as const;
+type Length = keyof typeof LENGTHS;
 
 function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean) => void }) {
-  const [realms, setRealms] = useState(QUICK.realms);
-  // 0 stands for the quick match
-  const [seasons, setSeasons] = useState(0);
-  const quick = seasons === 0;
+  const [length, setLength] = useState<Length>('quick');
+  // rivals for a full-size map; the quick match always has 2
+  const [realms, setRealms] = useState(4);
+  const pick = LENGTHS[length];
   return (
     <div className="controls" data-tour="start">
       <label>
-        Rivals
-        <select value={realms} onChange={(e) => setRealms(Number(e.target.value))}>
-          <option value={3}>2</option>
-          <option value={4}>3</option>
-          <option value={5}>4</option>
-        </select>
-      </label>
-      <label>
         Length
-        <select value={seasons} onChange={(e) => setSeasons(Number(e.target.value))}>
-          <option value={0}>Quick · 6 seasons, small map (~15 min)</option>
-          <option value={8}>8 seasons</option>
-          <option value={12}>12 seasons</option>
-          <option value={20}>20 seasons</option>
+        <select value={length} onChange={(e) => setLength(e.target.value as Length)}>
+          {(Object.keys(LENGTHS) as Length[]).map((k) => (
+            <option key={k} value={k}>
+              {LENGTHS[k].label}
+            </option>
+          ))}
         </select>
       </label>
-      <button type="button" className="primary" disabled={busy} onClick={() => onStart(realms, quick ? QUICK.seasons : seasons, quick)}>
+      {!pick.quick && (
+        <label>
+          Rivals
+          <select value={realms} onChange={(e) => setRealms(Number(e.target.value))}>
+            <option value={3}>2</option>
+            <option value={4}>3</option>
+            <option value={5}>4</option>
+          </select>
+        </label>
+      )}
+      <button type="button" className="primary" disabled={busy} onClick={() => onStart(pick.quick ? QUICK_MATCH.realms : realms, pick.seasons, pick.quick)}>
         New campaign
       </button>
     </div>

@@ -33,7 +33,7 @@ Every realm, yours included, keeps its treasury, its armies and its secrets on t
 4. **Report.** A chronicle of what happened, including which promises were broken. Every line links to its proof.
 
 **Every session: one campaign**
-- About 20 seasons (30–45 minutes) on a fresh, seeded map with 4–6 realms. Or a **quick match**: 2 rivals on a smaller map (30–60 provinces) for 6 seasons, about a quarter of an hour, with the season count always in view and the best score winning when it runs out. The map size is in the proof's options, so the verifier rebuilds the same map.
+- About 20 seasons (30–45 minutes) on a fresh, seeded map with 4–6 realms. Or a **quick match**: 2 rivals on a smaller map (30–60 provinces) for 6 seasons, about a quarter of an hour, with the season count always in view and the best score winning when it runs out. Its seed ends in `-q` and is recorded onchain, and the map size is in the proof's options; the verifier accepts only the standard map or exactly the quick one, and only the quick one for a `-q` seed.
 - Win by holding the most crowns of territory and treasury at the last winter, or by taking every rival capital.
 - After the campaign, the whole thing is revealed and replayable: every sealed order, every AI decision and signed reply, every battle roll. A verifier (`pnpm verify:campaign`) checks it with no API key.
 - Your realm's record (wins, broken treaties, wealth) carries to the leaderboard and to how AI rulers treat you next time.
