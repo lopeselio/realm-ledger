@@ -8,7 +8,7 @@ const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-daily-'));
 process.env.DATA_DIR = dir;
 
 // campaigns on one day's map: two finished (one a conquest), one being played, and one on another day
-function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crowns?: number; conquest?: boolean; player?: string; neverPlayed?: boolean; createdAt?: number } = {}) {
+function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crowns?: number; conquest?: boolean; player?: string; neverPlayed?: boolean; createdAt?: number; rulesVersion?: number } = {}) {
   const state = newCampaign({ seed, realms: QUICK_MATCH.realms, human: 0, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map, rulesVersion: 2 });
   state.realms[0]!.purse.crowns = opts.crowns ?? 0;
   if (opts.conquest) {
@@ -23,7 +23,7 @@ function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crow
       state,
       pending: { ai: [], jobs: [], deals: [], treaties: [] },
       bundle: {
-        options: { seed, realms: 3, human: 0, maxSeasons: 6, rulesVersion: 2, map: QUICK_MATCH.map },
+        options: { seed, realms: 3, human: 0, maxSeasons: 6, rulesVersion: opts.rulesVersion ?? 2, map: QUICK_MATCH.map },
         // every season settled by the sweep without the player's orders
         seasons: opts.neverPlayed ? Array.from({ length: 6 }, (_, season) => ({ season, forfeited: [0] })) : [],
         replies: [],
@@ -63,8 +63,15 @@ describe("the daily challenge's board", () => {
     save(9, challengeSeed('a1b2c3'), 'planning', { crowns: 5, createdAt: Date.now() });
     // one accepted long ago and left: not "still playing"
     save(10, challengeSeed('a1b2c3'), 'planning', { crowns: 5, createdAt: Date.now() - 3 * 86_400_000 });
+    // a day that spans a rules change: only its newest version is ranked
+    save(11, dailySeed('2026-01-03'), 'over', { crowns: 9999, rulesVersion: 3 });
+    save(12, dailySeed('2026-01-03'), 'over', { crowns: 10, rulesVersion: 4 });
     host = await import('./host.ts');
     await host.loadAll();
+  });
+
+  it("ranks only the day's newest rules version, whose scores compare", () => {
+    expect(host.dailyBoard('2026-01-03', now).map((e) => e.id)).toEqual([12]);
   });
 
   it("ranks today's finished campaigns by score, a conquest first, then those still playing; an earlier day shows only its finished", async () => {
