@@ -9,6 +9,10 @@ export const GRAIN_FACTOR = [1, 1, 2, 0] as const;
 
 export const TOWN_CROWNS = 4;
 export const CAPITAL_CROWNS = 6;
+/** Rules version 4: a town held through this many harvests by one realm grows into a city. */
+export const CITY_AFTER = 4;
+/** Rules version 4: a city's extra crowns each harvest, on top of a town's (or capital's). */
+export const CITY_BONUS = 3;
 
 export const COST = {
   levy: { crowns: 4, grain: 2 },
@@ -53,4 +57,5 @@ export const NEUTRAL_TOWN_MILITIA: Troops = { levies: 3, regulars: 0, mercs: 0 }
 /** realm id used for neutral militias */
 export const NEUTRAL = -1;
 
-export const SCORE = { province: 15, town: 20, fort: 5 } as const;
+/** What land is worth at the end. `city` and `shrine` count from rules version 4 (city on top of town). */
+export const SCORE = { province: 15, town: 20, fort: 5, city: 20, shrine: 25 } as const;

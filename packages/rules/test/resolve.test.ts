@@ -10,6 +10,12 @@ import {
   type GameEvent,
   type Order,
   type OrderSet,
+  newCampaign,
+  scores,
+  SCORE,
+  CITY_AFTER,
+  runCampaign,
+  replaySeason,
 } from '../src/index.ts';
 import { army, lineWorld } from './fixture.ts';
 
@@ -258,5 +264,55 @@ describe('fight', () => {
     );
     const loser = r.sides.find((x) => x.realm === 1)!;
     expect(loser.troopsAfter.regulars).toBeLessThan(loser.troopsBefore.regulars);
+  });
+});
+
+describe('cities and shrines (rules version 4)', () => {
+  it('places a few shrines on open land, only from version 4, without changing the rest of the setup', () => {
+    const v4 = newCampaign({ seed: 'shrines', realms: 4, human: 0, maxSeasons: 8, rulesVersion: 4 });
+    const v3 = newCampaign({ seed: 'shrines', realms: 4, human: 0, maxSeasons: 8, rulesVersion: 3 });
+    const shrines = v4.shrines!.flatMap((x, p) => (x ? [p] : []));
+    expect(shrines.length).toBeGreaterThanOrEqual(2);
+    for (const p of shrines) {
+      expect(v4.owner[p]).toBe(-1);
+      expect(v4.towns[p]).toBe(false);
+    }
+    expect(v3.shrines).toBeUndefined();
+    expect(v4.owner).toEqual(v3.owner);
+    expect(v4.towns).toEqual(v3.towns);
+  });
+
+  it('grows a town held through enough harvests into a city, worth more, and a capture sacks it back', () => {
+    let s = newCampaign({ seed: 'growth', realms: 3, human: 0, maxSeasons: 20, rulesVersion: 4 });
+    const capital = s.realms[0]!.capital;
+    const crowns = (st: typeof s) => st.realms[0]!.purse.crowns;
+    let grew = false;
+    for (let i = 0; i < CITY_AFTER; i++) {
+      const before = crowns(s);
+      const r = resolveSeason(s, [], { rollSeed: `g${i}` });
+      grew ||= r.events.some((e) => e.kind === 'grew' && e.province === capital);
+      expect(crowns(r.state)).toBeGreaterThanOrEqual(before);
+      s = r.state;
+    }
+    expect(grew).toBe(true);
+    expect(s.cities![capital]).toBe(true);
+    const asTown = { ...s, cities: s.cities!.map(() => false) };
+    expect(scores(s)[0]! - scores(asTown)[0]!).toBe(SCORE.city);
+  });
+
+  it('counts a shrine in the score of whoever holds it', () => {
+    const s = newCampaign({ seed: 'shrines', realms: 4, human: 0, maxSeasons: 8, rulesVersion: 4 });
+    const p = s.shrines!.indexOf(true);
+    const held = { ...s, owner: s.owner.map((o, i) => (i === p ? 0 : o)) };
+    const asLand = { ...held, shrines: held.shrines!.map(() => false) };
+    expect(scores(held)[0]! - scores(asLand)[0]!).toBe(SCORE.shrine);
+  });
+
+  it('replays a version-4 campaign exactly', () => {
+    const opts = { seed: 'v4-replay', realms: 4, maxSeasons: 12, rulesVersion: 4 };
+    const { state, history } = runCampaign(opts);
+    let s = newCampaign({ ...opts, human: null });
+    for (const h of history) s = replaySeason(s, h).state;
+    expect(stateHash(s)).toBe(stateHash(state));
   });
 });

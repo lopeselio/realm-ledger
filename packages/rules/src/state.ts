@@ -112,6 +112,7 @@ export function seesEvent(e: GameEvent, realm: number, seen: Set<number>): boole
       return e.realm === realm;
     case 'built':
     case 'destroyed':
+    case 'grew':
       return e.realm === realm || sees(e.province);
     case 'moved':
     case 'retreated':
@@ -161,7 +162,7 @@ export function scores(s: GameState): number[] {
     for (const g of GOODS) total += r.purse[g] * sellPrice(s.market.price[g]);
     s.owner.forEach((o, p) => {
       if (o !== r.id) return;
-      total += SCORE.province + (s.towns[p] ? SCORE.town : 0) + s.forts[p]! * SCORE.fort;
+      total += SCORE.province + (s.towns[p] ? SCORE.town : 0) + s.forts[p]! * SCORE.fort + (s.cities?.[p] ? SCORE.city : 0) + (s.shrines?.[p] ? SCORE.shrine : 0);
     });
     return total;
   });
