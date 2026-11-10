@@ -9,7 +9,7 @@ process.env.DATA_DIR = dir;
 
 // a campaign whose last season had a march in sight, one in the fog, and one arriving from the fog
 function save(id: number, phase: 'planning' | 'over') {
-  const state = newCampaign({ seed: 'fog-test', realms: 3, human: 0, maxSeasons: 4 });
+  const state = newCampaign({ seed: 'fog-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 2 });
   const seen = visibleProvinces(state, 0);
   const inSight = [...seen].find((p) => state.owner[p] !== 0)!;
   const fog = state.map.provinces.map((p) => p.id).filter((p) => !seen.has(p));
