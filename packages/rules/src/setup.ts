@@ -39,6 +39,22 @@ export const QUICK_MATCH = Object.freeze({ realms: 3, maxSeasons: 6, map: QUICK_
 export const QUICK_SEED_SUFFIX = '-q';
 
 /**
+ * The daily challenge: a quick match on the same map for everyone on one UTC day. Its seed comes
+ * from the date (and, in the rare case that day's map can't be laid out, an attempt number), so
+ * anyone can recompute it; the battle rolls stay each campaign's own.
+ */
+export const dailySeed = (date: string, attempt = 0): string => `daily-${date}${attempt ? `.${attempt}` : ''}${QUICK_SEED_SUFFIX}`;
+
+/** The UTC day of a time, as YYYY-MM-DD. */
+export const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+
+/** The day a daily challenge's seed is for, or null if it isn't one. */
+export function dailyDate(seed: string): string | null {
+  const m = /^daily-(\d{4}-\d{2}-\d{2})(?:\.\d+)?-q$/.exec(seed);
+  return m ? m[1]! : null;
+}
+
+/**
  * Whether campaign options name a map that exists: the standard map (no `map`) with an ordinary
  * seed, or the quick match whole (its map, realms and seasons) with a quick seed. Anything else
  * (another size, a null, a quick seed on another shape) is refused before a map is built.

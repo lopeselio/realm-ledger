@@ -10,6 +10,9 @@ import {
   QUICK_MATCH,
   QUICK_SEED_SUFFIX,
   knownShape,
+  dailySeed,
+  dailyDate,
+  utcDay,
   replaySeason,
   seasonRollSeed,
   runCampaign,
@@ -125,5 +128,18 @@ describe('the quick match', () => {
     expect(knownShape({ ...quick, maxSeasons: 20 })).toBe(false);
     expect(knownShape({ ...quick, seed: 'rl-a' })).toBe(false);
     expect(knownShape({ seed: 'rl-a-q', realms: 3, maxSeasons: 6 })).toBe(false);
+  });
+});
+
+describe('the daily challenge', () => {
+  it('names one seed per UTC day, reads the day back, and is a quick match', () => {
+    const day = utcDay(Date.UTC(2026, 10, 10, 23, 59));
+    expect(day).toBe('2026-11-10');
+    expect(dailySeed(day)).toBe('daily-2026-11-10-q');
+    expect(dailySeed(day, 2)).toBe('daily-2026-11-10.2-q');
+    expect(dailyDate(dailySeed(day))).toBe(day);
+    expect(dailyDate(dailySeed(day, 2))).toBe(day);
+    expect(dailyDate('rl-abc-q')).toBeNull();
+    expect(knownShape({ seed: dailySeed(day), realms: QUICK_MATCH.realms, maxSeasons: QUICK_MATCH.maxSeasons, map: { ...QUICK_MAP } })).toBe(true);
   });
 });
