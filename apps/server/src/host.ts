@@ -41,6 +41,7 @@ import {
   START_PURSE,
   stateHash,
   viewFor,
+  holdings,
   visibleProvinces,
   eventsFor,
   type GameEvent,
@@ -1273,7 +1274,9 @@ export function publicView(id: number) {
     player: h.player ?? null,
     chancellor: chancellorAccount(),
     proposeTreaty: h.pendingTreaty ? { from: h.pendingTreaty.realms[0], to: h.pendingTreaty.realms[1], kind: h.pendingTreaty.kind, amount: h.pendingTreaty.amount ?? 0 } : null,
-    scores: scores(view),
+    // while it runs, what everyone can see (holdings: rivals' treasuries are secret, and the fogged
+    // view would count them as nothing); once it's over, the final scores that chose the winner
+    scores: over ? scores(h.state) : holdings(h.state),
   };
 }
 

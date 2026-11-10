@@ -16,6 +16,7 @@ import {
   CITY_AFTER,
   runCampaign,
   replaySeason,
+  holdings,
 } from '../src/index.ts';
 import { army, lineWorld } from './fixture.ts';
 
@@ -346,5 +347,18 @@ describe('a city captured (rules version 4)', () => {
     expect(r.state.towns[2]).toBe(true);
     // held from this harvest on, by its new owner
     expect(r.state.held![2]).toBe(1);
+  });
+});
+
+describe('holdings and scores', () => {
+  it('holdings count what everyone sees; a score adds the treasury', () => {
+    const s = newCampaign({ seed: 'holdings', realms: 3, human: 0, maxSeasons: 6, rulesVersion: 4 });
+    const h = holdings(s);
+    const sc = scores(s);
+    for (const r of s.realms) expect(sc[r.id]! - h[r.id]!).toBeGreaterThan(0);
+    // a richer treasury changes the score, not the holdings
+    const richer = { ...s, realms: s.realms.map((r) => (r.id === 1 ? { ...r, purse: { ...r.purse, crowns: r.purse.crowns + 100 } } : r)) };
+    expect(holdings(richer)).toEqual(h);
+    expect(scores(richer)[1]).toBe(sc[1]! + 100);
   });
 });
