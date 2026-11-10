@@ -8,7 +8,7 @@ const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-daily-'));
 process.env.DATA_DIR = dir;
 
 // campaigns on one day's map: two finished (one a conquest), one being played, and one on another day
-function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crowns?: number; conquest?: boolean; player?: string; neverPlayed?: boolean } = {}) {
+function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crowns?: number; conquest?: boolean; player?: string; neverPlayed?: boolean; createdAt?: number } = {}) {
   const state = newCampaign({ seed, realms: QUICK_MATCH.realms, human: 0, maxSeasons: QUICK_MATCH.maxSeasons, map: QUICK_MATCH.map, rulesVersion: 2 });
   state.realms[0]!.purse.crowns = opts.crowns ?? 0;
   if (opts.conquest) {
@@ -34,7 +34,7 @@ function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crow
       intents: [],
       chancellorBudget: 0,
       lastEvents: [],
-      createdAt: id,
+      createdAt: opts.createdAt ?? id,
       ...(opts.player ? { player: opts.player } : {}),
     }),
   );
@@ -56,7 +56,9 @@ describe("the daily challenge's board", () => {
     save(7, dailySeed(day), 'over', { crowns: 400, player: 'alice.testnet' });
     // a challenge between friends: its own board, unfinished ones counted as playing whatever the day
     save(8, challengeSeed('a1b2c3'), 'over', { crowns: 300 });
-    save(9, challengeSeed('a1b2c3'), 'planning', { crowns: 5 });
+    save(9, challengeSeed('a1b2c3'), 'planning', { crowns: 5, createdAt: Date.now() });
+    // one accepted long ago and left: not "still playing"
+    save(10, challengeSeed('a1b2c3'), 'planning', { crowns: 5, createdAt: Date.now() - 3 * 86_400_000 });
     const host = await import('./host.ts');
     await host.loadAll();
     const board = host.dailyBoard(day, now);
@@ -79,6 +81,7 @@ describe("the daily challenge's board", () => {
     expect(host.challengeExists('a1b2c3')).toBe(true);
     expect(host.challengeExists('ffffff')).toBe(false);
     await expect(host.createCampaign(3, 6, undefined, true, false, 'ffffff')).rejects.toThrow('no such challenge');
+    await expect(host.createCampaign(3, 6, undefined, true, true, 'a1b2c3')).rejects.toThrow('not both');
   });
 });
 
