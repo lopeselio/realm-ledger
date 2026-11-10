@@ -100,11 +100,14 @@ export function PhoneDock({ game, v, selection }: { game: Game; v: View; selecti
   );
 }
 
+/** Whether you can act on the campaign now: planning, and no flow running. One rule for every order button. */
+export const canAct = (g: Game): boolean => !!g.view && g.view.phase === 'planning' && !g.busy;
+
 const ordersCount = (n: number): string => (n === 1 ? '1 order' : `${n} orders`);
 
 /** Seals your orders and ends the season; one button for the orders panel and the phone dock. */
 export function EndSeasonButton({ game, v, short = false }: { game: Game; v: View; short?: boolean }) {
-  const planning = v.phase === 'planning' && !game.busy;
+  const planning = canAct(game);
   return (
     <button type="button" className={`primary end-season${short ? '' : ' wide'}`} {...(short ? {} : { 'data-tour': 'seal' })} disabled={!planning} onClick={() => void game.seal()}>
       {game.stage?.campaign === v.id ? 'Ending the season…' : short ? 'End season' : `End season: seal ${ordersCount(game.orders.length)}`}
@@ -160,7 +163,7 @@ export function MarchTargets({ game, v, from }: { game: Game; v: View; from: num
     });
   }, [s, v.human, from, army, orders]);
   if (!army) return null;
-  const off = v.phase !== 'planning' || game.busy;
+  const off = !canAct(game);
   return (
     <ul className="targets" aria-label="March to">
       {targets.map(({ to, f }) => {

@@ -364,3 +364,9 @@ html.phone .dock-bar .end-season:disabled { opacity: 0.55; }
 html.phone body.has-dock { padding-bottom: calc(var(--dock-h, 72px) + 16px); }
 html.phone .phone-dock { max-height: 45vh; }
 html.phone .dock-hint { margin: 0 0 6px; }
+/* the dock's march targets keep their odds stripe, and its disabled buttons look it */
+html.phone .dock-selection button.target.safe { border-left-color: #6f8a5b; }
+html.phone .dock-selection button.target.good { border-left-color: var(--good); }
+html.phone .dock-selection button.target.even { border-left-color: var(--brass-dim); }
+html.phone .dock-selection button.target.bad { border-left-color: var(--bad); }
+html.phone .dock-selection button:disabled { opacity: 0.5; cursor: not-allowed; }
