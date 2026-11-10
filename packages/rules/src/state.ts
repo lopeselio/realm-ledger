@@ -156,8 +156,7 @@ export function eventsFor(events: GameEvent[], realm: number, seen: Set<number>)
 }
 
 /** Campaign score: treasury (goods at what they'd sell for) plus holdings (see `holdings`). */
-export function scores(s: GameState): number[] {
-  const land = holdings(s);
+export function scores(s: GameState, land: number[] = holdings(s)): number[] {
   return s.realms.map((r) => {
     if (!r.alive) return 0;
     let total = r.purse.crowns + land[r.id]!;

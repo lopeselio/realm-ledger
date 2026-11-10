@@ -1215,8 +1215,8 @@ export async function runChancellor(
 }
 
 /** The realm that wins: a conqueror, else the highest score when the seasons run out. */
-function winnerOf(h: Hosted): number {
-  const sc = scores(h.state);
+/** The campaign's winner: the one the rules named, or the best score (a campaign that ended with your fall). */
+function winnerOf(h: Hosted, sc: number[] = scores(h.state)): number {
   return h.state.winner ?? sc.indexOf(Math.max(...sc));
 }
 
@@ -1243,8 +1243,10 @@ export function publicView(id: number) {
   const over = h.phase === 'over';
   // saves from before lastSeen: what the player sees now
   const lastSeen = h.lastSeen ?? [...visibleProvinces(h.state, HUMAN)];
-  // worked out once: the full scores stay on the server until the campaign is over
-  const full = scores(h.state);
+  // worked out once: land from the fogged view (it follows the fog), the full scores from the whole
+  // state, which stay on the server until the campaign is over
+  const land = holdings(view);
+  const full = scores(h.state, holdings(h.state));
   return {
     id: h.id,
     contract: config.contract,
@@ -1255,14 +1257,16 @@ export function publicView(id: number) {
     state: over ? h.state : view,
     // what happened in the fog stays there until the campaign ends; the proof bundle keeps it all
     // the board's playback and the chronicle both read these
-    lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)),
+    // (before it's over, a victory event names the scores without them: they'd give away treasuries
+    // while the onchain finish confirms)
+    lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)).map((e) => (e.kind === 'victory' ? { ...e, scores: [] } : e)),
     envoys: h.envoys.map((e) => ({
       ...e,
       ...(e.signed !== undefined ? { verified: checkReply(h.bundle.replies[e.signed] as SignedReply).ok } : {}),
     })),
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
-    winner: over ? (h.state.winner ?? full.indexOf(Math.max(...full))) : null,
+    winner: over ? winnerOf(h, full) : null,
     /** your sealed orders for the last settled season were never revealed, so they were forfeited */
     lastForfeited: h.bundle.seasons.at(-1)?.forfeited?.includes(HUMAN) ?? false,
     companies: (h.state.companies ?? []).map((c) => ({ id: c.id, name: c.name, kind: c.kind, greed: c.greed, base: c.base, size: c.size })),
@@ -1278,10 +1282,12 @@ export function publicView(id: number) {
     proposeTreaty: h.pendingTreaty ? { from: h.pendingTreaty.realms[0], to: h.pendingTreaty.realms[1], kind: h.pendingTreaty.kind, amount: h.pendingTreaty.amount ?? 0 } : null,
     // what everyone can see, every realm's land, towns, forts, cities and shrines (rivals'
     // treasuries are secret, and the fogged view would count them as nothing); your own full score;
-    // and, once the campaign is over (as for the unfogged state and the winner), the final scores
-    holdings: holdings(h.state),
+    // and `scores`: land held while it runs, the final scores once it's over (as for the unfogged
+    // state and the winner), with `final` saying which (an array either way, for older pages)
+    holdings: land,
     yourScore: full[HUMAN] ?? 0,
-    scores: over ? full : null,
+    scores: over ? full : land,
+    final: over,
   };
 }
 
@@ -1424,7 +1430,8 @@ function buildBoard(key: string, now: number): DailyEntry[] {
         phase: h.phase,
         season: h.state.season,
         maxSeasons: h.state.maxSeasons,
-        score: scores(h.state)[HUMAN] ?? 0,
+        // a finished result's full score; while playing, only land held (a treasury stays secret)
+        score: (over ? scores(h.state) : holdings(h.state))[HUMAN] ?? 0,
         conquest: over && h.state.winner === HUMAN && h.state.realms.every((r) => r.id === HUMAN || !r.alive),
         rank: null as number | null,
         rulesVersion: versionOf(h),

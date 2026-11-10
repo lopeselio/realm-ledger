@@ -9,13 +9,14 @@ import type { Game } from './useGame.ts';
 /**
  * The standing, the end always in sight. While a campaign runs it compares what everyone can see,
  * each realm's land held (rivals' treasuries are secret), with your own full score beside it, and
- * marks no leader (treasuries decide). Once there's a winner it shows the final scores and marks it.
+ * marks no leader (treasuries decide). Once the campaign is over it shows the final scores and marks the winner.
  */
 export function StandingBar({ v }: { v: View }) {
   const s = v.state;
   const left = Math.max(0, s.maxSeasons - s.season);
-  const final = v.scores;
-  const shown = final ?? v.holdings;
+  // the final scores once it's over; before, land held (an older server sends only `scores`)
+  const final = (v.final ?? v.phase === 'over') ? v.scores : null;
+  const shown = final ?? v.holdings ?? v.scores;
   const ranked = s.realms.map((r) => ({ r, score: shown[r.id] ?? 0 })).sort((a, b) => b.score - a.score || a.r.id - b.r.id);
   return (
     <div className="standing" role="group" aria-label="Standing">
@@ -46,7 +47,7 @@ export function StandingBar({ v }: { v: View }) {
           </li>
         ))}
       </ol>
-      {!final && v.phase !== 'over' && (
+      {!final && v.phase !== 'over' && v.yourScore !== undefined && (
         <span className="fine" title="your treasury and goods at market price, plus your land: the score that counts at the end">
           your score so far: <strong>{v.yourScore}</strong> (rivals' treasuries count at the end)
         </span>
