@@ -173,7 +173,7 @@ export function verifyBundle(b: ProofBundle): Check[] {
   push(
     'campaign rebuilt from its seed',
     true,
-    `${state.map.provinces.length} provinces, ${state.realms.length} realms${state.secretRulers && b.rollSecret === undefined ? '; rulers are stand-ins until the roll secret is revealed (the state hashes leave them out)' : ''}`,
+    `${state.map.provinces.length} provinces, ${state.realms.length} realms${state.secretRulers && !rollRevealed(b) ? '; rulers are stand-ins until the roll secret is revealed and matches its commitment (the state hashes leave them out)' : ''}`,
   );
 
   // commitments made at campaign start
@@ -227,6 +227,11 @@ export function verifyBundle(b: ProofBundle): Check[] {
   );
   for (const r of b.replies) {
     const c = checkReply(r);
+    // a finished proof must carry the bytes: withholding them is only for while the campaign runs
+    if (c.ok && b.rollSecret !== undefined && (r.request === undefined || r.response === undefined)) {
+      checks.push({ name: c.name, ok: false, detail: 'the campaign is over, but the request and response bytes are still withheld' });
+      continue;
+    }
     checks.push(c);
     if (c.ok && b.attestation) {
       push(`${c.name}: signer is the attested TEE key`, attested.has(r.signingAddress.toLowerCase()));
@@ -252,11 +257,14 @@ export function rulesVersionOf(b: ProofBundle): number {
  * the state hashes leave out. Only the revealed roll secret is used, never anything else in the
  * bundle, so a bundle can't choose its own rulers.
  */
+/** Whether the bundle reveals a roll secret that matches its onchain commitment. */
+const rollRevealed = (b: ProofBundle): boolean => b.rollSecret !== undefined && b.rollSalt !== undefined && commit(b.rollSecret, b.rollSalt) === b.rollCommit;
+
 function rebuild(b: ProofBundle): GameState {
   // only the options a campaign has (an allowlist: nothing else in a bundle reaches setup), and the
   // roll secret only once it matches its commitment
   const o = b.options;
-  const revealed = b.rollSecret !== undefined && b.rollSalt !== undefined && commit(b.rollSecret, b.rollSalt) === b.rollCommit;
+  const revealed = rollRevealed(b);
   return newCampaign({
     seed: o.seed,
     realms: o.realms,

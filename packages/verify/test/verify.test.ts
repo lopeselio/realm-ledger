@@ -228,6 +228,17 @@ describe('a finished rules-v3 campaign', () => {
     expect(agendas(finished())?.ok).toBe(true);
   });
 
+  it('fails a finished proof whose reply bytes are still withheld', () => {
+    const b = finished();
+    // the real signed reply, its bytes swapped for their hashes: valid mid-campaign, not once over
+    const { request, response, ...rest } = reply;
+    const withheld = { ...rest, requestHash: sha256Hex(request!), responseHash: sha256Hex(response!) };
+    expect(checkReply(withheld).ok).toBe(true);
+    (b as { replies: object[] }).replies = [withheld];
+    const c = verifyBundle(b).find((x) => x.name === checkReply(withheld).name);
+    expect(c).toMatchObject({ ok: false, detail: expect.stringContaining('still withheld') });
+  });
+
   it("uses the roll secret only once it matches its commitment", () => {
     const b = finished();
     (b as { rollSalt?: string }).rollSalt = undefined;

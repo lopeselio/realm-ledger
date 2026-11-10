@@ -35,7 +35,6 @@ export const verifySeal = (seal: string, orders: OrderSet, salt: string): boolea
 /** Commitment to any secret value (agenda, roll seed), same shape as an order seal. */
 export const commit = (value: unknown, salt: string): string => sha256Hex(`${canonicalJson(value)}|${salt}`);
 
-/** Fingerprint of a whole game state, for replay checks. */
 /**
  * The hash of a state, as posted onchain each season. Under rules version 3 (`secretRulers`) the
  * rulers' personalities and agendas are left out: they come from a secret revealed only at the
