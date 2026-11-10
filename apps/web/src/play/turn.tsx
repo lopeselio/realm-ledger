@@ -71,21 +71,25 @@ export function TurnSteps({ game, v }: { game: Game; v: View }) {
  */
 export function PhoneDock({ game, v, selection }: { game: Game; v: View; selection: ReactNode }) {
   const dock = useRef<HTMLDivElement>(null);
-  // the page keeps room under itself for the dock as it grows and shrinks
+  const over = v.phase === 'over';
+  // the page keeps room under itself for the dock as it grows and shrinks, only while there is one
   useLayoutEffect(() => {
     const el = dock.current;
     if (!el) return;
-    const o = new ResizeObserver(() => document.body.style.setProperty('--dock-h', `${el.offsetHeight}px`));
+    const body = document.body;
+    body.classList.add('has-dock');
+    const o = new ResizeObserver(() => body.style.setProperty('--dock-h', `${el.offsetHeight}px`));
     o.observe(el);
     return () => {
       o.disconnect();
-      document.body.style.removeProperty('--dock-h');
+      body.classList.remove('has-dock');
+      body.style.removeProperty('--dock-h');
     };
-  }, []);
-  if (v.phase === 'over') return null;
+  }, [over]);
+  if (over) return null;
   return (
     <div className="phone-dock" role="region" aria-label="Your move" ref={dock}>
-      {v.phase === 'planning' && game.selected !== undefined && <div className="dock-selection">{selection}</div>}
+      {v.phase === 'planning' && (game.selected !== undefined ? <div className="dock-selection">{selection}</div> : <p className="fine dock-hint">Tap your army or one of your provinces on the map.</p>)}
       <div className="dock-bar">
         <a href="#orders" className="dock-orders">
           {ordersCount(game.orders.length)}
