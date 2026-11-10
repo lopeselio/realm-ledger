@@ -159,8 +159,15 @@ export function decideOrders(view: GameState, me: number): Order[] {
 
 function worth(view: GameState, p: number): number {
   const y = view.map.provinces[p]!.yields;
-  // rules version 4: a shrine and a city are worth taking for their score (absent before, so 0)
-  return y.grain + y.timber + y.iron + 2 * y.gold + (view.towns[p] ? 6 : 0) + (view.shrines?.[p] ? 8 : 0) + (view.cities?.[p] ? 5 : 0);
+  return y.grain + y.timber + y.iron + 2 * y.gold + (view.towns[p] ? 6 : 0);
+}
+
+/**
+ * What taking a province is worth, for choosing marches: its worth, plus (rules version 4) a
+ * shrine's score, and a rival's city to deny it (taking one sacks it, so the gain is the rival's loss).
+ */
+function targetWorth(view: GameState, p: number): number {
+  return worth(view, p) + (view.shrines?.[p] ? 8 : 0) + (view.cities?.[p] ? 5 : 0);
 }
 
 interface MoveCtx {
@@ -223,7 +230,7 @@ function chooseMove(
     const attack = (mobile + ctx.committed[n]!) * 10;
     const needed = 1 + ctx.caution / 10;
     if (defence > 0 && attack < defence * needed) continue;
-    let value = 10 + worth(view, n) * 2;
+    let value = 10 + targetWorth(view, n) * 2;
     if (ctx.capitalOf.has(n)) value += 40;
     if (agenda.kind === 'covet' && agenda.provinces?.includes(n)) value += 20;
     if (agenda.kind === 'vendetta' && owner === agenda.realm) value += 15;
