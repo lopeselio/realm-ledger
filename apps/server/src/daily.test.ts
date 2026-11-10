@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dailySeed, newCampaign, QUICK_MATCH } from '@realm-ledger/rules';
+import { dailySeed, newCampaign, QUICK_MATCH, utcDay } from '@realm-ledger/rules';
 
 const dir = mkdtempSync(join(tmpdir(), 'realm-ledger-daily-'));
 process.env.DATA_DIR = dir;
@@ -36,12 +36,14 @@ function save(id: number, seed: string, phase: 'planning' | 'over', opts: { crow
 }
 
 describe("the daily challenge's board", () => {
-  it('ranks finished campaigns on the day by score, a conquest first, then those still playing', async () => {
-    const day = '2026-11-10';
+  it("ranks today's finished campaigns by score, a conquest first, then those still playing; an earlier day shows only its finished", async () => {
+    const day = utcDay(Date.now());
+    const before = '2026-01-02';
     save(1, dailySeed(day), 'over', { crowns: 500 });
     save(2, dailySeed(day), 'over', { crowns: 10, conquest: true, player: 'alice.testnet' });
     save(3, dailySeed(day), 'planning', { crowns: 9000 });
-    save(4, dailySeed('2026-11-09'), 'over', { crowns: 9999 });
+    save(4, dailySeed(before), 'over', { crowns: 9999 });
+    save(5, dailySeed(before), 'planning', { crowns: 1 });
     const host = await import('./host.ts');
     await host.loadAll();
     const board = host.dailyBoard(day);
@@ -51,5 +53,7 @@ describe("the daily challenge's board", () => {
       [3, null, false],
     ]);
     expect(board[0]!.player).toBe('alice.testnet');
+    // an abandoned campaign from an earlier day isn't "still playing"
+    expect(host.dailyBoard(before).map((e) => e.id)).toEqual([4]);
   });
 });
