@@ -6,6 +6,7 @@ import {
   decideOrders,
   newCampaign,
   newSalt,
+  QUICK_MAP,
   replaySeason,
   seasonRollSeed,
   runCampaign,
@@ -92,5 +93,19 @@ describe('season roll seeds', () => {
     expect(a).not.toContain('top-secret');
     expect(seasonRollSeed('top-secret', 1)).not.toBe(a);
     expect(seasonRollSeed('top-secret', 0)).toBe(a);
+  });
+});
+
+describe('the quick match', () => {
+  it('plays a small map to a winner in 6 seasons, and replays from its options alone', () => {
+    const opts = { seed: 'quick-test', realms: 3, maxSeasons: 6, map: QUICK_MAP };
+    const { state, history } = runCampaign(opts);
+    expect(state.map.provinces.length).toBeLessThanOrEqual(60);
+    expect(history).toHaveLength(6);
+    expect(state.winner).not.toBeNull();
+    // what the verifier does: rebuild from the options, replay every season
+    let s = newCampaign({ ...opts, human: null });
+    for (const h of history) s = replaySeason(s, h).state;
+    expect(stateHash(s)).toBe(stateHash(state));
   });
 });

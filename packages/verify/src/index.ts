@@ -20,6 +20,7 @@ import {
   type SpyReport,
   type OrderSet,
   type Treaty,
+  type MapOptions,
 } from '@realm-ledger/rules';
 
 /** One reply from the TEE model, with everything needed to check its signature. */
@@ -75,7 +76,8 @@ export interface ProofBundle {
   contract: string;
   campaign: number;
   /** rulesVersion is absent in bundles from before the agent market, which play by version 1 */
-  options: { seed: string; realms: number; human: number | null; maxSeasons: number; rulesVersion?: number };
+  /** `map` is set for a quick match's smaller map */
+  options: { seed: string; realms: number; human: number | null; maxSeasons: number; rulesVersion?: number; map?: MapOptions };
   rollCommit: string;
   agendaCommits: string[];
   /** revealed when the campaign ends */
