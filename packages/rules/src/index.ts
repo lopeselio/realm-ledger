@@ -3,7 +3,7 @@ export * from './constants.ts';
 export { rng, hash32, type Rng } from './rng.ts';
 export * from './hex.ts';
 export { generateMap, type MapOptions } from './map.ts';
-export { newCampaign, distancesFrom, RULES_VERSION, QUICK_MAP, QUICK_MATCH, QUICK_SEED_SUFFIX, knownShape, type CampaignOptions } from './setup.ts';
+export { newCampaign, distancesFrom, RULES_VERSION, QUICK_MAP, QUICK_MATCH, QUICK_SEED_SUFFIX, knownShape, dailySeed, dailyDate, utcDay, type CampaignOptions } from './setup.ts';
 export { priceFor, sellPrice, newMarket } from './market.ts';
 export { fight, defenceBonus, battleSide, sideModifier, sidePower, byBattleRank, type BattleSide, type BattleResult } from './battle.ts';
 export { forecastMarch, plannedMarches, type Forecast, type ForecastSide } from './forecast.ts';
