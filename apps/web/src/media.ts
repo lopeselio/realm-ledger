@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react';
+
 // Which kind of screen this is. The phone layout is one media query, kept here only: the page
 // gets the class `phone` on <html> while it matches, and style.css styles `html.phone`.
 
@@ -20,4 +22,16 @@ export function watchPhone(): void {
   const set = (): void => void document.documentElement.classList.toggle('phone', mq?.matches ?? false);
   set();
   mq?.addEventListener('change', set);
+}
+
+/** isPhone for React: re-renders as the window turns or resizes across the line. */
+export function usePhone(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = query();
+      mq?.addEventListener('change', onChange);
+      return () => mq?.removeEventListener('change', onChange);
+    },
+    isPhone,
+  );
 }
