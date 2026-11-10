@@ -105,22 +105,27 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   // a drag that moved the map is not a tap on a province
   const dragged = useRef(false);
   /** Keeps the zoomed map covering the frame (no empty edge pulled into view). */
+  /** The map's frame (its clipping wrapper), unscaled. Measured there: an outer svg's clientWidth may read 0. */
+  const frame = (): { w: number; h: number } => {
+    const r = svgRef.current?.parentElement?.getBoundingClientRect();
+    return { w: r?.width ?? 0, h: r?.height ?? 0 };
+  };
   const clamp = (z: View2D): View2D => {
-    const svg = svgRef.current;
-    const w = svg?.clientWidth ?? 0;
-    const h = svg?.clientHeight ?? 0;
+    const { w, h } = frame();
     const k = Math.min(MAX_ZOOM, Math.max(1, z.k));
     return { k, x: Math.min(0, Math.max(w - w * k, z.x)), y: Math.min(0, Math.max(h - h * k, z.y)) };
   };
   /** Zooms by `factor` about a point of the frame (CSS pixels from its top left). */
-  const zoomAbout = (factor: number, px: number, py: number, from = zoomRef.current): void => {
-    const k = Math.min(MAX_ZOOM, Math.max(1, from.k * factor));
-    const f = k / from.k;
-    setZoom(clamp({ k, x: px - (px - from.x) * f, y: py - (py - from.y) * f }));
-  };
+  const zoomAbout = (factor: number, px: number, py: number): void =>
+    // from the latest zoom, so two quick taps make two steps
+    setZoom((from) => {
+      const k = Math.min(MAX_ZOOM, Math.max(1, from.k * factor));
+      const f = k / from.k;
+      return clamp({ k, x: px - (px - from.x) * f, y: py - (py - from.y) * f });
+    });
   const zoomCentre = (factor: number): void => {
-    const svg = svgRef.current;
-    if (svg) zoomAbout(factor, svg.clientWidth / 2, svg.clientHeight / 2);
+    const { w, h } = frame();
+    zoomAbout(factor, w / 2, h / 2);
   };
   const local = (e: { clientX: number; clientY: number }): { x: number; y: number } => {
     const r = svgRef.current!.parentElement!.getBoundingClientRect();
@@ -228,16 +233,18 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   // on a phone, open the flat map zoomed in on your own realm, once per map (done right after
   // the map draws, below, since its viewBox comes from the drawing)
   const focusedFor = useRef<string | null>(null);
+  // a new map starts unzoomed, whatever the screen
+  const shownMap = useRef<string | null>(null);
   const focus = overlay?.focus;
   const focusOnRealm = (svg: SVGSVGElement): void => {
-    if (focusedFor.current === mapKey) return;
-    if (focus === undefined || !isPhone()) {
-      focusedFor.current = mapKey;
-      return setZoom({ k: 1, x: 0, y: 0 });
+    if (shownMap.current !== mapKey) {
+      shownMap.current = mapKey;
+      if (focusedFor.current !== mapKey) setZoom({ k: 1, x: 0, y: 0 });
     }
+    // tried again on each draw until it lands, so a window narrowed to phone width later still gets it
+    if (focusedFor.current === mapKey || focus === undefined || !isPhone()) return;
     const vb = svg.viewBox.baseVal;
-    const w = svg.clientWidth;
-    const h = svg.clientHeight;
+    const { w, h } = frame();
     if (!vb.width || !w || !h) return; // not laid out yet: the next draw tries again
     focusedFor.current = mapKey;
     // the drawing is fitted inside the box (preserveAspectRatio meet), centred in the spare room
@@ -305,8 +312,11 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     setMode(next);
   };
 
+  // the province under the pointer, found by position: while a gesture holds pointer capture the
+  // click's target is the svg itself, not the province under the finger
   const provinceAt = (e: MouseEvent): number | null => {
-    const g = (e.target as Element).closest('.province');
+    const under = document.elementFromPoint(e.clientX, e.clientY) ?? (e.target as Element);
+    const g = under.closest('.province') ?? (e.target as Element).closest('.province');
     return g ? Number(g.getAttribute('data-id')) : null;
   };
 
