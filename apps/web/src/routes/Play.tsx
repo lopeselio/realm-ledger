@@ -86,6 +86,8 @@ export function Play() {
   );
 
   if (params.id !== undefined && id === null) return <Navigate to="/play" replace />;
+  // a daily challenge's day, for its board under the proof
+  const day = v ? dailyDate(v.state.seed) : null;
 
   const title = !v
     ? 'Start a campaign'
@@ -192,9 +194,9 @@ export function Play() {
             <h2>The proof</h2>
             <Proof v={v} />
           </div>
-          {dailyDate(v.state.seed) && (
+          {day && (
             <div className="panel">
-              <DailyBoard date={dailyDate(v.state.seed)!} mine={v.id} progress={`${v.season}:${v.phase}`} />
+              <DailyBoard date={day} mine={v.id} progress={`${v.season}:${v.phase}`} />
             </div>
           )}
         </section>

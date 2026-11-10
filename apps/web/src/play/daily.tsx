@@ -56,7 +56,8 @@ export function DailyBoard({ date, mine, progress }: { date?: string; mine?: num
       ) : (
         <>
           <ol className="daily-board">
-            {done.slice(0, 10).map((e) => (
+            {/* the top ten, and your own result if it ranks lower */}
+            {[...done.slice(0, 10), ...done.slice(10).filter((e) => e.id === mine)].map((e) => (
               <li key={e.id} className={e.id === mine ? 'mine' : ''}>
                 <span className="daily-rank">{e.rank}</span>
                 <span className="daily-who">{e.player ?? `guest #${e.id}`}</span>
