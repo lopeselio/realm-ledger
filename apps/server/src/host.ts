@@ -397,11 +397,23 @@ export async function createCampaign(realms: number, seasons = 20, player?: stri
   }
   if (!Number.isInteger(realms) || realms < 3 || realms > 6) throw new GameError('realms must be 3 to 6');
   if (!Number.isInteger(seasons) || seasons < 4 || seasons > 20) throw new GameError('seasons must be 4 to 20');
-  // a quick match's seed says so, and the seed is recorded onchain
-  const seed = `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
-  // the map size goes in the proof's options, so the verifier rebuilds the same map
-  const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
-  const state = newCampaign(options);
+  // a quick match's seed says so, and the seed is recorded onchain; the map size goes in the
+  // proof's options, so the verifier rebuilds the same map. A seed whose small map can't be laid
+  // out within its province range is rare: try a few
+  const build = () => {
+    const seed = `rl-${hex(6)}${quick ? QUICK_SEED_SUFFIX : ''}`;
+    const options = { seed, realms, human: HUMAN, maxSeasons: seasons, rulesVersion: RULES_VERSION, ...(quick ? { map: QUICK_MAP } : {}) };
+    return { seed, options, state: newCampaign(options) };
+  };
+  let made: ReturnType<typeof build> | null = null;
+  for (let i = 0; i < 5 && !made; i++) {
+    try {
+      made = build();
+    } catch (e) {
+      if (i === 4) throw new GameError(`no map could be laid out: ${(e as Error).message}`, 500);
+    }
+  }
+  const { seed, options, state } = made!;
   const rollSecret = hex();
   const rollSalt = hex();
   const agendaSalts = state.realms.map(() => hex());
