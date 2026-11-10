@@ -417,8 +417,14 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       } else if (s.towns[p.id]) {
         const t = painted(models.town, hex, enamelCache);
         t.position.set(x - 0.25, y, z - 0.2);
-        t.scale.setScalar(1.5);
+        // a city stands taller than a town
+        t.scale.setScalar(s.cities?.[p.id] ? 2.1 : 1.5);
         pieces.add(t);
+      }
+      if (s.shrines?.[p.id]) {
+        const sh = new THREE.Mesh(shrineGeo, shrineMat);
+        sh.position.set(x + 0.3, y + 0.28, z - 0.25);
+        pieces.add(sh);
       }
       if (s.forts[p.id]! > 0) {
         const f = models.fort.clone(true);
@@ -499,6 +505,9 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   }
 
   const clashGeo = new THREE.RingGeometry(0.55, 0.75, 32);
+  // a shrine: a small brass star stone
+  const shrineGeo = new THREE.OctahedronGeometry(0.22);
+  const shrineMat = new THREE.MeshStandardMaterial({ color: '#d9b24a', emissive: '#5a4510', roughness: 0.35, metalness: 0.6 });
   const poleGeo = new THREE.CylinderGeometry(0.025, 0.025, 1.1, 6);
   const bannerGeo = new THREE.PlaneGeometry(0.5, 0.32);
   function play(s: GameState, sc: SeasonScript): void {
@@ -680,7 +689,8 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     dispose: () => {
       // a playback cut short still frees what it made
       stopPlayback();
-      for (const g of [clashGeo, poleGeo, bannerGeo]) g.dispose();
+      for (const g of [clashGeo, poleGeo, bannerGeo, shrineGeo]) g.dispose();
+      shrineMat.dispose();
       observer.disconnect();
       renderer.setAnimationLoop(null);
       renderer.dispose();

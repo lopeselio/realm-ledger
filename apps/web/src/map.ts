@@ -1,4 +1,4 @@
-import { NEUTRAL, troopCount, type GameState } from '@realm-ledger/rules';
+import { CITY_AFTER, NEUTRAL, troopCount, type GameState } from '@realm-ledger/rules';
 
 export const REALM_COLORS = ['#b23a3a', '#2f5fa8', '#c9a227', '#2e8b7a', '#7a4fa3', '#c96f2b', '#5c6b7a', '#b5577b'];
 
@@ -82,6 +82,10 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
     if (p.river) parts.push(`<path d="M${x - 12},${y + 4} q6,-8 12,0 t12,0" fill="none" stroke="#4f8fa8" stroke-width="2.4" opacity="0.85"/>`);
     if (p.terrain === 'forest') parts.push(`<path d="M${x - 8},${y + 7} l3,-8 l3,8z M${x + 3},${y + 8} l3,-9 l3,9z" fill="#2c4424" opacity="0.7"/>`);
     if (s.towns[p.id]) parts.push(`<rect x="${x - 5}" y="${y - 13}" width="10" height="8" fill="#efe3c8" stroke="#2b2118" stroke-width="1"/><path d="M${x - 6},${y - 13} l6,-5 l6,5z" fill="#7a3b2c"/>`);
+    // a city: a second, taller house beside the town's
+    if (s.cities?.[p.id]) parts.push(`<rect x="${x + 4}" y="${y - 17}" width="7" height="12" fill="#efe3c8" stroke="#2b2118" stroke-width="1"/><path d="M${x + 3},${y - 17} l4.5,-5 l4.5,5z" fill="#7a3b2c"/>`);
+    // a shrine: a brass star
+    if (s.shrines?.[p.id]) parts.push(`<text x="${x - 9}" y="${y + 1}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.5">✦</text>`);
     if (s.forts[p.id]! > 0) parts.push(`<circle cx="${x}" cy="${y}" r="${12 + s.forts[p.id]!}" fill="none" stroke="#c9a227" stroke-width="${1 + s.forts[p.id]!}" stroke-dasharray="3 2" opacity="0.9"/>`);
     if (capitals.has(p.id)) parts.push(`<text x="${x}" y="${y - 14}" text-anchor="middle" font-size="12" fill="#f5d76e" stroke="#2b2118" stroke-width="0.6">♛</text>`);
     parts.push('</g>');
@@ -145,7 +149,9 @@ export function provinceTip(s: GameState, id: number): string {
     .map((a) => `${a.realm === NEUTRAL ? 'militia' : esc(s.realms[a.realm]!.name)}: ${a.levies} levies, ${a.regulars} regulars${a.mercs ? `, ${a.mercs} mercs` : ''}`);
   return [
     `<strong>${esc(p.name)}</strong>`,
-    `${p.terrain}${p.coast ? ', coast' : ''}${p.river ? ', river' : ''}${s.towns[id] ? ', town' : ''}${s.forts[id] ? `, fort ${s.forts[id]}` : ''}`,
+    `${p.terrain}${p.coast ? ', coast' : ''}${p.river ? ', river' : ''}${s.cities?.[id] ? ', city' : s.towns[id] ? ', town' : ''}${s.forts[id] ? `, fort ${s.forts[id]}` : ''}${s.shrines?.[id] ? ', shrine (worth score to its holder)' : ''}`,
+    // how close a held town is to growing into a city
+    ...(s.held && s.towns[id] && !s.cities?.[id] && owner >= 0 ? [`grows into a city after ${Math.max(0, CITY_AFTER - s.held[id]!)} more harvest${CITY_AFTER - s.held[id]! === 1 ? '' : 's'} held`] : []),
     `yields ${yields || 'nothing'}`,
     owner >= 0 ? `held by ${esc(s.realms[owner]!.name)}` : 'unclaimed',
     ...armies,
