@@ -6,6 +6,12 @@ Built at NEAR HACKATHON (1–14 Nov 2026). Tracks: Games With Real Economies, Pr
 
 **Play: [realm-ledger.vercel.app/play](https://realm-ledger.vercel.app/play)**: no wallet needed (play as a guest), or sign in with any NEAR testnet wallet. **Watch AI rulers play each other: [realm-ledger.vercel.app](https://realm-ledger.vercel.app)**.
 
+## The problem
+
+Strategy games with hidden information ask you to trust the server: that it didn't peek at your orders, change the rolls, or let an opponent move after seeing yours. AI opponents add a new doubt: did the model decide, or did someone steer it? Realm Ledger makes the hidden part provable. Orders are sealed before anyone reveals, battle rolls come from a secret committed at the start, the AI rulers' aims are committed too, their words are signed inside a TEE, and every season's result is posted on chain, so anyone can replay a campaign and check it, with no trust and no API key.
+
+Built from scratch at NEAR HACKATHON (1–14 Nov 2026): no earlier version of it exists, on NEAR or any other chain.
+
 ## What you can do
 
 | Feature | What it does | Where to see it |
@@ -113,6 +119,16 @@ pnpm install
 - **Backups:** App Service takes an automatic snapshot of the server's disk (campaign saves and proofs in `/home/data`) every hour. `az webapp config snapshot list -g realm-ledger -n realm-ledger-api` lists them, and `az webapp config snapshot restore … --time <snapshot time>` restores one.
 
 Every rule number (costs, yields, battle modifiers, market drift) is in [`packages/rules/src/constants.ts`](./packages/rules/src/constants.ts).
+
+## Libraries and templates
+
+No game or app template: the project was started from an empty repository. It uses:
+- **Contract:** [near-sdk](https://crates.io/crates/near-sdk) 5.29.1 (Rust), `hex`.
+- **Rules and verifier:** [@noble/hashes](https://github.com/paulmillr/noble-hashes) (SHA-256, Keccak) and [@noble/curves](https://github.com/paulmillr/noble-curves) (recovering the TEE's secp256k1 signer).
+- **Game server:** [near-api-js](https://github.com/near/near-api-js) 7, [tsx](https://github.com/privatenumber/tsx); Node 22, no web framework. AI replies from [NEAR AI Cloud](https://docs.near.ai) (OpenAI-compatible API, model in a TEE).
+- **Web app:** [React](https://react.dev) 19, [React Router](https://reactrouter.com) 8, [Vite](https://vite.dev), [three.js](https://threejs.org) 0.186 (WebGPU renderer, TSL), [NEAR Connect](https://github.com/hot-dao/near-connect) (`@hot-labs/near-connect`) with its function-call-key plugin, near-api-js.
+- **Tooling:** TypeScript, [Vitest](https://vitest.dev), pnpm; [Blender](https://www.blender.org) (Python) builds the miniatures in code. Hosting: Vercel (web), Azure App Service (server).
+- **Fonts:** IM Fell English SC, Alegreya Sans, JetBrains Mono (Google Fonts, open licences).
 
 ## What is and isn't proven
 
