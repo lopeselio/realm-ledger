@@ -9,6 +9,15 @@ import { canAct, isFinal, shownScores, EndSeasonButton, forecastText, MarchTarge
 import { usePhone } from '../media.ts';
 
 
+/** A link that has NEAR AI Cloud's Verification Center check one reply: its receipt, base64url JSON, in the fragment. */
+function verifyLink(receipt: Record<string, string>): string {
+  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(receipt))))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `https://cloud.near.ai/verify?model=${encodeURIComponent(receipt.model ?? '')}#receipt=${b64}`;
+}
+
 // ---------- your orders ----------
 
 export function Selection({ game, v }: { game: Game; v: View }) {
@@ -306,11 +315,22 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
                   {e.proposal.kind} {e.accepted ? 'signed' : 'refused'}
                 </span>
               )}{' '}
-              {e.verified && (
-                <span className="tag tee" title="Reply signed inside a TEE; checked against the attested key">
-                  TEE-signed ✓
-                </span>
-              )}
+              {e.verified &&
+                (e.receipt ? (
+                  <a
+                    className="tag tee"
+                    href={verifyLink(e.receipt)}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Reply signed inside a TEE; checked against the attested key. Opens NEAR AI's Verification Center, which checks it again in your browser"
+                  >
+                    TEE-signed ✓ verify
+                  </a>
+                ) : (
+                  <span className="tag tee" title="Reply signed inside a TEE; checked against the attested key">
+                    TEE-signed ✓
+                  </span>
+                ))}
               <p className="said">“{e.message}”</p>
               <p className="reply">{e.reply}</p>
             </li>
