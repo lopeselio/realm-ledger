@@ -380,3 +380,8 @@ html.phone .dock-selection button:disabled { opacity: 0.5; cursor: not-allowed; 
 
 .challenge-link { display: flex; gap: 6px; align-items: center; }
 .challenge-link input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink); background: rgba(255, 255, 255, 0.6); }
+
+/* phones: the welcome's progress dots stay dots, and the guest note wraps instead of clipping */
+html.phone .ob-card .ob-dots button { min-height: 10px; min-width: 10px; }
+html.phone .account { flex-wrap: wrap; justify-content: flex-start; }
+html.phone .account .guest { white-space: normal; }

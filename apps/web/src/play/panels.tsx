@@ -86,7 +86,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
             );
           })
         ) : (
-          <li className="fine">{v.phase === 'planning' ? 'No orders yet. Sealing with none is allowed.' : 'Waiting…'}</li>
+          <li className="fine">{v.phase === 'planning' ? 'No orders yet. Sealing with none is allowed.' : v.phase === 'over' ? 'The campaign is over: start a new one at the top.' : 'Waiting…'}</li>
         )}
       </ol>
       <div className="trade">
@@ -114,7 +114,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
       <p className="purse" data-tour="purse">
         Treasury: {me.purse.crowns} crowns · {GOODS.map((g) => `${me.purse[g]} ${g}`).join(' · ')}
       </p>
-      <EndSeasonButton game={game} v={v} />
+      {v.phase !== 'over' && <EndSeasonButton game={game} v={v} />}
       <p className="fine">Your browser hashes your orders with a secret salt. Only the hash goes onchain until every ruler has sealed.</p>
       {v.phase === 'sealed' && game.forfeitAt !== null && <ForfeitButton game={game} at={game.forfeitAt} />}
     </section>
