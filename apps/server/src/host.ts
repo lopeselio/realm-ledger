@@ -1134,25 +1134,28 @@ async function closeJobs(h: Hosted, after: GameState, season: number): Promise<D
 /**
  * A rival realm's capital named in a task: "the Vey capital", "Vey's capital", "the capital of
  * Vey" (a realm by its name without its title, or its first word: "Thornwood", "Iron"), right
- * beside the word capital, as whole words. Read before the model, so a province merely named
- * like the realm (Veygate) is never taken for its capital. "Our"/"my capital" is yours, not this.
+ * beside the word capital, as whole words. With `names`, also the realm-name words it was found
+ * by, so the caller can tell a province merely named like the realm (Veygate) from the one meant.
+ * "Our"/"my capital" is yours, and is left out of the reading.
  */
-export function capitalNamed(s: GameState, me: number, text: string): number | null {
-  const t = ` ${text.toLowerCase().replace(/[^a-z' ]+/g, ' ')} `;
-  if (!/ capital /.test(t) || /\b(our|my) capital\b/.test(t)) return null;
+export function capitalNamed(s: GameState, me: number, text: string): { capital: number; words: string[] } | null {
+  const t = ` ${text
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z' ]+/g, ' ')
+    .replace(/\b(our|my) capital\b/g, ' ')} `;
+  if (!/ capital /.test(t)) return null;
   const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const names = (name: string): string[] => {
     const core = name.toLowerCase().replace(/^(the |kingdom of |duchy of |principality of )/, '').trim();
     const first = core.split(' ')[0]!;
     return first !== core && first.length >= 4 ? [core, first] : [core];
   };
-  const named = s.realms.filter(
-    (r) =>
-      r.id !== me &&
-      r.alive &&
-      names(r.name).some((n) => new RegExp(` (?:the )?${esc(n)}(?:'s)? capital | capital of (?:the )?${esc(n)} `).test(t)),
-  );
-  return named.length === 1 ? named[0]!.capital : null;
+  const named = s.realms
+    .filter((r) => r.id !== me && r.alive)
+    .map((r) => ({ r, words: names(r.name).filter((n) => new RegExp(` (?:the )?${esc(n)}(?:'s)? capital | capital of (?:the )?${esc(n)} `).test(t)) }))
+    .filter((x) => x.words.length > 0);
+  return named.length === 1 ? { capital: named[0]!.r.capital, words: named[0]!.words } : null;
 }
 
 /** Reads a free-text task with the TEE model: which goal and which province. */
@@ -1174,9 +1177,13 @@ async function parseTask(h: Hosted, text: string): Promise<{ goal: Goal; provinc
   try {
     const j = JSON.parse(out.replace(/^[^{]*/, '').replace(/[^}]*$/, '')) as { goal?: string; province?: string | null };
     const goal = (['hold', 'take', 'scout'] as const).find((g) => g === j.goal);
-    // a rival's capital named in the words wins over the model's reading of it
-    const capital = capitalNamed(h.state, HUMAN, text);
-    const province = capital ?? names.findIndex((n) => n.toLowerCase() === String(j.province ?? '').toLowerCase());
+    const read = names.findIndex((n) => n.toLowerCase() === String(j.province ?? '').toLowerCase());
+    // a rival's capital named in the words corrects the model only where it misread it: no
+    // province at all, or one merely named like that realm (Veygate for "the Vey capital"). A
+    // capital mentioned in passing ("hold Woldfell so the Vey capital can't reach it") changes nothing
+    const named = capitalNamed(h.state, HUMAN, text);
+    const lookalike = named !== null && read >= 0 && read !== named.capital && named.words.some((w) => names[read]!.toLowerCase().includes(w));
+    const province = named !== null && (read < 0 || lookalike) ? named.capital : read;
     return goal && province >= 0 ? { goal, province } : null;
   } catch {
     return null;
