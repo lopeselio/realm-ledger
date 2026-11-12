@@ -1143,7 +1143,9 @@ export function capitalNamed(s: GameState, me: number, text: string): { capital:
     .toLowerCase()
     .replace(/[‘’]/g, "'")
     .replace(/[^a-z' ]+/g, ' ')
-    .replace(/\b(our|my) capital\b/g, ' ')} `;
+    .replace(/\b(our|my) capital\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()} `;
   if (!/ capital /.test(t)) return null;
   const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const names = (name: string): string[] => {
@@ -1152,7 +1154,8 @@ export function capitalNamed(s: GameState, me: number, text: string): { capital:
     return first !== core && first.length >= 4 ? [core, first] : [core];
   };
   const named = s.realms
-    .filter((r) => r.id !== me && r.alive)
+    // (a capital you already hold isn't the one meant)
+    .filter((r) => r.id !== me && r.alive && s.owner[r.capital] !== me)
     .map((r) => ({ r, words: names(r.name).filter((n) => new RegExp(` (?:the )?${esc(n)}(?:'s)? capital | capital of (?:the )?${esc(n)} `).test(t)) }))
     .filter((x) => x.words.length > 0);
   return named.length === 1 ? { capital: named[0]!.r.capital, words: named[0]!.words } : null;
@@ -1182,7 +1185,10 @@ async function parseTask(h: Hosted, text: string): Promise<{ goal: Goal; provinc
     // province at all, or one merely named like that realm (Veygate for "the Vey capital"). A
     // capital mentioned in passing ("hold Woldfell so the Vey capital can't reach it") changes nothing
     const named = capitalNamed(h.state, HUMAN, text);
-    const lookalike = named !== null && read >= 0 && read !== named.capital && named.words.some((w) => names[read]!.toLowerCase().includes(w));
+    // a lookalike: the model's province is named like the realm, but the words never name it
+    const spoken = ` ${text.toLowerCase().replace(/[^a-z]+/g, ' ')} `;
+    const lookalike =
+      named !== null && read >= 0 && read !== named.capital && named.words.some((w) => names[read]!.toLowerCase().includes(w)) && !spoken.includes(` ${names[read]!.toLowerCase()} `);
     const province = named !== null && (read < 0 || lookalike) ? named.capital : read;
     return goal && province >= 0 ? { goal, province } : null;
   } catch {
