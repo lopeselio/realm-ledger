@@ -52,7 +52,7 @@ import {
 import { checkReply, rulesVersionOf, type MarketJob, type ProofBundle, type SignedReply } from '@realm-ledger/verify';
 import { accountExists, call, isNetworkError, view } from './chain.ts';
 import { chancellorAccount, companyAccount, config, playerAccount, rulerAccount } from './config.ts';
-import { attestationReport, nearAiEnabled, signedChat } from './nearai.ts';
+import { attestationReport, nearAiEnabled, signedChat, SIGNING_ALGO } from './nearai.ts';
 
 // Hosts campaigns between a human player (always realm 0) and AI rulers. Each season:
 //   plan   - the player talks to envoys; treaties the engine accepts are signed onchain
@@ -1264,12 +1264,13 @@ export async function runChancellor(
  * a fresh reply shows "Response Verified"): cloud.near.ai/verify?model=<id>#receipt=<base64url JSON>
  * with completionId, model, signatureKind, signingAlgo, signingAddress, signedText and signature.
  * The signed text holds only the model and the hashes of the request and response, so nothing a
- * ruler was told leaks. Null for a reply the page couldn't check (an unknown signature kind, no id).
- * Worked out once per reply.
+ * ruler was told leaks. Null for a reply the page couldn't check (not signed by the model's TEE, no id).
+ * Worked out once per reply, with the reply's own check: a stored reply never changes.
  */
-const verifyLinks = new WeakMap<SignedReply, string | null>();
-function verifyLinkOf(r: SignedReply): string | null {
-  if (verifyLinks.has(r)) return verifyLinks.get(r)!;
+const badges = new WeakMap<SignedReply, { verified: boolean; verifyUrl: string | null }>();
+function badgeOf(r: SignedReply): { verified: boolean; verifyUrl: string | null } {
+  const known = badges.get(r);
+  if (known) return known;
   let completionId = r.completionId;
   if (!completionId) {
     // replies saved before the id was kept: it is in the stored response
@@ -1281,21 +1282,22 @@ function verifyLinkOf(r: SignedReply): string | null {
     }
   }
   const link =
-    completionId && (r.signatureKind === 'provider_tee' || r.signatureKind === 'gateway')
+    completionId && r.signatureKind === 'provider_tee'
       ? `https://cloud.near.ai/verify?model=${encodeURIComponent(r.model)}#receipt=${Buffer.from(
           JSON.stringify({
             completionId,
             model: r.model,
             signatureKind: r.signatureKind,
-            signingAlgo: r.signingAlgo ?? 'ecdsa',
+            signingAlgo: r.signingAlgo ?? SIGNING_ALGO,
             signingAddress: r.signingAddress,
             signedText: r.text,
             signature: r.signature,
           }),
         ).toString('base64url')}`
       : null;
-  verifyLinks.set(r, link);
-  return link;
+  const badge = { verified: checkReply(r).ok, verifyUrl: link };
+  badges.set(r, badge);
+  return badge;
 }
 
 /** The campaign's winner: the one the rules named, or the best score (a campaign that ended with your fall). */
@@ -1346,7 +1348,7 @@ export function publicView(id: number) {
     lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)),
     envoys: h.envoys.map((e) => {
       const reply = e.signed !== undefined ? (h.bundle.replies[e.signed] as SignedReply) : undefined;
-      return { ...e, ...(reply ? { verified: checkReply(reply).ok, verifyUrl: verifyLinkOf(reply) } : {}) };
+      return { ...e, ...(reply ? badgeOf(reply) : {}) };
     }),
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
