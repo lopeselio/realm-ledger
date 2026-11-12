@@ -318,8 +318,8 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
                     TEE-signed ✓ verify
                   </a>
                 ) : (
-                  <span className="tag tee" title="Signed by the model in a TEE; its signature checks out (pnpm verify:campaign checks the signer against the attested key)">
-                    TEE-signed ✓
+                  <span className="tag tee" title="Its signature checks out; pnpm verify:campaign checks the signer against the model's attested TEE key">
+                    signed ✓
                   </span>
                 ))}
               <p className="said">“{e.message}”</p>
