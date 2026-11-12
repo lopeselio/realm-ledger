@@ -1146,7 +1146,7 @@ export function capitalNamed(s: GameState, me: number, text: string): { capital:
     .replace(/\b(our|my) capital\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()} `;
-  if (!/ capital /.test(t)) return null;
+  if (!/ capital(?:'s|s)? /.test(t)) return null;
   const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const names = (name: string): string[] => {
     const core = name.toLowerCase().replace(/^(the |kingdom of |duchy of |principality of )/, '').trim();
@@ -1156,7 +1156,7 @@ export function capitalNamed(s: GameState, me: number, text: string): { capital:
   const named = s.realms
     // (a capital you already hold isn't the one meant)
     .filter((r) => r.id !== me && r.alive && s.owner[r.capital] !== me)
-    .map((r) => ({ r, words: names(r.name).filter((n) => new RegExp(` (?:the )?${esc(n)}(?:'s)? capital | capital of (?:the )?${esc(n)} `).test(t)) }))
+    .map((r) => ({ r, words: names(r.name).filter((n) => new RegExp(` (?:the )?${esc(n)}(?:'s)? capital(?:'s|s)? | capital of (?:the )?${esc(n)} `).test(t)) }))
     .filter((x) => x.words.length > 0);
   return named.length === 1 ? { capital: named[0]!.r.capital, words: named[0]!.words } : null;
 }
@@ -1166,7 +1166,8 @@ async function parseTask(h: Hosted, text: string): Promise<{ goal: Goal; provinc
   if (!nearAiEnabled()) return null;
   const names = h.state.map.provinces.map((p) => p.name);
   // the rival capitals, so "the Vey capital" means the province it is, not one named like it
-  const capitals = h.state.realms.filter((r) => r.id !== HUMAN && r.alive).map((r) => `${r.name}: ${names[r.capital]}`);
+  // (only capitals still theirs: one you took is yours now)
+  const capitals = h.state.realms.filter((r) => r.id !== HUMAN && r.alive && h.state.owner[r.capital] !== HUMAN).map((r) => `${r.name}: ${names[r.capital]}`);
   const system = [
     'You read orders given to a royal chancellor in a strategy game and extract the task.',
     'Reply with one line of JSON and nothing else: {"goal":"hold"|"take"|"scout","province":"<name>"}.',
@@ -1186,10 +1187,11 @@ async function parseTask(h: Hosted, text: string): Promise<{ goal: Goal; provinc
     // capital mentioned in passing ("hold Woldfell so the Vey capital can't reach it") changes nothing
     const named = capitalNamed(h.state, HUMAN, text);
     // a lookalike: the model's province is named like the realm, but the words never name it
-    const spoken = ` ${text.toLowerCase().replace(/[^a-z]+/g, ' ')} `;
+    const plain = (x: string): string => ` ${x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
     const lookalike =
-      named !== null && read >= 0 && read !== named.capital && named.words.some((w) => names[read]!.toLowerCase().includes(w)) && !spoken.includes(` ${names[read]!.toLowerCase()} `);
-    const province = named !== null && (read < 0 || lookalike) ? named.capital : read;
+      named !== null && read >= 0 && read !== named.capital && named.words.some((w) => names[read]!.toLowerCase().includes(w)) && !plain(text).includes(plain(names[read]!));
+    // (never to hold a rival's capital: holding is for your own ground)
+    const province = named !== null && goal !== 'hold' && (read < 0 || lookalike) ? named.capital : read;
     return goal && province >= 0 ? { goal, province } : null;
   } catch {
     return null;

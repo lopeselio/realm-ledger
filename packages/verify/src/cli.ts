@@ -39,6 +39,7 @@ function viewer(contract: string) {
     });
     const failures: string[] = [];
     // round-robin: each provider once, then a pause and a second round; a slow one is given up after 10 s
+    // (one RPC named by NEAR_RPC_URL is asked once more after the pause)
     const tries = [...RPCS, ...RPCS];
     for (const [i, rpc] of tries.entries()) {
       if (i === RPCS.length) await new Promise((r) => setTimeout(r, 1000));
@@ -66,7 +67,9 @@ function viewer(contract: string) {
       if (out.result?.error || /CONTRACT_EXECUTION_ERROR|UNKNOWN_ACCOUNT|NO_CONTRACT_CODE|MethodNotFound|CodeDoesNotExist|panicked/.test(said)) throw new ContractError(`${method}: ${said.slice(0, 300)}`);
       failures.push(`${rpc}: ${status} ${said.slice(0, 160)}`);
     }
-    throw new Error(`RPC ${method} failed on every provider (set NEAR_RPC_URL to use another):\n  ${failures.join('\n  ')}`);
+    throw new Error(
+      `RPC ${method} failed on ${process.env.NEAR_RPC_URL ? 'NEAR_RPC_URL' : 'every provider (set NEAR_RPC_URL to a testnet RPC of your own)'}:\n  ${failures.join('\n  ')}`,
+    );
   };
 }
 

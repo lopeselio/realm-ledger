@@ -130,15 +130,14 @@ export function Guide({ signals, quiet = false, hold = false }: { signals: Guide
       auto.current = false;
       setOpen((o) => (o === 'welcome' ? 'none' : o));
     }
-    if (quiet || held.current || offered.current) return;
+    // (deferred while the help or the walkthrough is open, offered once it closes)
+    if (quiet || held.current || offered.current || open !== 'none') return;
     offered.current = true;
-    if (!welcomeSeen())
-      setOpen((o) => {
-        if (o !== 'none') return o;
-        auto.current = true;
-        return 'welcome';
-      });
-  }, [quiet, hold]);
+    if (!welcomeSeen()) {
+      auto.current = true;
+      setOpen('welcome');
+    }
+  }, [quiet, hold, open]);
 
   const closeWelcome = useCallback(() => {
     markWelcomeSeen();
