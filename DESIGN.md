@@ -141,9 +141,9 @@ tools/blender    bpy scripts that build every 3D asset to .glb
 - **Login:** social or email login with no seed phrases or gas prompts. The provider is chosen after checking what works on testnet today (open question 1).
 - **Optional:** NEAR Intents for paying out a campaign prize or tribute in another token, if time allows.
 
-## Independence from Bazaar of Liars
+## Relation to Bazaar of Liars and the NEAR Arcade
 
-The hackathon allows one person two projects if they're independent and each README names the other (rule Q-015).
+Realm Ledger is part of the NEAR Arcade submission, alongside Bazaar of Liars; the author's other submission (rule Q-015) is Signalfire, which the README names.
 - Realm Ledger is a separate game with its own repo, contract, rules, art and server.
 - It reuses ideas proven in Bazaar of Liars (the LLM voices but never decides, commit-reveal, TEE attestation), but no code is copied in.
 - It is also not a port of Cryptara Conquest. It's a new codebase, written from 2026-11-06.
