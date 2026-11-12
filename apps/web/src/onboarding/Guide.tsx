@@ -114,17 +114,21 @@ const STEPS: TourStep<GuideSignals>[] = [
 type Open = 'none' | 'welcome' | 'tour' | 'help';
 
 /**
- * `quiet`: hold the welcome back: while a linked campaign loads, and over a finished one (it waits
- * for the next visit). Once quiet ends, a first visit still gets it, once.
+ * `quiet`: hold the welcome back for now (a linked campaign still loading); once quiet ends, a
+ * first visit still gets it, once. `hold`: hold it back for this whole visit (a finished campaign
+ * opened from a link; it shows on the next visit instead).
  */
-export function Guide({ signals, quiet = false }: { signals: GuideSignals; quiet?: boolean }) {
-  const [open, setOpen] = useState<Open>(() => (welcomeSeen() || quiet ? 'none' : 'welcome'));
-  const offered = useRef(!quiet);
+export function Guide({ signals, quiet = false, hold = false }: { signals: GuideSignals; quiet?: boolean; hold?: boolean }) {
+  const [open, setOpen] = useState<Open>(() => (welcomeSeen() || quiet || hold ? 'none' : 'welcome'));
+  const held = useRef(hold);
+  if (hold) held.current = true;
+  const offered = useRef(!quiet && !hold);
   useEffect(() => {
-    if (quiet || offered.current) return;
+    if (hold) setOpen((o) => (o === 'welcome' ? 'none' : o));
+    if (quiet || held.current || offered.current) return;
     offered.current = true;
     if (!welcomeSeen()) setOpen((o) => (o === 'none' ? 'welcome' : o));
-  }, [quiet]);
+  }, [quiet, hold]);
 
   const closeWelcome = useCallback(() => {
     markWelcomeSeen();
