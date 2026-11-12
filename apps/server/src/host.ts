@@ -1131,15 +1131,31 @@ async function closeJobs(h: Hosted, after: GameState, season: number): Promise<D
   return refunds;
 }
 
+/**
+ * A rival realm's capital named in a task ("the Vey capital", "Lornhold's capital"): the realm's
+ * name without its title ("Kingdom of", "The"), next to the word capital. Read before the model,
+ * so a province merely named like the realm (Veygate) is never taken for its capital.
+ */
+export function capitalNamed(s: GameState, me: number, text: string): number | null {
+  const t = text.toLowerCase();
+  if (!/\bcapital\b/.test(t)) return null;
+  const core = (name: string): string => name.toLowerCase().replace(/^(the |kingdom of |duchy of |principality of |republic of |march of )/, '').trim();
+  const named = s.realms.filter((r) => r.id !== me && r.alive && t.includes(core(r.name)));
+  return named.length === 1 ? named[0]!.capital : null;
+}
+
 /** Reads a free-text task with the TEE model: which goal and which province. */
 async function parseTask(h: Hosted, text: string): Promise<{ goal: Goal; province: number } | null> {
   if (!nearAiEnabled()) return null;
   const names = h.state.map.provinces.map((p) => p.name);
+  // the rival capitals, so "the Vey capital" means the province it is, not one named like it
+  const capitals = h.state.realms.filter((r) => r.id !== HUMAN && r.alive).map((r) => `${r.name}: ${names[r.capital]}`);
   const system = [
     'You read orders given to a royal chancellor in a strategy game and extract the task.',
     'Reply with one line of JSON and nothing else: {"goal":"hold"|"take"|"scout","province":"<name>"}.',
     'hold = defend one of our provinces; take = capture a province; scout = learn what stands in a province.',
     `The province must be one of these names, spelled exactly: ${names.join(', ')}.`,
+    `A realm's capital is this province: ${capitals.join('; ')}.`,
     'If no province is named, use "province":null.',
   ].join('\n');
   const { text: out, reply } = await signedChat([{ role: 'system', content: system }, { role: 'user', content: text }], { realm: HUMAN, season: h.state.season }, 60);
@@ -1147,7 +1163,9 @@ async function parseTask(h: Hosted, text: string): Promise<{ goal: Goal; provinc
   try {
     const j = JSON.parse(out.replace(/^[^{]*/, '').replace(/[^}]*$/, '')) as { goal?: string; province?: string | null };
     const goal = (['hold', 'take', 'scout'] as const).find((g) => g === j.goal);
-    const province = names.findIndex((n) => n.toLowerCase() === String(j.province ?? '').toLowerCase());
+    // a rival's capital named in the words wins over the model's reading of it
+    const capital = capitalNamed(h.state, HUMAN, text);
+    const province = capital ?? names.findIndex((n) => n.toLowerCase() === String(j.province ?? '').toLowerCase());
     return goal && province >= 0 ? { goal, province } : null;
   } catch {
     return null;

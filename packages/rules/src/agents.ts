@@ -221,8 +221,9 @@ export function planTask(view: GameState, me: number, task: Task): Plan {
   // 1. learn: a spy on the most worrying ground we cannot see
   const ground = task.goal === 'scout' ? [task.province] : [task.province, ...p.neighbors];
   const hidden = ground.filter((q) => !seen.has(q));
+  // a spy is bought only for ground out of sight: never for a province you can already see (your own included)
   const spyTarget =
-    task.goal === 'scout' ? task.province : hidden.sort((a, b) => Number(view.owner[b]! >= 0 && hostile(view.owner[b]!)) - Number(view.owner[a]! >= 0 && hostile(view.owner[a]!)) || a - b)[0];
+    task.goal === 'scout' ? hidden[0] : hidden.sort((a, b) => Number(view.owner[b]! >= 0 && hostile(view.owner[b]!)) - Number(view.owner[a]! >= 0 && hostile(view.owner[a]!)) || a - b)[0];
   if (spyTarget !== undefined) {
     const rings = (view.companies ?? []).filter((c) => c.kind === 'spy');
     // the cheapest ring; the honest one wins ties
@@ -234,6 +235,7 @@ export function planTask(view: GameState, me: number, task: Task): Plan {
       if (h.price) budget -= h.price;
     }
   } else if (task.goal !== 'scout') summary.push('Every province around it is in sight; no spy needed.');
+  else summary.push(`${p.name} is already in sight; no spy needed.`);
 
   // 2. buy: swords to hold or take it
   if (task.goal !== 'scout') {

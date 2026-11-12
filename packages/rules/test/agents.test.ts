@@ -135,3 +135,16 @@ describe('deals in campaigns', () => {
     expect(hires).toBeGreaterThan(0);
   });
 });
+
+describe('a scouting task on ground already in sight', () => {
+  it('buys no spy report (your own province, or one you can see)', () => {
+    const s = newCampaign({ seed: 'scout-own', realms: 3, human: 0, maxSeasons: 6 });
+    const own = s.realms[0]!.capital;
+    const plan = planTask(viewFor(s, 0), 0, { goal: 'scout', province: own, budget: 25 });
+    expect(plan.steps.filter((x) => x.kind === 'spy')).toHaveLength(0);
+    expect(plan.summary.join(' ')).toMatch(/already in sight/);
+    // a rival's capital, out of sight, still gets one
+    const far = planTask(viewFor(s, 0), 0, { goal: 'scout', province: s.realms[1]!.capital, budget: 25 });
+    expect(far.steps.some((x) => x.kind === 'spy')).toBe(true);
+  });
+});
