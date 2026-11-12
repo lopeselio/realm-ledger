@@ -1258,6 +1258,31 @@ export async function runChancellor(
   });
 }
 
+/**
+ * A signed reply as NEAR AI Cloud's Verification Center takes it (cloud.near.ai/verify, a receipt
+ * in the link's fragment): the completion id, model, signer and the signed text with its signature.
+ * The signed text holds only the model and the hashes of the request and response, so it gives
+ * away nothing the request said (a ruler's secret aim stays secret).
+ */
+function receiptOf(r: SignedReply): Record<string, string> | null {
+  let completionId: unknown;
+  try {
+    completionId = (JSON.parse(r.response ?? '{}') as { id?: unknown }).id;
+  } catch {
+    return null;
+  }
+  if (typeof completionId !== 'string') return null;
+  return {
+    completionId,
+    model: r.model,
+    signatureKind: r.signatureKind,
+    signingAlgo: 'ecdsa',
+    signingAddress: r.signingAddress,
+    signedText: r.text,
+    signature: r.signature,
+  };
+}
+
 /** The campaign's winner: the one the rules named, or the best score (a campaign that ended with your fall). */
 function winnerOf(h: Hosted, sc: number[] = scores(h.state)): number {
   return h.state.winner ?? sc.indexOf(Math.max(...sc));
@@ -1304,10 +1329,10 @@ export function publicView(id: number) {
     // (before it's over, eventsFor also holds back a victory's scores, which would give away treasuries
     // while the onchain finish confirms)
     lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)),
-    envoys: h.envoys.map((e) => ({
-      ...e,
-      ...(e.signed !== undefined ? { verified: checkReply(h.bundle.replies[e.signed] as SignedReply).ok } : {}),
-    })),
+    envoys: h.envoys.map((e) => {
+      const reply = e.signed !== undefined ? (h.bundle.replies[e.signed] as SignedReply) : undefined;
+      return { ...e, ...(reply ? { verified: checkReply(reply).ok, receipt: receiptOf(reply) } : {}) };
+    }),
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
     winner: over ? winnerOf(h, full) : null,
