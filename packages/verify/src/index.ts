@@ -31,6 +31,10 @@ export interface SignedReply {
   realm: number;
   season: number;
   model: string;
+  /** the chat completion's id (absent from replies saved before it was kept) */
+  completionId?: string;
+  /** how it was signed, as asked of NEAR AI (absent before it was kept: ecdsa) */
+  signingAlgo?: string;
   /**
    * The exact request body bytes sent, as UTF-8 text. Withheld while the campaign runs (it holds
    * the ruler's secret aim and temperament): then only `requestHash` is given, and the bytes come
