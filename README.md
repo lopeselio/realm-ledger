@@ -2,15 +2,13 @@
 
 A conquest game on a living war table. You rule one realm; rival realms are ruled by AI agents with their own NEAR wallets and private minds. Every season, all rulers seal their orders at once. Nobody can see an order before the season turns, and the chain proves nobody changed one afterwards.
 
-Built at NEAR HACKATHON (1–14 Nov 2026). Tracks: Games With Real Economies, Privacy & Private AI, Agent Economy.
+Built from scratch at NEAR HACKATHON (1–14 Nov 2026): no earlier version of it exists, on NEAR or any other chain. Tracks: Games With Real Economies, Privacy & Private AI, Agent Economy.
 
 **Play: [realm-ledger.vercel.app/play](https://realm-ledger.vercel.app/play)**: no wallet needed (play as a guest), or sign in with any NEAR testnet wallet. **Watch AI rulers play each other: [realm-ledger.vercel.app](https://realm-ledger.vercel.app)**.
 
 ## The problem
 
-Strategy games with hidden information ask you to trust the server: that it didn't peek at your orders, change the rolls, or let an opponent move after seeing yours. AI opponents add a new doubt: did the model decide, or did someone steer it? Realm Ledger makes the hidden part provable. Orders are sealed before anyone reveals, battle rolls come from a secret committed at the start, the AI rulers' aims are committed too, their words are signed inside a TEE, and every season's result is posted on chain, so anyone can replay a campaign and check it, with no trust and no API key.
-
-Built from scratch at NEAR HACKATHON (1–14 Nov 2026): no earlier version of it exists, on NEAR or any other chain.
+Strategy games with hidden information ask you to trust the server: that it didn't peek at your orders, change the rolls, or let an opponent move after seeing yours. AI opponents add a new doubt: did the model decide, or did someone steer it? Realm Ledger makes the hidden part provable. Orders are sealed before anyone reveals, battle rolls come from a secret committed at the start, the AI rulers' aims are committed too, their words are signed inside a TEE, and every season's state hash is posted on chain. With the campaign's proof bundle (served by the game server, and saved by anyone who downloads it), anyone can replay it and check it against the chain, with no API key. The README's last section says exactly what that does and doesn't prove.
 
 ## What you can do
 
@@ -122,13 +120,14 @@ Every rule number (costs, yields, battle modifiers, market drift) is in [`packag
 
 ## Libraries and templates
 
-No game or app template: the project was started from an empty repository. It uses:
-- **Contract:** [near-sdk](https://crates.io/crates/near-sdk) 5.29.1 (Rust), `hex`.
-- **Rules and verifier:** [@noble/hashes](https://github.com/paulmillr/noble-hashes) (SHA-256, Keccak) and [@noble/curves](https://github.com/paulmillr/noble-curves) (recovering the TEE's secp256k1 signer).
-- **Game server:** [near-api-js](https://github.com/near/near-api-js) 7, [tsx](https://github.com/privatenumber/tsx); Node 22, no web framework. AI replies from [NEAR AI Cloud](https://docs.near.ai) (OpenAI-compatible API, model in a TEE).
-- **Web app:** [React](https://react.dev) 19, [React Router](https://reactrouter.com) 8, [Vite](https://vite.dev), [three.js](https://threejs.org) 0.186 (WebGPU renderer, TSL), [NEAR Connect](https://github.com/hot-dao/near-connect) (`@hot-labs/near-connect`) with its function-call-key plugin, near-api-js.
-- **Tooling:** TypeScript, [Vitest](https://vitest.dev), pnpm; [Blender](https://www.blender.org) (Python) builds the miniatures in code. Hosting: Vercel (web), Azure App Service (server).
-- **Fonts:** IM Fell English SC, Alegreya Sans, JetBrains Mono (Google Fonts, open licences).
+No game or app template: the project was started from an empty repository. Direct dependencies, by part:
+- **Contract** (`contracts/realm`): [near-sdk](https://crates.io/crates/near-sdk) 5.29.1 and [hex](https://crates.io/crates/hex) 0.4 (Rust).
+- **Rules** (`packages/rules`): [@noble/hashes](https://github.com/paulmillr/noble-hashes) 2.4.0 (SHA-256 for seals and commitments).
+- **Verifier** (`packages/verify`): @noble/hashes 2.4.0 (SHA-256, Keccak-256) and [@noble/curves](https://github.com/paulmillr/noble-curves) 2.3.0 (recovering the TEE's secp256k1 signer).
+- **Game server** (`apps/server`): [near-api-js](https://github.com/near/near-api-js) 7.3.1 and [tsx](https://github.com/privatenumber/tsx) 4.23.15, on Node 22 with no web framework. AI replies come from [NEAR AI Cloud](https://docs.near.ai) (an OpenAI-compatible API, the model in a TEE).
+- **Web app** (`apps/web`): [React](https://react.dev) 19.3.1, [React Router](https://reactrouter.com) 8.5.0, [three.js](https://threejs.org) 0.186.1 (WebGPU renderer, TSL), [NEAR Connect](https://github.com/hot-dao/near-connect) (`@hot-labs/near-connect` 0.11.4), [function-call-key-plugin](https://github.com/matiasbenary/near-access-key-plugin) 2.1.0 (a separate plugin that adds the limited key at sign-in), near-api-js 7.4.0; built with [Vite](https://vite.dev) 8.3.5 and [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) 6.1.2.
+- **Tooling:** TypeScript 7.0.2, [Vitest](https://vitest.dev) 5.0.5, pnpm 11.26.0; [Blender](https://www.blender.org) (Python) builds the miniatures in code. Hosting: Vercel (web) and Azure App Service (server).
+- **Fonts:** IM Fell English SC, Alegreya Sans and JetBrains Mono (Google Fonts, open licences).
 
 ## What is and isn't proven
 
