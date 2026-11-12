@@ -38,22 +38,33 @@ function viewer(contract: string) {
       },
     });
     const failures: string[] = [];
-    const tries = RPCS.flatMap((rpc) => [rpc, rpc]);
-    // each provider twice (a short pause between), then the next one; a slow one is given up after 10 s
+    // round-robin: each provider once, then a pause and a second round; a slow one is given up after 10 s
+    const tries = [...RPCS, ...RPCS];
     for (const [i, rpc] of tries.entries()) {
+      if (i === RPCS.length) await new Promise((r) => setTimeout(r, 1000));
+      let out: { result?: { result?: number[]; error?: string }; error?: { name?: string; cause?: { name?: string } } };
+      let status = 0;
       try {
         const res = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(10_000) });
-        const out = (await res.json().catch(() => ({}))) as { result?: { result?: number[]; error?: string }; error?: { cause?: { name?: string }; data?: unknown } };
-        if (out.result?.result) return JSON.parse(Buffer.from(out.result.result).toString('utf8'));
-        // the contract itself refused (a panic, no such method): another provider would say the same
-        const said = JSON.stringify(out.error ?? out.result ?? out);
-        if (out.result?.error || /HANDLER_ERROR|panicked|MethodNotFound|CodeDoesNotExist/.test(said)) throw new ContractError(`${method}: ${said.slice(0, 300)}`);
-        failures.push(`${rpc}: ${res.status} ${said.slice(0, 160)}`);
+        status = res.status;
+        out = (await res.json()) as typeof out;
       } catch (e) {
-        if (e instanceof ContractError) throw e;
         failures.push(`${rpc}: ${(e as Error).message}`);
+        continue;
       }
-      if (i < tries.length - 1) await new Promise((r) => setTimeout(r, 500 * ((i % 2) + 1)));
+      if (out.result?.result) {
+        // the contract's answer: bytes that aren't JSON are its fault, not the provider's
+        try {
+          return JSON.parse(Buffer.from(out.result.result).toString('utf8'));
+        } catch {
+          throw new ContractError(`${method}: the contract returned something that isn't JSON`);
+        }
+      }
+      // the contract itself refused (a panic, no such account, method or code): another provider would say
+      // the same. A node's own fault (unknown block, unavailable shard, rate limit) moves on to the next
+      const said = JSON.stringify(out.error ?? out.result ?? out);
+      if (out.result?.error || /CONTRACT_EXECUTION_ERROR|UNKNOWN_ACCOUNT|NO_CONTRACT_CODE|MethodNotFound|CodeDoesNotExist|panicked/.test(said)) throw new ContractError(`${method}: ${said.slice(0, 300)}`);
+      failures.push(`${rpc}: ${status} ${said.slice(0, 160)}`);
     }
     throw new Error(`RPC ${method} failed on every provider (set NEAR_RPC_URL to use another):\n  ${failures.join('\n  ')}`);
   };
