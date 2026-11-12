@@ -45,3 +45,34 @@ describe('the proof served', () => {
     expect(host.proof(2).replies[0]).toMatchObject({ request: reply.request, response: reply.response });
   });
 });
+
+describe("an envoy's receipt for NEAR AI's Verification Center", () => {
+  it('names the completion, model, signer and signed text, and none of what was asked', async () => {
+    const host = await import('./host.ts');
+    const { writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const state = newCampaign({ seed: 'proof-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 });
+    const signed = { ...reply, response: '{"id":"chatcmpl-abc","choices":[]}' };
+    writeFileSync(
+      join(dir, 'campaign-3.json'),
+      JSON.stringify({
+        id: 3,
+        phase: 'planning',
+        state,
+        pending: { ai: [], jobs: [], deals: [], treaties: [] },
+        bundle: { options: { seed: 'proof-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 }, seasons: [], replies: [signed] },
+        envoys: [{ season: 0, to: 1, message: 'peace?', reply: 'hm', signed: 0 }],
+        plans: [],
+        reports: [],
+        intents: [],
+        chancellorBudget: 0,
+        lastEvents: [],
+        createdAt: 3,
+      }),
+    );
+    await host.loadAll();
+    const receipt = host.publicView(3).envoys[0]!.receipt;
+    expect(receipt).toEqual({ completionId: 'chatcmpl-abc', model: 'm', signatureKind: 'ecdsa', signingAlgo: 'ecdsa', signingAddress: '0x1', signedText: 't', signature: 's' });
+    expect(JSON.stringify(receipt)).not.toContain('iron hills');
+  });
+});
