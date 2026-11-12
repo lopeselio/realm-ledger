@@ -136,7 +136,7 @@ export function Play() {
         </div>
         <div className="header-right">
           <div className="header-tools">
-            <Guide signals={guideSignals} />
+            <Guide signals={guideSignals} quiet={v?.phase === 'over'} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d, c) => void start(r, s, q, d, c)} />}
@@ -312,9 +312,9 @@ function StatusLine({ game }: { game: Game }) {
 
 /** The lengths on offer: the quick match (fixed: 2 rivals, 6 seasons, a small map) or a full-size map. */
 const LENGTHS = {
+  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: false },
   daily: { label: `Daily challenge · today's map, the same for everyone (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: true, challenge: false },
   challenge: { label: `Challenge a friend · a new map to share by link (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: true },
-  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: false },
   '8': { label: '8 seasons', seasons: 8, quick: false, daily: false, challenge: false },
   '12': { label: '12 seasons', seasons: 12, quick: false, daily: false, challenge: false },
   '20': { label: '20 seasons', seasons: 20, quick: false, daily: false, challenge: false },
