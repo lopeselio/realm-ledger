@@ -1132,15 +1132,26 @@ async function closeJobs(h: Hosted, after: GameState, season: number): Promise<D
 }
 
 /**
- * A rival realm's capital named in a task ("the Vey capital", "Lornhold's capital"): the realm's
- * name without its title ("Kingdom of", "The"), next to the word capital. Read before the model,
- * so a province merely named like the realm (Veygate) is never taken for its capital.
+ * A rival realm's capital named in a task: "the Vey capital", "Vey's capital", "the capital of
+ * Vey" (a realm by its name without its title, or its first word: "Thornwood", "Iron"), right
+ * beside the word capital, as whole words. Read before the model, so a province merely named
+ * like the realm (Veygate) is never taken for its capital. "Our"/"my capital" is yours, not this.
  */
 export function capitalNamed(s: GameState, me: number, text: string): number | null {
-  const t = text.toLowerCase();
-  if (!/\bcapital\b/.test(t)) return null;
-  const core = (name: string): string => name.toLowerCase().replace(/^(the |kingdom of |duchy of |principality of |republic of |march of )/, '').trim();
-  const named = s.realms.filter((r) => r.id !== me && r.alive && t.includes(core(r.name)));
+  const t = ` ${text.toLowerCase().replace(/[^a-z' ]+/g, ' ')} `;
+  if (!/ capital /.test(t) || /\b(our|my) capital\b/.test(t)) return null;
+  const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const names = (name: string): string[] => {
+    const core = name.toLowerCase().replace(/^(the |kingdom of |duchy of |principality of )/, '').trim();
+    const first = core.split(' ')[0]!;
+    return first !== core && first.length >= 4 ? [core, first] : [core];
+  };
+  const named = s.realms.filter(
+    (r) =>
+      r.id !== me &&
+      r.alive &&
+      names(r.name).some((n) => new RegExp(` (?:the )?${esc(n)}(?:'s)? capital | capital of (?:the )?${esc(n)} `).test(t)),
+  );
   return named.length === 1 ? named[0]!.capital : null;
 }
 
