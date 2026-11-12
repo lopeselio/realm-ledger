@@ -88,3 +88,16 @@ describe('access-key failures, as near-api-js reports them', () => {
     expect(host.isKeyFailure(new Error('Access key ed25519:abc does not exist at block height 7'))).toBe(false);
   });
 });
+
+describe('a rival capital named in a task', () => {
+  it('is that realm\'s capital, not a province named like the realm', async () => {
+    const { capitalNamed } = await import('./host.ts');
+    const { newCampaign } = await import('@realm-ledger/rules');
+    const s = newCampaign({ seed: 'capital-named', realms: 3, human: 0, maxSeasons: 6 });
+    const vey = s.realms.find((r) => /Vey/.test(r.name));
+    if (!vey) return;
+    expect(capitalNamed(s, 0, 'Find out what guards the Vey capital')).toBe(vey.capital);
+    expect(capitalNamed(s, 0, 'Hold Woldfell through winter')).toBeNull();
+    expect(capitalNamed(s, 0, 'scout the capital')).toBeNull();
+  });
+});
