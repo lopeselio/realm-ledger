@@ -1282,7 +1282,7 @@ function badgeOf(r: SignedReply): { verified: boolean; verifyUrl: string | null 
     }
   }
   const link =
-    completionId && r.signatureKind === 'provider_tee'
+    completionId && r.signatureKind === 'provider_tee' && (r.signingAlgo ?? SIGNING_ALGO) === 'ecdsa'
       ? `https://cloud.near.ai/verify?model=${encodeURIComponent(r.model)}#receipt=${Buffer.from(
           JSON.stringify({
             completionId,

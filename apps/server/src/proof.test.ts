@@ -66,10 +66,10 @@ describe("an envoy's receipt for NEAR AI's Verification Center", () => {
         bundle: {
           options: { seed: 'proof-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 },
           seasons: [],
-          // as saved before the id was kept; with a kind the page wouldn't take; with the id kept; tampered
-          replies: [signed, { ...signed, signatureKind: 'unknown' }, { ...signed, completionId: 'kept-id', signingAlgo: 'ed25519' }, { ...signed, signingAddress: '0x0000000000000000000000000000000000000001' }],
+          // as saved before the id was kept; a kind the page wouldn't take; the id kept; an algorithm the check here doesn't do; tampered
+          replies: [signed, { ...signed, signatureKind: 'unknown' }, { ...signed, completionId: 'kept-id', signingAlgo: 'ecdsa' }, { ...signed, signingAlgo: 'ed25519' }, { ...signed, signingAddress: '0x0000000000000000000000000000000000000001' }],
         },
-        envoys: [0, 1, 2, 3].map((i) => ({ season: 0, to: 1, message: 'peace?', reply: 'hm', signed: i })),
+        envoys: [0, 1, 2, 3, 4].map((i) => ({ season: 0, to: 1, message: 'peace?', reply: 'hm', signed: i })),
         plans: [],
         reports: [],
         intents: [],
@@ -95,8 +95,9 @@ describe("an envoy's receipt for NEAR AI's Verification Center", () => {
       signature: sig.signature,
     });
     expect(envoys[1]!.verifyUrl).toBeNull();
-    expect(receiptOf(envoys[2]!.verifyUrl!)).toMatchObject({ completionId: 'kept-id', signingAlgo: 'ed25519' });
+    expect(receiptOf(envoys[2]!.verifyUrl!)).toMatchObject({ completionId: 'kept-id', signingAlgo: 'ecdsa' });
+    expect(envoys[3]!.verifyUrl).toBeNull();
     // a reply whose signature doesn't check out here gets no badge and no link
-    expect(envoys[3]).toMatchObject({ verified: false, verifyUrl: null });
+    expect(envoys[4]).toMatchObject({ verified: false, verifyUrl: null });
   });
 });
