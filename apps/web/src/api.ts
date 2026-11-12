@@ -17,8 +17,8 @@ export interface Envoy {
   reply: string;
   signed?: number;
   verified?: boolean;
-  /** the reply's signature as NEAR AI's Verification Center takes it */
-  receipt?: Record<string, string> | null;
+  /** a link that has NEAR AI's Verification Center re-check this reply (null if it can't) */
+  verifyUrl?: string | null;
 }
 
 export interface Company {
