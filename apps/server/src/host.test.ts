@@ -90,14 +90,19 @@ describe('access-key failures, as near-api-js reports them', () => {
 });
 
 describe('a rival capital named in a task', () => {
-  it('is that realm\'s capital, not a province named like the realm', async () => {
+  it("is that realm's capital, named beside the word, never a province named like it or your own", async () => {
     const { capitalNamed } = await import('./host.ts');
     const { newCampaign } = await import('@realm-ledger/rules');
-    const s = newCampaign({ seed: 'capital-named', realms: 3, human: 0, maxSeasons: 6 });
-    const vey = s.realms.find((r) => /Vey/.test(r.name));
-    if (!vey) return;
-    expect(capitalNamed(s, 0, 'Find out what guards the Vey capital')).toBe(vey.capital);
+    const s = newCampaign({ seed: 'capital-named', realms: 6, human: 0, maxSeasons: 6 });
+    const by = (name: string) => s.realms.find((r) => r.name === name)!.capital;
+    expect(capitalNamed(s, 0, 'Find out what guards the Vey capital')).toBe(by('Kingdom of Vey'));
+    expect(capitalNamed(s, 0, "take Vey's capital")).toBe(by('Kingdom of Vey'));
+    expect(capitalNamed(s, 0, 'scout the capital of Lornhold')).toBe(by('Duchy of Lornhold'));
+    expect(capitalNamed(s, 0, 'scout the Thornwood capital')).toBe(by('Thornwood Free Cities'));
+    // not beside the word, inside another word, or your own capital
+    expect(capitalNamed(s, 0, 'take Veygate near the capital')).toBeNull();
+    expect(capitalNamed(s, 0, 'survey the capital')).toBeNull();
+    expect(capitalNamed(s, 0, 'Hold our capital against Vey')).toBeNull();
     expect(capitalNamed(s, 0, 'Hold Woldfell through winter')).toBeNull();
-    expect(capitalNamed(s, 0, 'scout the capital')).toBeNull();
   });
 });
