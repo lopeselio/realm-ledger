@@ -136,7 +136,7 @@ export function Play() {
         </div>
         <div className="header-right">
           <div className="header-tools">
-            <Guide signals={guideSignals} quiet={v?.phase === 'over'} />
+            <Guide signals={guideSignals} quiet={id !== null && (!v || v.phase === 'over')} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d, c) => void start(r, s, q, d, c)} />}
@@ -320,6 +320,8 @@ const LENGTHS = {
   '20': { label: '20 seasons', seasons: 20, quick: false, daily: false, challenge: false },
 } as const;
 type Length = keyof typeof LENGTHS;
+// the menu's order (Object.keys would put the number-like '8', '12', '20' first)
+const LENGTH_ORDER: Length[] = ['quick', 'daily', 'challenge', '8', '12', '20'];
 
 function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean, daily: boolean, challenge?: true) => void }) {
   const [length, setLength] = useState<Length>('quick');
@@ -331,7 +333,7 @@ function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number,
       <label>
         Length
         <select value={length} onChange={(e) => setLength(e.target.value as Length)}>
-          {(Object.keys(LENGTHS) as Length[]).map((k) => (
+          {LENGTH_ORDER.map((k) => (
             <option key={k} value={k}>
               {LENGTHS[k].label}
             </option>

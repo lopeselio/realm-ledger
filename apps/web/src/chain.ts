@@ -1,7 +1,8 @@
 // Read-only view of the realm contract on testnet, straight from public RPC.
 
 export const CONTRACT = 'realm-ledger.testnet';
-const RPC = 'https://test.rpc.fastnear.com';
+// public testnet RPCs, tried in turn: one may rate-limit or be down
+const RPCS = ['https://test.rpc.fastnear.com', 'https://testnet-rpc.intea.rs', 'https://near-testnet.drpc.org'];
 
 export interface ChainCampaign {
   id: number;
@@ -18,23 +19,37 @@ export interface ChainCampaign {
 }
 
 export async function view<T>(method: string, args: object): Promise<T | null> {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 'realm-ledger-web',
-      method: 'query',
-      params: {
-        request_type: 'call_function',
-        // optimistic: our own writes show up as soon as they execute
-        finality: 'optimistic',
-        account_id: CONTRACT,
-        method_name: method,
-        args_base64: btoa(JSON.stringify(args)),
-      },
-    }),
+  const request = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 'realm-ledger-web',
+    method: 'query',
+    params: {
+      request_type: 'call_function',
+      // optimistic: our own writes show up as soon as they execute
+      finality: 'optimistic',
+      account_id: CONTRACT,
+      method_name: method,
+      args_base64: btoa(JSON.stringify(args)),
+    },
   });
+  // the first provider that answers at all (a contract error is an answer too); rate limits and
+  // outages move on to the next
+  let res: Response | null = null;
+  let lastError: unknown = null;
+  for (const rpc of RPCS) {
+    try {
+      const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: request, signal: AbortSignal.timeout(10_000) });
+      if (r.status === 429 || r.status >= 500) {
+        lastError = new Error(`${rpc}: HTTP ${r.status}`);
+        continue;
+      }
+      res = r;
+      break;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (!res) throw lastError instanceof Error ? lastError : new Error('RPC unreachable');
   const body = await res.json();
   if (body.error || body.result?.error) throw new Error(body.error?.cause?.name ?? body.result?.error ?? 'RPC error');
   const bytes = new Uint8Array(body.result.result as number[]);

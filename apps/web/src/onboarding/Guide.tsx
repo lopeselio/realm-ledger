@@ -1,6 +1,6 @@
 // The play page's guide: the welcome on a first visit, the walkthrough, and the "?" button
 // that brings either back along with the rules sheet.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { HelpSheet } from './HelpSheet.tsx';
 import { markWelcomeSeen, welcomeSeen } from './storage.ts';
 import { Tour, type TourStep } from './Tour.tsx';
@@ -113,12 +113,17 @@ const STEPS: TourStep<GuideSignals>[] = [
 
 type Open = 'none' | 'welcome' | 'tour' | 'help';
 
-/** `quiet`: the page shows a finished campaign (a shared link): the welcome waits for the next visit. */
+/**
+ * `quiet`: hold the welcome back: while a linked campaign loads, and over a finished one (it waits
+ * for the next visit). Once quiet ends, a first visit still gets it, once.
+ */
 export function Guide({ signals, quiet = false }: { signals: GuideSignals; quiet?: boolean }) {
-  const [open, setOpen] = useState<Open>(() => (welcomeSeen() ? 'none' : 'welcome'));
-  // a finished campaign opened from a link: don't cover it with the welcome (not marked seen)
+  const [open, setOpen] = useState<Open>(() => (welcomeSeen() || quiet ? 'none' : 'welcome'));
+  const offered = useRef(!quiet);
   useEffect(() => {
-    if (quiet) setOpen((o) => (o === 'welcome' ? 'none' : o));
+    if (quiet || offered.current) return;
+    offered.current = true;
+    if (!welcomeSeen()) setOpen((o) => (o === 'none' ? 'welcome' : o));
   }, [quiet]);
 
   const closeWelcome = useCallback(() => {
