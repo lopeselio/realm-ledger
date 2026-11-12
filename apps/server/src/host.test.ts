@@ -102,10 +102,15 @@ describe('a rival capital named in a task', () => {
     expect(cap('scout the capital of Lornhold')).toBe(by('Duchy of Lornhold'));
     expect(cap('scout the Thornwood capital')).toBe(by('Thornwood Free Cities'));
     expect(cap('Take the Vey capital before they march on our capital')).toBe(by('Kingdom of Vey'));
+    expect(cap('scout the capital of: Vey')).toBe(by('Kingdom of Vey'));
+    expect(cap('the Vey  capital')).toBe(by('Kingdom of Vey'));
     // not beside the word, inside another word, or your own capital
     expect(cap('take Veygate near the capital')).toBeNull();
     expect(cap('survey the capital')).toBeNull();
     expect(cap('Hold our capital against Vey')).toBeNull();
     expect(cap('Hold Woldfell through winter')).toBeNull();
+    // a capital you already hold isn't the one meant
+    const taken = { ...s, owner: s.owner.map((o, p) => (p === by('Kingdom of Vey') ? 0 : o)) };
+    expect(capitalNamed(taken, 0, 'take the Vey capital')).toBeNull();
   });
 });
