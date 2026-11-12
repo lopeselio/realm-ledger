@@ -20,6 +20,9 @@ async function load(src: string): Promise<ProofBundle> {
   return JSON.parse(await readFile(src, 'utf8')) as ProofBundle;
 }
 
+/** The contract answered with an error of its own: no use asking another provider. */
+class ContractError extends Error {}
+
 function viewer(contract: string) {
   return async (method: string, args: object): Promise<unknown> => {
     const body = JSON.stringify({
@@ -35,19 +38,22 @@ function viewer(contract: string) {
       },
     });
     const failures: string[] = [];
-    // each provider twice (a short pause between), then the next one
-    for (const rpc of RPCS) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const res = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
-          const out = (await res.json().catch(() => ({}))) as { result?: { result?: number[] }; error?: unknown };
-          if (out.result?.result) return JSON.parse(Buffer.from(out.result.result).toString('utf8'));
-          failures.push(`${rpc}: ${res.status} ${JSON.stringify(out.error ?? out).slice(0, 160)}`);
-        } catch (e) {
-          failures.push(`${rpc}: ${(e as Error).message}`);
-        }
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    const tries = RPCS.flatMap((rpc) => [rpc, rpc]);
+    // each provider twice (a short pause between), then the next one; a slow one is given up after 10 s
+    for (const [i, rpc] of tries.entries()) {
+      try {
+        const res = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(10_000) });
+        const out = (await res.json().catch(() => ({}))) as { result?: { result?: number[]; error?: string }; error?: { cause?: { name?: string }; data?: unknown } };
+        if (out.result?.result) return JSON.parse(Buffer.from(out.result.result).toString('utf8'));
+        // the contract itself refused (a panic, no such method): another provider would say the same
+        const said = JSON.stringify(out.error ?? out.result ?? out);
+        if (out.result?.error || /HANDLER_ERROR|panicked|MethodNotFound|CodeDoesNotExist/.test(said)) throw new ContractError(`${method}: ${said.slice(0, 300)}`);
+        failures.push(`${rpc}: ${res.status} ${said.slice(0, 160)}`);
+      } catch (e) {
+        if (e instanceof ContractError) throw e;
+        failures.push(`${rpc}: ${(e as Error).message}`);
       }
+      if (i < tries.length - 1) await new Promise((r) => setTimeout(r, 500 * ((i % 2) + 1)));
     }
     throw new Error(`RPC ${method} failed on every provider (set NEAR_RPC_URL to use another):\n  ${failures.join('\n  ')}`);
   };
