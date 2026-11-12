@@ -313,12 +313,12 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
                     href={e.verifyUrl}
                     target="_blank"
                     rel="noreferrer"
-                    title="Reply signed inside a TEE; checked against the attested key. Opens NEAR AI's Verification Center, which checks it again in your browser"
+                    title="Signed by the model in a TEE; its signature checks out. Opens NEAR AI's Verification Center, which checks the signer against fresh TEE hardware evidence in your browser"
                   >
                     TEE-signed ✓ verify
                   </a>
                 ) : (
-                  <span className="tag tee" title="Reply signed inside a TEE; checked against the attested key">
+                  <span className="tag tee" title="Signed by the model in a TEE; its signature checks out (pnpm verify:campaign checks the signer against the attested key)">
                     TEE-signed ✓
                   </span>
                 ))}
