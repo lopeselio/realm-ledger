@@ -5,7 +5,11 @@
 import { readFile } from 'node:fs/promises';
 import { checkAgainstChain, verifyBundle, type Check, type ProofBundle } from './index.ts';
 
-const RPC = process.env.NEAR_RPC_URL ?? 'https://test.rpc.fastnear.com';
+// testnet RPCs, tried in turn: a public one may rate-limit (HTTP or JSON-RPC 429) or be down.
+// NEAR_RPC_URL names one to use instead (rpc.testnet.near.org now answers -429, deprecated)
+const RPCS = process.env.NEAR_RPC_URL
+  ? [process.env.NEAR_RPC_URL]
+  : ['https://test.rpc.fastnear.com', 'https://testnet-rpc.intea.rs', 'https://near-testnet.drpc.org'];
 
 async function load(src: string): Promise<ProofBundle> {
   if (/^https?:\/\//.test(src)) {
@@ -18,25 +22,34 @@ async function load(src: string): Promise<ProofBundle> {
 
 function viewer(contract: string) {
   return async (method: string, args: object): Promise<unknown> => {
-    const res = await fetch(RPC, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'realm-verify',
-        method: 'query',
-        params: {
-          request_type: 'call_function',
-          finality: 'final',
-          account_id: contract,
-          method_name: method,
-          args_base64: Buffer.from(JSON.stringify(args)).toString('base64'),
-        },
-      }),
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'realm-verify',
+      method: 'query',
+      params: {
+        request_type: 'call_function',
+        finality: 'final',
+        account_id: contract,
+        method_name: method,
+        args_base64: Buffer.from(JSON.stringify(args)).toString('base64'),
+      },
     });
-    const body = (await res.json()) as { result?: { result?: number[] }; error?: unknown };
-    if (!body.result?.result) throw new Error(`RPC ${method} failed: ${JSON.stringify(body.error ?? body)}`);
-    return JSON.parse(Buffer.from(body.result.result).toString('utf8'));
+    const failures: string[] = [];
+    // each provider twice (a short pause between), then the next one
+    for (const rpc of RPCS) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+          const out = (await res.json().catch(() => ({}))) as { result?: { result?: number[] }; error?: unknown };
+          if (out.result?.result) return JSON.parse(Buffer.from(out.result.result).toString('utf8'));
+          failures.push(`${rpc}: ${res.status} ${JSON.stringify(out.error ?? out).slice(0, 160)}`);
+        } catch (e) {
+          failures.push(`${rpc}: ${(e as Error).message}`);
+        }
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+    }
+    throw new Error(`RPC ${method} failed on every provider (set NEAR_RPC_URL to use another):\n  ${failures.join('\n  ')}`);
   };
 }
 
