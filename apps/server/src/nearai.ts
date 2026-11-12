@@ -2,6 +2,9 @@ import { randomBytes } from 'node:crypto';
 import type { SignedReply } from '@realm-ledger/verify';
 import { config } from './config.ts';
 
+/** how replies are signed: asked of NEAR AI, stored with each reply, named in verify links */
+export const SIGNING_ALGO = 'ecdsa';
+
 // NEAR AI Cloud client. Every reply comes back with the exact request and response
 // bytes and the TEE's signature over their hashes, so anyone can check it later.
 
@@ -43,7 +46,7 @@ export async function signedChat(
   let sig: { text?: string; signature?: string; signing_address?: string; signature_kind?: string } = {};
   for (let attempt = 0; attempt < 6; attempt++) {
     const r = await fetch(
-      `${config.nearAi.baseUrl}/signature/${encodeURIComponent(body.id)}?model=${encodeURIComponent(model)}&signing_algo=ecdsa`,
+      `${config.nearAi.baseUrl}/signature/${encodeURIComponent(body.id)}?model=${encodeURIComponent(model)}&signing_algo=${SIGNING_ALGO}`,
       { headers: headers() },
     );
     if (r.ok) {
@@ -66,7 +69,7 @@ export async function signedChat(
       signatureKind: sig.signature_kind ?? 'unknown',
       // what NEAR AI's Verification Center needs to find and re-check this reply
       completionId: body.id,
-      signingAlgo: 'ecdsa',
+      signingAlgo: SIGNING_ALGO,
     },
   };
 }

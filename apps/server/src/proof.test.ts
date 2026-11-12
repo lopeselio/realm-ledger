@@ -53,7 +53,8 @@ describe("an envoy's receipt for NEAR AI's Verification Center", () => {
     const { join } = await import('node:path');
     const state = newCampaign({ seed: 'proof-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 });
     // the reply as signed by the model's TEE, its request naming the ruler's secret aim
-    const signed = { ...reply, signatureKind: 'provider_tee', response: '{"id":"chatcmpl-abc","choices":[{"message":{"content":"the iron hills"}}]}' };
+    const signedText = `m:${'a'.repeat(64)}:${'b'.repeat(64)}`;
+    const signed = { ...reply, text: signedText, signatureKind: 'provider_tee', response: '{"id":"chatcmpl-abc","choices":[{"message":{"content":"the iron hills"}}]}' };
     writeFileSync(
       join(dir, 'campaign-3.json'),
       JSON.stringify({
@@ -78,12 +79,10 @@ describe("an envoy's receipt for NEAR AI's Verification Center", () => {
     const url = host.publicView(3).envoys[0]!.verifyUrl!;
     expect(url.startsWith('https://cloud.near.ai/verify?model=m#receipt=')).toBe(true);
     const receipt = JSON.parse(Buffer.from(url.split('#receipt=')[1]!, 'base64url').toString('utf8'));
-    expect(receipt).toEqual({ completionId: 'chatcmpl-abc', model: 'm', signatureKind: 'provider_tee', signingAlgo: 'ecdsa', signingAddress: '0x1', signedText: 't', signature: 's' });
-    // nothing the request asked or the response said
-    expect(url).not.toContain(Buffer.from('iron hills').toString('base64url').slice(0, 8));
+    expect(receipt).toEqual({ completionId: 'chatcmpl-abc', model: 'm', signatureKind: 'provider_tee', signingAlgo: 'ecdsa', signingAddress: '0x1', signedText, signature: 's' });
+    // exactly these fields, so nothing the request asked or the response said
     expect(JSON.stringify(receipt)).not.toContain('iron hills');
     // a signature kind the page wouldn't take: no link
     expect(host.publicView(3).envoys[1]!.verifyUrl).toBeNull();
   });
-
 });
