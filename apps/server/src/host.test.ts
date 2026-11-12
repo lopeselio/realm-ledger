@@ -104,6 +104,7 @@ describe('a rival capital named in a task', () => {
     expect(cap('Take the Vey capital before they march on our capital')).toBe(by('Kingdom of Vey'));
     expect(cap('scout the capital of: Vey')).toBe(by('Kingdom of Vey'));
     expect(cap('the Vey  capital')).toBe(by('Kingdom of Vey'));
+    expect(cap("scout the Vey capital's walls")).toBe(by('Kingdom of Vey'));
     // not beside the word, inside another word, or your own capital
     expect(cap('take Veygate near the capital')).toBeNull();
     expect(cap('survey the capital')).toBeNull();

@@ -136,7 +136,7 @@ export function Play() {
         </div>
         <div className="header-right">
           <div className="header-tools">
-            <Guide signals={guideSignals} quiet={id !== null && !v && game.status.tone !== 'error'} hold={v?.phase === 'over'} />
+            <Guide signals={guideSignals} quiet={id !== null && !v && (game.busy || game.status.tone !== 'error')} hold={v?.phase === 'over'} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d, c) => void start(r, s, q, d, c)} />}

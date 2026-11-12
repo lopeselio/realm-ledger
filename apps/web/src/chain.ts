@@ -42,7 +42,7 @@ export async function view<T>(method: string, args: object): Promise<T | null> {
       const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: request, signal: AbortSignal.timeout(4_000) });
       const b = (await r.json()) as RpcBody;
       const said = JSON.stringify(b.error ?? '');
-      if (b.result?.result || b.result?.error || /CONTRACT_EXECUTION_ERROR|UNKNOWN_ACCOUNT|NO_CONTRACT_CODE|MethodNotFound|panicked/.test(said)) {
+      if (b.result?.result || b.result?.error || /CONTRACT_EXECUTION_ERROR|UNKNOWN_ACCOUNT|NO_CONTRACT_CODE|MethodNotFound|CodeDoesNotExist|panicked/.test(said)) {
         body = b;
         break;
       }
