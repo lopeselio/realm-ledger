@@ -123,22 +123,36 @@ export function Guide({ signals, quiet = false, hold = false }: { signals: Guide
   const held = useRef(hold);
   if (hold) held.current = true;
   const offered = useRef(!quiet && !hold);
+  // whether the welcome on screen opened by itself (one you opened from "How to play" stays)
+  const auto = useRef(open === 'welcome');
   useEffect(() => {
-    if (hold) setOpen((o) => (o === 'welcome' ? 'none' : o));
+    if (hold && auto.current) {
+      auto.current = false;
+      setOpen((o) => (o === 'welcome' ? 'none' : o));
+    }
     if (quiet || held.current || offered.current) return;
     offered.current = true;
-    if (!welcomeSeen()) setOpen((o) => (o === 'none' ? 'welcome' : o));
+    if (!welcomeSeen())
+      setOpen((o) => {
+        if (o !== 'none') return o;
+        auto.current = true;
+        return 'welcome';
+      });
   }, [quiet, hold]);
 
   const closeWelcome = useCallback(() => {
     markWelcomeSeen();
+    auto.current = false;
     setOpen('none');
   }, []);
   const startTour = useCallback(() => {
     markWelcomeSeen();
     setOpen('tour');
   }, []);
-  const close = useCallback(() => setOpen('none'), []);
+  const close = useCallback(() => {
+    auto.current = false;
+    setOpen('none');
+  }, []);
 
   return (
     <>
