@@ -190,6 +190,8 @@ body.busy .status::after { content: ' ⏳'; }
 .tag.yes { color: var(--good); }
 .tag.no { color: var(--bad); }
 .tag.tee { color: #6a4b9a; }
+a.tag.tee, a.tag.tee:visited { color: #6a4b9a; text-decoration: none; }
+a.tag.tee:hover { text-decoration: underline; }
 #proof dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.9rem; }
 #proof dt { color: var(--ink-soft); }
 #proof dd { margin: 0; overflow-wrap: anywhere; }
