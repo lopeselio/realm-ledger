@@ -32,27 +32,28 @@ export async function view<T>(method: string, args: object): Promise<T | null> {
       args_base64: btoa(JSON.stringify(args)),
     },
   });
-  // the first provider that answers at all (a contract error is an answer too); rate limits and
-  // outages move on to the next
-  let res: Response | null = null;
+  // the first provider that answers for the contract (a result, or the contract's own error);
+  // rate limits, outages, odd pages and a node's own faults move on to the next
+  type RpcBody = { result?: { result?: number[]; error?: string }; error?: { name?: string; cause?: { name?: string } } };
+  let body: RpcBody | null = null;
   let lastError: unknown = null;
   for (const rpc of RPCS) {
     try {
       const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: request, signal: AbortSignal.timeout(10_000) });
-      if (r.status === 429 || r.status >= 500) {
-        lastError = new Error(`${rpc}: HTTP ${r.status}`);
-        continue;
+      const b = (await r.json()) as RpcBody;
+      const said = JSON.stringify(b.error ?? '');
+      if (b.result?.result || b.result?.error || /CONTRACT_EXECUTION_ERROR|UNKNOWN_ACCOUNT|NO_CONTRACT_CODE|MethodNotFound|panicked/.test(said)) {
+        body = b;
+        break;
       }
-      res = r;
-      break;
+      lastError = new Error(`${rpc}: ${said.slice(0, 120) || `HTTP ${r.status}`}`);
     } catch (e) {
       lastError = e;
     }
   }
-  if (!res) throw lastError instanceof Error ? lastError : new Error('RPC unreachable');
-  const body = await res.json();
+  if (!body) throw lastError instanceof Error ? lastError : new Error('RPC unreachable');
   if (body.error || body.result?.error) throw new Error(body.error?.cause?.name ?? body.result?.error ?? 'RPC error');
-  const bytes = new Uint8Array(body.result.result as number[]);
+  const bytes = new Uint8Array(body.result?.result ?? []);
   return JSON.parse(new TextDecoder().decode(bytes)) as T | null;
 }
 

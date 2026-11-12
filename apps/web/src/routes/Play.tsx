@@ -136,7 +136,7 @@ export function Play() {
         </div>
         <div className="header-right">
           <div className="header-tools">
-            <Guide signals={guideSignals} quiet={id !== null && (!v || v.phase === 'over')} />
+            <Guide signals={guideSignals} quiet={id !== null && !v && game.busy} hold={v?.phase === 'over'} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d, c) => void start(r, s, q, d, c)} />}
@@ -310,32 +310,30 @@ function StatusLine({ game }: { game: Game }) {
   );
 }
 
-/** The lengths on offer: the quick match (fixed: 2 rivals, 6 seasons, a small map) or a full-size map. */
-const LENGTHS = {
-  quick: { label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: false },
-  daily: { label: `Daily challenge · today's map, the same for everyone (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: true, challenge: false },
-  challenge: { label: `Challenge a friend · a new map to share by link (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: true },
-  '8': { label: '8 seasons', seasons: 8, quick: false, daily: false, challenge: false },
-  '12': { label: '12 seasons', seasons: 12, quick: false, daily: false, challenge: false },
-  '20': { label: '20 seasons', seasons: 20, quick: false, daily: false, challenge: false },
-} as const;
-type Length = keyof typeof LENGTHS;
-// the menu's order (Object.keys would put the number-like '8', '12', '20' first)
-const LENGTH_ORDER: Length[] = ['quick', 'daily', 'challenge', '8', '12', '20'];
+/** The lengths on offer, in the menu's order: the quick match (fixed: 2 rivals, 6 seasons, a small map), today's daily, a challenge, or a full map. */
+const LENGTHS = [
+  { key: 'quick', label: `Quick · ${QUICK_MATCH.realms - 1} rivals, ${QUICK_MATCH.maxSeasons} seasons, small map (~15 min)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: false },
+  { key: 'daily', label: `Daily challenge · today's map, the same for everyone (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: true, challenge: false },
+  { key: 'challenge', label: `Challenge a friend · a new map to share by link (${QUICK_MATCH.maxSeasons} seasons)`, seasons: QUICK_MATCH.maxSeasons, quick: true, daily: false, challenge: true },
+  { key: '8', label: '8 seasons', seasons: 8, quick: false, daily: false, challenge: false },
+  { key: '12', label: '12 seasons', seasons: 12, quick: false, daily: false, challenge: false },
+  { key: '20', label: '20 seasons', seasons: 20, quick: false, daily: false, challenge: false },
+] as const;
+type Length = (typeof LENGTHS)[number]['key'];
 
 function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number, seasons: number, quick: boolean, daily: boolean, challenge?: true) => void }) {
   const [length, setLength] = useState<Length>('quick');
   // rivals for a full-size map; the quick match always has 2
   const [realms, setRealms] = useState(4);
-  const pick = LENGTHS[length];
+  const pick = LENGTHS.find((l) => l.key === length)!;
   return (
     <div className="controls" data-tour="start">
       <label>
         Length
         <select value={length} onChange={(e) => setLength(e.target.value as Length)}>
-          {LENGTH_ORDER.map((k) => (
-            <option key={k} value={k}>
-              {LENGTHS[k].label}
+          {LENGTHS.map((l) => (
+            <option key={l.key} value={l.key}>
+              {l.label}
             </option>
           ))}
         </select>
