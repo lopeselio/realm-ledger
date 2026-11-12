@@ -49,12 +49,13 @@ describe('the proof served', () => {
 describe("an envoy's receipt for NEAR AI's Verification Center", () => {
   it('names the completion, model, signer and signed text, and none of what was asked', async () => {
     const host = await import('./host.ts');
-    const { writeFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
+    const { readFileSync } = await import('node:fs');
+    // a real reply from NEAR AI Cloud's TEE-hosted model (the verifier's fixture)
+    const fx = (f: string): string => readFileSync(join(import.meta.dirname, '../../../packages/verify/test/fixtures', f), 'utf8');
+    const sig = JSON.parse(fx('signature.json')) as { text: string; signature: string; signing_address: string; signature_kind: string };
+    const model = 'Qwen/Qwen3.6-35B-A3B-FP8';
+    const signed = { realm: 1, season: 0, model, request: fx('request.json'), response: fx('response.json'), text: sig.text, signature: sig.signature, signingAddress: sig.signing_address, signatureKind: sig.signature_kind };
     const state = newCampaign({ seed: 'proof-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 });
-    // the reply as signed by the model's TEE, its request naming the ruler's secret aim
-    const signedText = `m:${'a'.repeat(64)}:${'b'.repeat(64)}`;
-    const signed = { ...reply, text: signedText, signatureKind: 'provider_tee', response: '{"id":"chatcmpl-abc","choices":[{"message":{"content":"the iron hills"}}]}' };
     writeFileSync(
       join(dir, 'campaign-3.json'),
       JSON.stringify({
@@ -62,11 +63,13 @@ describe("an envoy's receipt for NEAR AI's Verification Center", () => {
         phase: 'planning',
         state,
         pending: { ai: [], jobs: [], deals: [], treaties: [] },
-        bundle: { options: { seed: 'proof-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 }, seasons: [], replies: [signed, { ...signed, signatureKind: 'unknown' }] },
-        envoys: [
-          { season: 0, to: 1, message: 'peace?', reply: 'hm', signed: 0 },
-          { season: 0, to: 2, message: 'war?', reply: 'no', signed: 1 },
-        ],
+        bundle: {
+          options: { seed: 'proof-test', realms: 3, human: 0, maxSeasons: 4, rulesVersion: 3 },
+          seasons: [],
+          // as saved before the id was kept; with a kind the page wouldn't take; with the id kept; tampered
+          replies: [signed, { ...signed, signatureKind: 'unknown' }, { ...signed, completionId: 'kept-id', signingAlgo: 'ed25519' }, { ...signed, signingAddress: '0x0000000000000000000000000000000000000001' }],
+        },
+        envoys: [0, 1, 2, 3].map((i) => ({ season: 0, to: 1, message: 'peace?', reply: 'hm', signed: i })),
         plans: [],
         reports: [],
         intents: [],
@@ -76,13 +79,24 @@ describe("an envoy's receipt for NEAR AI's Verification Center", () => {
       }),
     );
     await host.loadAll();
-    const url = host.publicView(3).envoys[0]!.verifyUrl!;
-    expect(url.startsWith('https://cloud.near.ai/verify?model=m#receipt=')).toBe(true);
-    const receipt = JSON.parse(Buffer.from(url.split('#receipt=')[1]!, 'base64url').toString('utf8'));
-    expect(receipt).toEqual({ completionId: 'chatcmpl-abc', model: 'm', signatureKind: 'provider_tee', signingAlgo: 'ecdsa', signingAddress: '0x1', signedText, signature: 's' });
+    const envoys = host.publicView(3).envoys;
+    const receiptOf = (url: string) => {
+      expect(url.startsWith(`https://cloud.near.ai/verify?model=${encodeURIComponent(model)}#receipt=`)).toBe(true);
+      return JSON.parse(Buffer.from(url.split('#receipt=')[1]!, 'base64url').toString('utf8'));
+    };
     // exactly these fields, so nothing the request asked or the response said
-    expect(JSON.stringify(receipt)).not.toContain('iron hills');
-    // a signature kind the page wouldn't take: no link
-    expect(host.publicView(3).envoys[1]!.verifyUrl).toBeNull();
+    expect(receiptOf(envoys[0]!.verifyUrl!)).toEqual({
+      completionId: (JSON.parse(fx('response.json')) as { id: string }).id,
+      model,
+      signatureKind: 'provider_tee',
+      signingAlgo: 'ecdsa',
+      signingAddress: sig.signing_address,
+      signedText: sig.text,
+      signature: sig.signature,
+    });
+    expect(envoys[1]!.verifyUrl).toBeNull();
+    expect(receiptOf(envoys[2]!.verifyUrl!)).toMatchObject({ completionId: 'kept-id', signingAlgo: 'ed25519' });
+    // a reply whose signature doesn't check out here gets no badge and no link
+    expect(envoys[3]).toMatchObject({ verified: false, verifyUrl: null });
   });
 });
