@@ -1295,7 +1295,9 @@ function badgeOf(r: SignedReply): { verified: boolean; verifyUrl: string | null 
           }),
         ).toString('base64url')}`
       : null;
-  const badge = { verified: checkReply(r).ok, verifyUrl: link };
+  const verified = checkReply(r).ok;
+  // a link only beside a reply whose signature checks out here
+  const badge = { verified, verifyUrl: verified ? link : null };
   badges.set(r, badge);
   return badge;
 }
