@@ -64,6 +64,9 @@ export async function signedChat(
       signature: sig.signature,
       signingAddress: sig.signing_address,
       signatureKind: sig.signature_kind ?? 'unknown',
+      // what NEAR AI's Verification Center needs to find and re-check this reply
+      completionId: body.id,
+      signingAlgo: 'ecdsa',
     },
   };
 }

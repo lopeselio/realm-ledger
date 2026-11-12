@@ -1259,28 +1259,43 @@ export async function runChancellor(
 }
 
 /**
- * A signed reply as NEAR AI Cloud's Verification Center takes it (cloud.near.ai/verify, a receipt
- * in the link's fragment): the completion id, model, signer and the signed text with its signature.
- * The signed text holds only the model and the hashes of the request and response, so it gives
- * away nothing the request said (a ruler's secret aim stays secret).
+ * A link that has NEAR AI Cloud's Verification Center re-check one signed reply in the browser.
+ * The format is NEAR AI's (docs.near.ai/cloud/verification/verification-center.md, checked live:
+ * a fresh reply shows "Response Verified"): cloud.near.ai/verify?model=<id>#receipt=<base64url JSON>
+ * with completionId, model, signatureKind, signingAlgo, signingAddress, signedText and signature.
+ * The signed text holds only the model and the hashes of the request and response, so nothing a
+ * ruler was told leaks. Null for a reply the page couldn't check (an unknown signature kind, no id).
+ * Worked out once per reply.
  */
-function receiptOf(r: SignedReply): Record<string, string> | null {
-  let completionId: unknown;
-  try {
-    completionId = (JSON.parse(r.response ?? '{}') as { id?: unknown }).id;
-  } catch {
-    return null;
+const verifyLinks = new WeakMap<SignedReply, string | null>();
+function verifyLinkOf(r: SignedReply): string | null {
+  if (verifyLinks.has(r)) return verifyLinks.get(r)!;
+  let completionId = r.completionId;
+  if (!completionId) {
+    // replies saved before the id was kept: it is in the stored response
+    try {
+      const id = (JSON.parse(r.response ?? '{}') as { id?: unknown }).id;
+      if (typeof id === 'string') completionId = id;
+    } catch {
+      // no id to give
+    }
   }
-  if (typeof completionId !== 'string') return null;
-  return {
-    completionId,
-    model: r.model,
-    signatureKind: r.signatureKind,
-    signingAlgo: 'ecdsa',
-    signingAddress: r.signingAddress,
-    signedText: r.text,
-    signature: r.signature,
-  };
+  const link =
+    completionId && (r.signatureKind === 'provider_tee' || r.signatureKind === 'gateway')
+      ? `https://cloud.near.ai/verify?model=${encodeURIComponent(r.model)}#receipt=${Buffer.from(
+          JSON.stringify({
+            completionId,
+            model: r.model,
+            signatureKind: r.signatureKind,
+            signingAlgo: r.signingAlgo ?? 'ecdsa',
+            signingAddress: r.signingAddress,
+            signedText: r.text,
+            signature: r.signature,
+          }),
+        ).toString('base64url')}`
+      : null;
+  verifyLinks.set(r, link);
+  return link;
 }
 
 /** The campaign's winner: the one the rules named, or the best score (a campaign that ended with your fall). */
@@ -1331,7 +1346,7 @@ export function publicView(id: number) {
     lastEvents: over ? h.lastEvents : eventsFor(h.lastEvents, HUMAN, new Set(lastSeen)),
     envoys: h.envoys.map((e) => {
       const reply = e.signed !== undefined ? (h.bundle.replies[e.signed] as SignedReply) : undefined;
-      return { ...e, ...(reply ? { verified: checkReply(reply).ok, receipt: receiptOf(reply) } : {}) };
+      return { ...e, ...(reply ? { verified: checkReply(reply).ok, verifyUrl: verifyLinkOf(reply) } : {}) };
     }),
     envoysLeft: Math.max(0, config.envoysPerSeason - h.envoys.filter((e) => e.season === h.state.season).length),
     attested: h.bundle.attestation ? { model: h.bundle.attestation.model, nonce: h.bundle.attestation.nonce } : null,
