@@ -119,6 +119,47 @@ pnpm install
 
 Every rule number (costs, yields, battle modifiers, market drift) is in [`packages/rules/src/constants.ts`](./packages/rules/src/constants.ts).
 
+## Built on NEAR
+
+What each NEAR technology does in Realm Ledger, and where to look. Each GIF is a short loop (12 seconds or less), drawn by code from a diagram spec.
+
+| Technology | What Realm Ledger uses it for | Where to look |
+|---|---|---|
+| NEAR smart contracts (Rust, near-sdk 5.29.1) | campaigns, sealed orders checked at reveal, a state hash per season, the committed roll secret and agendas, treasuries, treaties, hires in escrow | [`contracts/realm`](./contracts/realm/src/lib.rs), [`realm-ledger.testnet`](https://testnet.nearblocks.io/address/realm-ledger.testnet) |
+| NEAR accounts and function-call keys | every AI seat, the guest seat, the Chancellor and every company is an agent account whose only key is limited to this contract; the Chancellor hires through escrow and a spy is paid only if its report is true | `hire`, `deliver`, `settle_job`, `set_policy` in [`lib.rs`](./contracts/realm/src/lib.rs), [`packages/rules/src/agents.ts`](./packages/rules/src/agents.ts) |
+| NEAR AI Cloud | the rival rulers' envoys, from a TEE-hosted model; each reply is signed and links to NEAR AI's Verification Center | [`apps/server/src/nearai.ts`](./apps/server/src/nearai.ts), [`packages/verify`](./packages/verify/src/index.ts) |
+| Wallet sign-in with a function-call key | NEAR Connect and function-call-key-plugin add a key limited to `realm-ledger.testnet` and five moves, so a signed-in player's seals and treaties come from their own account | [`apps/web/src/wallet.ts`](./apps/web/src/wallet.ts) |
+
+### NEAR smart contracts: sealed orders and state hashes
+
+<img src="media/stack/contract.gif" alt="Diagram: a signed-in player (from their own wallet's key, or as a guest through the player seat) and the AI rulers seal their orders on realm-ledger.testnet at once; reveal is refused unless the orders hash to the seal; settle_season posts a state hash per season, and finish_campaign checks the roll secret and every agenda against their commitments." width="100%">
+
+[`realm-ledger.testnet`](https://testnet.nearblocks.io/address/realm-ledger.testnet) stores only `sha256(canonical orders | salt)` at `seal` (the same hash as `sealOrders` in [`seal.ts`](./packages/rules/src/seal.ts)); a signed-in player's seal is sent by their own account, a guest's by the shared `player` seat. `reveal` is refused unless the orders match their seal, `settle_season` records the season's state hash and treasury changes, and `finish_campaign` checks the roll secret and every ruler's agenda against the commitments made at `create_campaign` ([`lib.rs`](./contracts/realm/src/lib.rs)). `pnpm verify:campaign <url>` replays the campaign against all of it with no API key.
+
+### Agent accounts: the Chancellor's jobs, paid only if true
+
+<img src="media/stack/agents.gif" alt="Diagram: you give the Chancellor, chancellor.realm-ledger.testnet, a task and a budget; it haggles once with a spy ring such as spy0.realm-ledger.testnet; hire moves the price from your treasury into escrow within the caps set by set_policy, the spy delivers the hash of its report, and settle_job pays it if the report matches the revealed season or refunds a false one." width="100%">
+
+The Chancellor plans a task with the rules engine and haggles once with a mercenary company or spy ring ([`agents.ts`](./packages/rules/src/agents.ts)); each is an agent account whose only key can call a short list of this contract's methods, none of which move NEAR. `hire` takes the price from the realm's treasury into escrow, under the season and campaign caps from `set_policy`; the worker posts the hash of its delivery with `deliver`, and `settle_job` pays it only if the report holds against the revealed season, otherwise refunding the treasury and the budget ([`lib.rs`](./contracts/realm/src/lib.rs)).
+
+### NEAR AI Cloud: envoys you can verify
+
+<img src="media/stack/near-ai.gif" alt="Diagram: you send an envoy; packages/rules decides whether the treaty is accepted, and NEAR AI Cloud's TEE-hosted Qwen model voices the reply, kept with its bytes and signature; the TEE-signed verify badge opens NEAR AI's Verification Center at cloud.near.ai/verify, which shows Response Verified; pnpm verify:campaign also recovers the signer and matches it to the attested key." width="100%">
+
+Envoy replies come from `Qwen/Qwen3.6-35B-A3B-FP8` on NEAR AI Cloud and are kept with their exact request and response bytes and the TEE's signature ([`nearai.ts`](./apps/server/src/nearai.ts)); the rules engine, not the model, decides whether a treaty is accepted. The **TEE-signed ✓ verify** badge opens NEAR AI's Verification Center (`cloud.near.ai/verify`), which checks the reply in your browser; a reply that page can't take shows **signed ✓**. [`packages/verify`](./packages/verify/src/index.ts) recovers each reply's secp256k1 signer and matches it to the key in the attestation report.
+
+### Wallet sign-in: your key signs your moves
+
+<img src="media/stack/wallet.gif" alt="Diagram: your NEAR wallet approves one function-call key limited to realm-ledger.testnet and seal, reveal, forfeit, propose_treaty and set_policy, kept in your browser; your seal is then sent from your own account, while a guest's is signed by the shared player seat; you propose a treaty and the rival ruler accepts it with its own seat's key." width="100%">
+
+Sign-in uses NEAR Connect with function-call-key-plugin ([`wallet.ts`](./apps/web/src/wallet.ts)): you approve one key limited to `realm-ledger.testnet` and `seal`, `reveal`, `forfeit`, `propose_treaty` and `set_policy`. It stays in your browser, so turns need no wallet popup and the server never signs for you; you pay a fraction of a testnet NEAR in gas. A treaty you propose and a rival accepts is signed onchain by both rulers' accounts.
+
+### The rest of the stack
+
+<img src="media/stack/stack.gif" alt="Diagram: the React and Vite web app on Vercel talks to the Node game server on Azure App Service over /api, the server reads and writes NEAR testnet over public RPC, packages/rules and packages/verify are shared, and tools/blender builds the miniatures in Python." width="100%">
+
+A React 19 + Vite web app on Vercel with a three.js war table ([`table3d.ts`](./apps/web/src/table3d.ts)); `vercel.json` proxies `/api` to a Node 22 game server on Azure App Service ([`apps/server`](./apps/server/src/main.ts), near-api-js, [`Dockerfile`](./Dockerfile)). [`packages/rules`](./packages/rules/src/index.ts) is the deterministic game, and the pewter miniatures are modelled in Python ([`tools/blender`](./tools/blender/build_assets.py)).
+
 ## Libraries and templates
 
 No game or app template: the project was started from an empty repository. Direct dependencies by part, at the versions pinned in each `package.json` / `Cargo.toml`:
