@@ -18,6 +18,8 @@ import { ChallengeBoard, DailyBoard } from '../play/daily.tsx';
 import { PhoneDock, StandingBar, TurnSteps } from '../play/turn.tsx';
 import { scriptFor } from '../playback.ts';
 import { Guide } from '../onboarding/Guide.tsx';
+import { useFirstSeason } from '../onboarding/FirstSeason.tsx';
+import { Fold } from '../components/Fold.tsx';
 
 /** A shared challenge, /challenge/abc123, opens the play page ready to accept it. */
 /** A challenge code as pasted, forgiven its case and a stray character at either end from a chat message. */
@@ -58,6 +60,9 @@ export function Play() {
   // the thumb dock exists only on a phone (on wider screens the orders panel sits by the map)
   const phone = usePhone();
   const { view: v, selected, orders } = game;
+  // the first campaign's checklist above the table, and what it asks the table to point at
+  const guide = useFirstSeason(game);
+  const beacon = v?.phase === 'planning' ? guide.beacon : undefined;
 
   useEffect(() => {
     let live = true;
@@ -81,9 +86,10 @@ export function Play() {
       targets: army && !marched ? new Set(s.map.provinces[selected]!.neighbors) : new Set<number>(),
       arrows: orders.flatMap((o) => (o.kind === 'march' ? [[o.from, o.to] as [number, number]] : [])),
       marks: new Set(orders.flatMap((o) => ('province' in o ? [o.province] : []))),
+      ...(beacon !== undefined ? { beacon } : {}),
     };
     // armyAt reads the view, which is a dependency already
-  }, [v, selected, orders]);
+  }, [v, selected, orders, beacon]);
 
   // the season that just settled here (not one read on load): played over the board once
   const before = game.before;
@@ -138,7 +144,7 @@ export function Play() {
         </div>
         <div className="header-right">
           <div className="header-tools">
-            <Guide signals={guideSignals} quiet={id !== null && !v && (game.busy || game.status.tone !== 'error')} hold={v?.phase === 'over'} />
+            <Guide signals={guideSignals} quiet={id !== null && !v && (game.busy || game.status.tone !== 'error')} hold={v?.phase === 'over'} onFirstSeason={guide.restore} />
             <Account game={game} signer={signer} setSigner={setSigner} />
           </div>
           {(!v || v.phase === 'over') && <StartForm busy={game.busy} onStart={(r, s, q, d, c) => void start(r, s, q, d, c)} />}
@@ -160,6 +166,7 @@ export function Play() {
                 <TurnSteps game={game} v={v} />
                 <StatusLine game={game} />
                 {toggle}
+                {guide.strip}
               </>
             )}
             legend={
@@ -216,27 +223,26 @@ export function Play() {
             <OrdersPanel game={game} v={v} />
             <ChancellorPanel game={game} v={v} />
             <EnvoysPanel game={game} v={v} />
-            <section className="panel">
-              <h2>Chronicle</h2>
+            {/* a first campaign starts with it folded, and it opens once the first season has turned */}
+            <Fold title="Chronicle" note="what everyone did last season" open={!guide.active || v.state.season > 0}>
               <ul className="chronicle">
                 {/* names never change, so the current state can label last season's events after a reload */}
                 <ChronicleLines before={game.before ?? v.state} events={v.lastEvents} limit={40} empty={v.state.season === 0 ? 'Your realm awaits orders.' : 'A quiet season.'} />
               </ul>
-            </section>
+            </Fold>
           </aside>
         )}
       </main>
 
       {v && (
         <section className="proof">
-          <div className="panel" data-tour="realms">
-            <h2>Realms</h2>
+          {/* folded in a first campaign, to keep the essentials in front; a click on the heading opens them */}
+          <Fold title="Realms" note="every realm's land, treaties and secret agenda" open={!guide.active || guide.finished} data-tour="realms">
             <RealmList v={v} />
-          </div>
-          <div className="panel" data-tour="proof">
-            <h2>The proof</h2>
+          </Fold>
+          <Fold title="The proof" note="the contract, the proof bundle and the command to check it" open={!guide.active || guide.finished} data-tour="proof">
             <Proof v={v} />
-          </div>
+          </Fold>
           {code && (
             <div className="panel">
               <ChallengeBoard code={code} mine={v.id} progress={`${v.season}:${v.phase}`} />
@@ -252,7 +258,8 @@ export function Play() {
       <Footer>
         <Link to="/">Watch AI-only campaigns</Link>
       </Footer>
-      {v && phone && <PhoneDock game={game} v={v} selection={<Selection game={game} v={v} />} />}
+      {v && phone && <PhoneDock game={game} v={v} selection={<Selection game={game} v={v} />} guide={guide.dockLine} />}
+      {guide.spotlight}
     </>
   );
 }
