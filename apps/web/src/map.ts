@@ -42,6 +42,8 @@ export interface Overlay {
   arrows?: [number, number][];
   /** provinces with planned builds */
   marks?: Set<number>;
+  /** planned orders' icons by province (🏰 fort, ⚔ troops, 🏠 town), drawn over it; replaces its ⚒ mark */
+  icons?: Map<number, string>;
   /** a province to call the eye to with a pulsing ring (the first season's guide: your army) */
   beacon?: number;
 }
@@ -105,7 +107,17 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
     const [x, y] = center(p.q, p.r);
     parts.push(`<polygon points="${corners(x, y, SIZE - 1)}" fill="none" stroke="#fff4c2" stroke-width="3" pointer-events="none"/>`);
   }
+  for (const [id, text] of overlay.icons ?? []) {
+    const p = s.map.provinces[id]!;
+    const [x, y] = center(p.q, p.r);
+    const w = 8 + [...text].filter((ch) => !/\s|️/.test(ch)).length * 10;
+    parts.push(
+      `<g class="order-icon" pointer-events="none"><rect x="${x + 11 - w / 2}" y="${y - 19}" width="${w}" height="13" rx="6.5" fill="#efe3c8" fill-opacity="0.92" stroke="#2b2118" stroke-width="0.8"/>` +
+        `<text x="${x + 11}" y="${y - 9}" font-size="9.5" text-anchor="middle">${esc(text)}</text></g>`,
+    );
+  }
   for (const id of overlay.marks ?? []) {
+    if (overlay.icons?.has(id)) continue;
     const p = s.map.provinces[id]!;
     const [x, y] = center(p.q, p.r);
     parts.push(`<text x="${x + 11}" y="${y - 6}" font-size="11" text-anchor="middle" pointer-events="none">⚒</text>`);

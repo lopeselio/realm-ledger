@@ -32,6 +32,8 @@ export interface Table3D {
   play(s: GameState, script: SeasonScript): void;
   /** ends a playback early */
   stopPlayback(): void;
+  /** where a province sits on the canvas now, in CSS pixels (null if out of view) */
+  project(province: number): { x: number; y: number } | null;
   onPick(cb: (province: number) => void): void;
   onHover(cb: (province: number | null, x: number, y: number) => void): void;
   dispose(): void;
@@ -134,6 +136,30 @@ function countSprite(n: number, hex: string): THREE.Sprite {
   s.scale.set(0.42, 0.42, 1);
   s.renderOrder = 10;
   return s;
+}
+
+/** A parchment tag with an emoji or two on it, for a planned order over its province. */
+function iconSprite(text: string): THREE.Sprite {
+  const n = Math.max(1, [...text].filter((ch) => !/\s|️/.test(ch)).length);
+  const c = document.createElement('canvas');
+  c.height = 64;
+  c.width = 64 + (n - 1) * 44;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(239, 227, 200, 0.92)';
+  g.strokeStyle = '#2b2118';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.roundRect(3, 3, c.width - 6, 58, 26);
+  g.fill();
+  g.stroke();
+  g.font = '36px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = '#2b2118';
+  g.fillText(text, c.width / 2, 35);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, toneMapped: false }));
 }
 
 function hexRing(outer: number, inner: number): THREE.BufferGeometry {
@@ -372,6 +398,21 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     s.renderOrder = 10;
     return s;
   };
+  // a planned order's icon over its province (🏰, ⚔, 🏠), cached by its text like the labels
+  const iconMats = new Map<string, THREE.SpriteMaterial>();
+  const icon = (text: string): THREE.Sprite => {
+    let mat = iconMats.get(text);
+    if (!mat) {
+      mat = iconSprite(text).material;
+      iconMats.set(text, mat);
+    }
+    const s = new THREE.Sprite(mat);
+    const img = mat.map?.image as HTMLCanvasElement | undefined;
+    const w = img ? img.width / img.height : 1;
+    s.scale.set(0.8 * w, 0.8, 1);
+    s.renderOrder = 11;
+    return s;
+  };
   const arrowGeos = new Map<string, { tube: THREE.TubeGeometry; tip: THREE.Vector3; back: THREE.Vector3 }>();
   const headGeo = new THREE.ConeGeometry(0.12, 0.28, 8);
 
@@ -405,7 +446,20 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   scene.add(guide);
   const selectMat = new THREE.MeshBasicMaterial({ color: '#fff4c2' });
 
+  let shown: GameState | null = null;
+  const projected = new THREE.Vector3();
+  /** Where a province sits on the canvas now, in CSS pixels from its top left (null if behind the camera). */
+  function project(id: number): { x: number; y: number } | null {
+    if (!shown || !shown.map.provinces[id]) return null;
+    const [x, z] = provinceXZ(shown, id);
+    projected.set(x + board.position.x, top(id) + 0.7, z + board.position.z).project(camera);
+    if (projected.z > 1) return null;
+    const el = renderer.domElement;
+    return { x: ((projected.x + 1) / 2) * el.clientWidth, y: ((1 - projected.y) / 2) * el.clientHeight };
+  }
+
   function setState(s: GameState, overlay: Overlay & { visible?: Set<number>; focus?: number } = {}): void {
+    shown = s;
     const key = `${s.seed}:${s.map.provinces.length}`;
     if (key !== boardKey) {
       // a playback of the old map ends with it
@@ -522,6 +576,12 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       m.position.set(x, top(overlay.selected) + 0.04, z);
       m.scale.setScalar(1.04);
       marks.add(m);
+    }
+    for (const [id, text] of overlay.icons ?? []) {
+      const [x, z] = at(id);
+      const sp = icon(text);
+      sp.position.set(x - 0.3, top(id) + 1.5, z - 0.35);
+      marks.add(sp);
     }
     for (const [from, to] of overlay.arrows ?? []) {
       const key = `${from}:${to}`;
@@ -762,6 +822,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     setState,
     play,
     stopPlayback,
+    project,
     onPick: (cb) => (pickCb = cb),
     onHover: (cb) => (hoverCb = cb),
     dispose: () => {
