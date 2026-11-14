@@ -91,7 +91,7 @@ export function TurnSteps({ game, v }: { game: Game; v: View }) {
  * can march (with forecasts) or what you can build there, and End season. Hidden on wider screens,
  * where the orders panel sits beside the map.
  */
-export function PhoneDock({ game, v, selection }: { game: Game; v: View; selection: ReactNode }) {
+export function PhoneDock({ game, v, selection, guide }: { game: Game; v: View; selection: ReactNode; guide?: ReactNode }) {
   const dock = useRef<HTMLDivElement>(null);
   const over = v.phase === 'over';
   // the page keeps room under itself for the dock as it grows and shrinks, only while there is one
@@ -111,6 +111,7 @@ export function PhoneDock({ game, v, selection }: { game: Game; v: View; selecti
   if (over) return null;
   return (
     <div className="phone-dock" role="region" aria-label="Your move" ref={dock}>
+      {guide}
       {v.phase === 'planning' && (game.selected !== undefined ? <div className="dock-selection">{selection}</div> : <p className="fine dock-hint">Tap your army or one of your provinces on the map.</p>)}
       <div className="dock-bar">
         <a href="#orders" className="dock-orders">
