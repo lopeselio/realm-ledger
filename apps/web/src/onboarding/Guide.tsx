@@ -118,7 +118,8 @@ type Open = 'none' | 'welcome' | 'tour' | 'help';
  * first visit still gets it, once. `hold`: hold it back for this whole visit (a finished campaign
  * opened from a link; it shows on the next visit instead).
  */
-export function Guide({ signals, quiet = false, hold = false }: { signals: GuideSignals; quiet?: boolean; hold?: boolean }) {
+/** `onFirstSeason`: brings back the first-season checklist for the campaign on screen (null: none to show). */
+export function Guide({ signals, quiet = false, hold = false, onFirstSeason = null }: { signals: GuideSignals; quiet?: boolean; hold?: boolean; onFirstSeason?: (() => void) | null }) {
   const [open, setOpen] = useState<Open>(() => (welcomeSeen() || quiet || hold ? 'none' : 'welcome'));
   const held = useRef(hold);
   if (hold) held.current = true;
@@ -160,7 +161,20 @@ export function Guide({ signals, quiet = false, hold = false }: { signals: Guide
       </button>
       {open === 'welcome' && <Welcome onClose={closeWelcome} onTour={startTour} />}
       {open === 'tour' && <Tour steps={STEPS} signals={signals} onClose={close} />}
-      {open === 'help' && <HelpSheet onClose={close} onWelcome={() => setOpen('welcome')} onTour={startTour} />}
+      {open === 'help' && (
+        <HelpSheet
+          onClose={close}
+          onWelcome={() => setOpen('welcome')}
+          onTour={startTour}
+          onFirstSeason={
+            onFirstSeason &&
+            (() => {
+              onFirstSeason();
+              close();
+            })
+          }
+        />
+      )}
     </>
   );
 }
