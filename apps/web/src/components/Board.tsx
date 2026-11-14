@@ -9,6 +9,7 @@ import type { Table3D } from '../table3d.ts';
 import { FRESH_MS, isEmpty, playOnMap, playSounds, TIMING, type SeasonScript } from '../playback.ts';
 import { reducedMotion } from '../onboarding/storage.ts';
 import { isMuted, onMutedChange, setMuted, unlockSound } from '../sound.ts';
+import { onBoardFx, type BoardFx } from '../juice.ts';
 
 export type BoardOverlay = Overlay & { visible?: Set<number>; focus?: number };
 type Mode = '3d' | '2d';
@@ -340,6 +341,96 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     [mode, mapKey, table],
   );
 
+  // ---- effects over the board (juice.ts): pops, an envoy's ride, banners, flashes ----
+  const fxRef = useRef<HTMLDivElement>(null);
+  const fxNow = useRef({ state, table: three ? table : null });
+  fxNow.current = { state, table: three ? table : null };
+  useEffect(() => {
+    /** Where a province sits on screen now, in pixels from the board's top left. */
+    const spot = (province: number): { x: number; y: number } | null => {
+      const wrap = wrapRef.current;
+      if (!wrap) return null;
+      const wr = wrap.getBoundingClientRect();
+      const { state: s, table: t } = fxNow.current;
+      if (t) {
+        const p = t.project(province);
+        const cr = containerRef.current?.getBoundingClientRect();
+        return p && cr ? { x: cr.left - wr.left + p.x, y: cr.top - wr.top + p.y } : null;
+      }
+      const svg = svgRef.current;
+      const m = svg?.getScreenCTM();
+      if (!svg || !m || !s.map.provinces[province]) return null;
+      const [cx, cy] = provinceCenter(s, province);
+      const pt = new DOMPoint(cx, cy).matrixTransform(m);
+      return { x: pt.x - wr.left, y: pt.y - wr.top };
+    };
+    const inView = (p: { x: number; y: number } | null): p is { x: number; y: number } => {
+      const layer = fxRef.current;
+      return !!p && !!layer && p.x >= 0 && p.y >= 0 && p.x <= layer.clientWidth && p.y <= layer.clientHeight;
+    };
+    const el = (cls: string, html: string): HTMLDivElement => {
+      const d = document.createElement('div');
+      d.className = cls;
+      d.innerHTML = html;
+      fxRef.current!.appendChild(d);
+      return d;
+    };
+    const esc = (t: string): string => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+    const gone = (d: HTMLElement, ms: number): void => void window.setTimeout(() => d.remove(), ms);
+    const run = (e: BoardFx): void => {
+      const layer = fxRef.current;
+      if (!layer) return;
+      const still = reducedMotion();
+      if (e.kind === 'pop') {
+        const p = spot(e.province);
+        if (!inView(p)) return;
+        const d = el(`fx-pop tone-${e.tone ?? 'info'}${e.big ? ' big' : ''}`, `<span class="fx-icon">${esc(e.icon)}</span>${e.text ? `<span class="fx-text">${esc(e.text)}</span>` : ''}`);
+        d.style.left = `${p.x}px`;
+        d.style.top = `${p.y}px`;
+        gone(d, 2000);
+      } else if (e.kind === 'fly') {
+        const a = spot(e.from);
+        const b = spot(e.to);
+        if (still || !inView(a) || !b) return;
+        const d = el('fx-fly', esc(e.icon));
+        const lift = Math.min(90, Math.hypot(b.x - a.x, b.y - a.y) * 0.35);
+        d.animate(
+          [
+            { transform: `translate(${a.x}px, ${a.y}px) translate(-50%, -50%) scale(0.6)`, opacity: 0 },
+            { transform: `translate(${a.x}px, ${a.y}px) translate(-50%, -50%) scale(1)`, opacity: 1, offset: 0.1 },
+            { transform: `translate(${(a.x + b.x) / 2}px, ${(a.y + b.y) / 2 - lift}px) translate(-50%, -50%) scale(1.15)`, opacity: 1, offset: 0.55 },
+            { transform: `translate(${b.x}px, ${b.y}px) translate(-50%, -50%) scale(0.8)`, opacity: 1, offset: 0.92 },
+            { transform: `translate(${b.x}px, ${b.y}px) translate(-50%, -50%) scale(0.5)`, opacity: 0 },
+          ],
+          { duration: e.ms, easing: 'ease-in-out', fill: 'forwards' },
+        );
+        gone(d, e.ms + 50);
+      } else if (e.kind === 'banner') {
+        let stack = layer.querySelector<HTMLDivElement>('.fx-banners');
+        if (!stack) stack = el('fx-banners', '');
+        const d = document.createElement('div');
+        d.className = `fx-banner tone-${e.tone}`;
+        d.setAttribute('role', 'status');
+        d.innerHTML = `<span class="fx-icon">${esc(e.icon)}</span> ${esc(e.text)}`;
+        d.style.setProperty('--hold', `${e.ms}ms`);
+        stack.appendChild(d);
+        gone(d, e.ms + 400);
+      } else if (e.kind === 'flash') {
+        if (still) return;
+        const d = el(`fx-flash ${e.tone}`, '');
+        gone(d, 700);
+        const wrap = wrapRef.current;
+        if (e.shake && wrap) {
+          wrap.classList.remove('fx-shake');
+          void wrap.offsetWidth; // restart the animation
+          wrap.classList.add('fx-shake');
+          window.setTimeout(() => wrap.classList.remove('fx-shake'), 520);
+        }
+      }
+    };
+    return onBoardFx(run);
+  }, []);
+
   const closeHint = (): void => {
     setHint(false);
     try {
@@ -471,6 +562,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
             {caption}
           </p>
         )}
+        <div ref={fxRef} className="fx-layer" aria-live="polite" />
         <div ref={tipRef} className="tip" hidden />
       </div>
       {legend}
