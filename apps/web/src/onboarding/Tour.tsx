@@ -38,7 +38,8 @@ function find(sel: string): HTMLElement | null {
   return el && el.getClientRects().length > 0 ? el : null;
 }
 
-export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; signals: S; onClose: () => void }) {
+/** `kicker`: the line above the title, in place of "Walkthrough · 2 of 9" (a single "Show me"). */
+export function Tour<S>({ steps, signals, onClose, kicker }: { steps: TourStep<S>[]; signals: S; onClose: () => void; kicker?: string }) {
   const [present, setPresent] = useState<boolean[]>(() => presentOnPage(steps, -1));
   const [i, setI] = useState(() => nextPresent(present, 0, 1));
   // the light's box, and the step it was measured for: kept through a blip on that step, never
@@ -224,9 +225,7 @@ export function Tour<S>({ steps, signals, onClose }: { steps: TourStep<S>[]; sig
     <div className="ob-tour">
       {light && <div className="ob-light" aria-hidden="true" style={light} />}
       <div ref={card} className="ob-card ob-mark" style={placeCard(here)} role="dialog" aria-modal="false" aria-labelledby="ob-mark-title" tabIndex={-1}>
-        <p className="ob-kicker">
-          Walkthrough · {at} of {count}
-        </p>
+        <p className="ob-kicker">{kicker ?? `Walkthrough · ${at} of ${count}`}</p>
         <h2 id="ob-mark-title">{step.title}</h2>
         <div className="ob-body">{step.body}</div>
         {step.hint && <p className="ob-hint">{step.hint}</p>}
