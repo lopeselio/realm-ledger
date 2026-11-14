@@ -138,7 +138,7 @@ export function ChancellorPanel({ game, v }: { game: Game; v: View }) {
   const reportFor = (job: number) => v.reports.find((r) => r.job === job);
 
   return (
-    <section className="panel">
+    <section className="panel" data-quest="chancellor">
       <h2>Chancellor</h2>
       <form className="envoy" onSubmit={(e) => void submit(e)}>
         <textarea
