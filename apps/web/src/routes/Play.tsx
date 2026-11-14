@@ -95,7 +95,8 @@ export function Play() {
     if (!v || !before || !replayKey) return null;
     if (!seenAt.current.has(replayKey)) seenAt.current.set(replayKey, Date.now());
     // the server sends the season as your realm saw it (the whole of it once the campaign is over)
-    return { key: replayKey, at: seenAt.current.get(replayKey)!, script: scriptFor(v.lastEvents) };
+    // (the season that settled, counted from 1, is the number of seasons now played)
+    return { key: replayKey, at: seenAt.current.get(replayKey)!, script: scriptFor(v.lastEvents), caption: `Season ${v.state.season} plays out…` };
     // v is read for the season it settled; later views of the same season don't change the replay
   }, [replayKey, before]);
 
