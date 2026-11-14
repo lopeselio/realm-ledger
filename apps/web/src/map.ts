@@ -42,6 +42,8 @@ export interface Overlay {
   arrows?: [number, number][];
   /** provinces with planned builds */
   marks?: Set<number>;
+  /** a province to call the eye to with a pulsing ring (the first season's guide: your army) */
+  beacon?: number;
 }
 
 /** Where a province sits on the flat map, in SVG units. */
@@ -95,7 +97,8 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
   for (const id of overlay.targets ?? []) {
     const p = s.map.provinces[id]!;
     const [x, y] = center(p.q, p.r);
-    parts.push(`<polygon points="${corners(x, y, SIZE - 4)}" fill="#f5d76e" fill-opacity="0.18" stroke="#f5d76e" stroke-width="1.5" stroke-dasharray="4 3" pointer-events="none"/>`);
+    // (class "reach": the style sheet makes it breathe gently, unless motion is reduced)
+    parts.push(`<polygon class="reach" points="${corners(x, y, SIZE - 4)}" fill="#f5d76e" fill-opacity="0.18" stroke="#f5d76e" stroke-width="1.5" stroke-dasharray="4 3" pointer-events="none"/>`);
   }
   if (overlay.selected !== undefined) {
     const p = s.map.provinces[overlay.selected]!;
@@ -125,6 +128,16 @@ export function renderMap(svg: SVGSVGElement, s: GameState, overlay: Overlay = {
   }
   // shrines: drawn over the armies, so a shrine being fought over still shows
   parts.push(...shrineMarks);
+  // the guide's beacon: a ring pulsing round the army it asks you to click, and a still one under
+  // it so it reads without motion too
+  if (overlay.beacon !== undefined) {
+    const p = s.map.provinces[overlay.beacon]!;
+    const [x, y] = center(p.q, p.r);
+    parts.push(
+      `<g pointer-events="none"><circle cx="${x}" cy="${y + 5}" r="11" fill="none" stroke="#fff4c2" stroke-width="2"/>` +
+        `<circle class="beacon" cx="${x}" cy="${y + 5}" r="11" fill="none" stroke="#f5d76e" stroke-width="2.5"/></g>`,
+    );
+  }
   // planned marches
   for (const [from, to] of overlay.arrows ?? []) {
     const a = s.map.provinces[from]!;

@@ -75,7 +75,8 @@ export function Play() {
     const marched = selected !== undefined && orders.some((o) => o.kind === 'march' && o.from === selected);
     return {
       ...(v.phase !== 'over' ? { visible: visibleProvinces(s, v.human) } : {}),
-      focus: s.realms[v.human]!.capital,
+      // the camera (and a phone's flat map) starts on your army, or your capital if it has none
+      focus: s.armies.find((a) => a.realm === v.human)?.province ?? s.realms[v.human]!.capital,
       selected,
       targets: army && !marched ? new Set(s.map.provinces[selected]!.neighbors) : new Set<number>(),
       arrows: orders.flatMap((o) => (o.kind === 'march' ? [[o.from, o.to] as [number, number]] : [])),

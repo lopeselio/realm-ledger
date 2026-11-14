@@ -8,6 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { troopCount, type GameState } from '@realm-ledger/rules';
 import { colorOf, type Overlay } from './map.ts';
 import { TIMING, type SeasonScript } from './playback.ts';
+import { reducedMotion } from './onboarding/storage.ts';
 
 const SQRT3 = Math.sqrt(3);
 const toXZ = (q: number, r: number): [number, number] => [SQRT3 * (q + r / 2), 1.5 * r];
@@ -181,6 +182,29 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   controls.maxDistance = 48;
   controls.target.set(0, 0, 0);
 
+  // a short camera move (to your army at the start, over a season as it plays out); the player
+  // taking the camera ends it, and with reduced motion it simply cuts
+  let flight: { start: number; ms: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromP: THREE.Vector3; toP: THREE.Vector3 } | null = null;
+  const flyTo = (target: THREE.Vector3, position: THREE.Vector3, ms: number): void => {
+    if (reducedMotion() || ms <= 0) {
+      flight = null;
+      controls.target.copy(target);
+      camera.position.copy(position);
+      controls.update();
+      return;
+    }
+    flight = { start: performance.now(), ms, fromT: controls.target.clone(), toT: target.clone(), fromP: camera.position.clone(), toP: position.clone() };
+  };
+  controls.addEventListener('start', () => (flight = null));
+  const stepFlight = (now: number): void => {
+    if (!flight) return;
+    const k = Math.min(1, (now - flight.start) / flight.ms);
+    const e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
+    controls.target.lerpVectors(flight.fromT, flight.toT, e);
+    camera.position.lerpVectors(flight.fromP, flight.toP, e);
+    if (k >= 1) flight = null;
+  };
+
   // lighting: a warm lamp casting shadows, two candles, and a cool fill
   scene.add(new THREE.HemisphereLight('#9fb0c8', '#2a1a10', 0.55));
   const lamp = new THREE.DirectionalLight('#ffe6c8', 2.4);
@@ -280,6 +304,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
     camera.position.set(lx, d * 0.82, lz + d * 0.72);
     controls.update();
     pieces.position.copy(board.position);
+    guide.position.copy(board.position);
     marks.position.copy(board.position);
     effects.position.copy(board.position);
 
@@ -364,6 +389,20 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   const fogMat = new THREE.MeshStandardMaterial({ color: '#b3bcc8', transparent: true, opacity: 0.5, depthWrite: false, roughness: 1 });
   const fogGeo = new THREE.CylinderGeometry(1.0, 0.92, 0.22, 6);
   const targetMat = new THREE.MeshBasicMaterial({ color: '#f5d76e', transparent: true, opacity: 0.35, depthWrite: false });
+  // the guide's beacon over your army: a ring that swells and fades, and a marker bobbing above it
+  // (kept in the scene and moved, not rebuilt with every draw)
+  const beaconMat = new THREE.MeshBasicMaterial({ color: '#f5d76e', transparent: true, opacity: 0.9, depthWrite: false });
+  const beacon = new THREE.Group();
+  const beaconRing = new THREE.Mesh(ring, beaconMat);
+  beaconRing.renderOrder = 7;
+  const beaconPin = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.42, 4), new THREE.MeshBasicMaterial({ color: '#fff4c2' }));
+  beaconPin.rotation.x = Math.PI;
+  beacon.add(beaconRing, beaconPin);
+  beacon.visible = false;
+  beaconRing.position.y = 0.06;
+  const guide = new THREE.Group();
+  guide.add(beacon);
+  scene.add(guide);
   const selectMat = new THREE.MeshBasicMaterial({ color: '#fff4c2' });
 
   function setState(s: GameState, overlay: Overlay & { visible?: Set<number>; focus?: number } = {}): void {
@@ -373,15 +412,13 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       stopPlayback();
       buildBoard(s);
       boardKey = key;
-      // in play, start over the player's own capital
+      // in play, glide from the whole table down to your own army (or capital)
       if (overlay.focus !== undefined) {
         const p = s.map.provinces[overlay.focus]!;
         const [fx, fz] = toXZ(p.q, p.r);
         const tx = fx + board.position.x;
         const tz = fz + board.position.z;
-        controls.target.set(tx, 0, tz);
-        camera.position.set(tx, 15, tz + 13);
-        controls.update();
+        flyTo(new THREE.Vector3(tx, 0, tz), new THREE.Vector3(tx, 15, tz + 13), 1600);
       }
     }
     // season paint: autumn ochre, winter frost
@@ -474,6 +511,11 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       m.scale.setScalar(0.85);
       marks.add(m);
     }
+    beacon.visible = overlay.beacon !== undefined;
+    if (overlay.beacon !== undefined) {
+      const [x, z] = at(overlay.beacon);
+      beacon.position.set(x + 0.3, top(overlay.beacon), z + 0.25);
+    }
     if (overlay.selected !== undefined) {
       const [x, z] = at(overlay.selected);
       const m = new THREE.Mesh(ring, selectMat);
@@ -514,6 +556,20 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   function play(s: GameState, sc: SeasonScript): void {
     const now = performance.now();
     const at = (id: number): [number, number] => provinceXZ(s, id);
+    // bring the season's action into frame: aim at the middle of everything that happens, from the
+    // same angle, far enough back to see it all
+    const where = [...sc.moves.flatMap((m) => [m.from, m.to]), ...sc.battles, ...sc.retreats.flatMap((m) => [m.from, m.to]), ...sc.losses.map((l) => l.province), ...sc.captures.map((c) => c.province)];
+    if (where.length) {
+      const pts = where.map(at);
+      const xs = pts.map((p) => p[0]);
+      const zs = pts.map((p) => p[1]);
+      const mid = new THREE.Vector3((Math.min(...xs) + Math.max(...xs)) / 2 + board.position.x, 0, (Math.min(...zs) + Math.max(...zs)) / 2 + board.position.z);
+      const spread = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+      const offset = camera.position.clone().sub(controls.target);
+      const dist = Math.min(controls.maxDistance, Math.max(controls.minDistance + 4, offset.length(), spread * 1.3 + 8));
+      offset.setLength(dist);
+      flyTo(mid, mid.clone().add(offset), 700);
+    }
     const add = (obj: THREE.Object3D, startMs: number, forMs: number, step: (k: number) => void, materials: THREE.Material[] = []): void => {
       obj.visible = false;
       effects.add(obj);
@@ -659,14 +715,35 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
   observer.observe(container);
   resize();
   const clock = new THREE.Clock();
+  // read once and followed, not asked every frame
+  let still = reducedMotion();
+  const motionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  const onMotion = (): void => void (still = reducedMotion());
+  motionQuery?.addEventListener('change', onMotion);
   renderer.setAnimationLoop(() => {
     if (!ready) return;
     const t = clock.getElapsedTime();
     // candles flicker
     candles[0]!.intensity = 24 + Math.sin(t * 9.1) * 1.5 + Math.sin(t * 23.7) * 1.2;
     candles[1]!.intensity = 18 + Math.sin(t * 7.3 + 1) * 1.4 + Math.sin(t * 19.1) * 1.0;
+    const nowMs = performance.now();
+    stepFlight(nowMs);
+    // reachable provinces breathe, and the beacon swells and fades (still, with reduced motion)
+    if (!still) {
+      targetMat.opacity = 0.22 + 0.22 * (0.5 + 0.5 * Math.sin(t * 3.2));
+      if (beacon.visible) {
+        const k = (t * 0.9) % 1;
+        beaconRing.scale.setScalar(0.9 + k * 0.7);
+        beaconMat.opacity = 0.95 * (1 - k);
+        beaconPin.position.y = 1.55 + Math.sin(t * 3) * 0.12;
+      }
+    } else if (beacon.visible) {
+      beaconRing.scale.setScalar(1.1);
+      beaconMat.opacity = 0.9;
+      beaconPin.position.y = 1.55;
+    }
     if (running.length) {
-      const ms = performance.now();
+      const ms = nowMs;
       running = running.filter((e) => {
         if (ms < e.start) return true;
         if (ms >= e.end) {
@@ -693,6 +770,7 @@ export async function createTable3D(container: HTMLElement): Promise<Table3D> {
       for (const g of [clashGeo, poleGeo, bannerGeo, shrineGeo]) g.dispose();
       shrineMat.dispose();
       observer.disconnect();
+      motionQuery?.removeEventListener('change', onMotion);
       renderer.setAnimationLoop(null);
       renderer.dispose();
       renderer.domElement.remove();

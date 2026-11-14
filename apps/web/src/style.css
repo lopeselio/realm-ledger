@@ -387,3 +387,12 @@ html.phone .dock-selection button:disabled { opacity: 0.5; cursor: not-allowed; 
 html.phone .ob-card .ob-dots button { min-height: 10px; min-width: 10px; }
 html.phone .account { flex-wrap: wrap; justify-content: flex-start; }
 html.phone .account .guest { white-space: normal; }
+
+/* ---- the table points the way: reachable provinces breathe, the guide's beacon pulses ---- */
+#map .reach { animation: reach-breathe 1.8s ease-in-out infinite; }
+@keyframes reach-breathe { 50% { fill-opacity: 0.42; stroke-opacity: 0.55; } }
+#map .beacon { transform-box: fill-box; transform-origin: center; animation: beacon-pulse 1.2s ease-out infinite; }
+@keyframes beacon-pulse { from { transform: scale(0.9); opacity: 1; } to { transform: scale(1.9); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #map .reach, #map .beacon { animation: none; }
+}
