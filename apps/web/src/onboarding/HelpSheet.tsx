@@ -3,7 +3,7 @@ import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { restoreFocus, typingIn } from './storage.ts';
 import { trapFocus } from './Welcome.tsx';
 
-export function HelpSheet({ onClose, onWelcome, onTour }: { onClose: () => void; onWelcome: () => void; onTour: () => void }) {
+export function HelpSheet({ onClose, onWelcome, onTour, onFirstSeason = null }: { onClose: () => void; onWelcome: () => void; onTour: () => void; onFirstSeason?: (() => void) | null }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const before = document.activeElement;
@@ -34,6 +34,11 @@ export function HelpSheet({ onClose, onWelcome, onTour }: { onClose: () => void;
           <button type="button" onClick={onWelcome}>
             Replay the welcome
           </button>
+          {onFirstSeason && (
+            <button type="button" onClick={onFirstSeason}>
+              Show the first-season checklist
+            </button>
+          )}
         </div>
 
         <h3>A season</h3>
