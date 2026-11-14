@@ -6,7 +6,7 @@ import type { GameState } from '@realm-ledger/rules';
 import { provinceCenter, renderMap, type Overlay } from '../map.ts';
 import { isPhone } from '../media.ts';
 import type { Table3D } from '../table3d.ts';
-import { FRESH_MS, isEmpty, playOnMap, playSounds, type SeasonScript } from '../playback.ts';
+import { FRESH_MS, isEmpty, playOnMap, playSounds, TIMING, type SeasonScript } from '../playback.ts';
 import { reducedMotion } from '../onboarding/storage.ts';
 import { isMuted, onMutedChange, setMuted, unlockSound } from '../sound.ts';
 
@@ -14,6 +14,20 @@ export type BoardOverlay = Overlay & { visible?: Set<number>; focus?: number };
 type Mode = '3d' | '2d';
 
 const PREF = 'realm-ledger:board';
+/** Set once the player has turned or zoomed the 3D table (or closed its hint). */
+const HINTED = 'realm-ledger:table-hinted';
+/** How long the 3D table may take to load before the flat map shows meanwhile. */
+const SLOW_MS = 6000;
+/** How long a season's playback runs, for its caption. */
+const PLAYBACK_MS = TIMING.capture + TIMING.captureFor;
+
+function tableHinted(): boolean {
+  try {
+    return localStorage.getItem(HINTED) === '1';
+  } catch {
+    return false;
+  }
+}
 
 // checked here rather than imported from table3d.ts so three.js loads only when shown
 function canRender3D(): boolean {
@@ -24,6 +38,15 @@ function canRender3D(): boolean {
   }
 }
 
+
+/** A touch screen, where the 3D table zooms by pinching. */
+function coarse(): boolean {
+  try {
+    return window.matchMedia('(pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
+}
 
 function initialMode(): Mode {
   try {
@@ -50,8 +73,9 @@ export interface BoardProps {
   /** the board's heading row; place `toggle` (the 3D / flat switch) where it belongs */
   head: (toggle: ReactNode) => ReactNode;
   legend: ReactNode;
-  /** a season that just settled (at `at`, ms since epoch), played over the board once per key */
-  replay?: { key: string; at: number; script: SeasonScript } | null;
+  /** a season that just settled (at `at`, ms since epoch), played over the board once per key,
+   *  with a caption over the table while it plays ("Season 3 plays out…") */
+  replay?: { key: string; at: number; script: SeasonScript; caption?: string } | null;
 }
 
 // seasons already played back on this page, so a board that remounts doesn't play one twice
@@ -63,6 +87,12 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   const [mode, setMode] = useState<Mode>(initialMode);
   const [table, setTable] = useState<Table3D | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  // the 3D table is taking its time: show the flat map meanwhile
+  const [slow, setSlow] = useState(false);
+  // the "drag to turn" hint, shown over the 3D table until the player has used it once
+  const [hint, setHint] = useState(() => !tableHinted());
+  // the caption over the table while a season plays out
+  const [caption, setCaption] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -210,6 +240,14 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     // showTip reads only refs, so it need not be a dependency
   }, [mode, table, unavailable]);
 
+  // until the 3D table is ready it shows a placeholder, not a flash of the flat map; if it is slow
+  // to load, the flat map shows meanwhile
+  useEffect(() => {
+    if (mode !== '3d' || table || unavailable || slow) return;
+    const t = window.setTimeout(() => setSlow(true), SLOW_MS);
+    return () => window.clearTimeout(t);
+  }, [mode, table, unavailable, slow]);
+
   // free the GPU when the page goes away
   useEffect(() => (table ? () => table.dispose() : undefined), [table]);
 
@@ -241,6 +279,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
   };
 
   const three = mode === '3d' && !!table;
+  const setting = mode === '3d' && !table && !unavailable && !slow;
   useEffect(() => {
     if (three) table!.setState(state, overlay);
     else if (svgRef.current) {
@@ -270,6 +309,14 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     played.add(replay.key);
     if (Date.now() - replay.at > FRESH_MS) return;
     playSounds(replay.script);
+    // bring the table into view for the season, with a caption over it while it plays
+    const wrap = wrapRef.current;
+    if (wrap) {
+      const r = wrap.getBoundingClientRect();
+      const seen = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      if (seen < Math.min(r.height, window.innerHeight) * 0.6) wrap.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    }
+    if (replay.caption) setCaption(replay.caption);
     if (reducedMotion()) return;
     if (three) table!.play(state, replay.script);
     else if (svgRef.current) {
@@ -278,6 +325,12 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     }
     // state and overlay are drawn by the effect above; this one only starts the playback
   }, [replay, mode, three, table]);
+  // the caption goes once the season has played out
+  useEffect(() => {
+    if (!caption) return;
+    const t = window.setTimeout(() => setCaption(null), PLAYBACK_MS + 600);
+    return () => window.clearTimeout(t);
+  }, [caption]);
   // a playback ends with its view: switching view, opening another map, or leaving ends it
   useEffect(
     () => () => {
@@ -286,6 +339,15 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
     },
     [mode, mapKey, table],
   );
+
+  const closeHint = (): void => {
+    setHint(false);
+    try {
+      localStorage.setItem(HINTED, '1');
+    } catch {
+      // it shows again next visit
+    }
+  };
 
   const toggleMode = (): void => {
     const next: Mode = mode === '3d' ? '2d' : '3d';
@@ -341,7 +403,7 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
           role="img"
           aria-label="Hex map"
           style={{
-            display: three ? 'none' : 'block',
+            display: three || setting ? 'none' : 'block',
             transform: zoom.k > 1 ? `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.k})` : undefined,
             transformOrigin: '0 0',
             // the map takes every touch: a page scroll that began on it would cancel a pinch before
@@ -383,7 +445,32 @@ export function Board({ state, overlay, tipHtml, onPick, head, legend, replay }:
             )}
           </div>
         )}
-        <div ref={containerRef} className="table3d" hidden={mode !== '3d'} />
+        {setting && (
+          <div className="table-setting" role="status">
+            Setting out the war table…
+          </div>
+        )}
+        <div
+          ref={containerRef}
+          className="table3d"
+          hidden={mode !== '3d'}
+          // the first turn or zoom retires the hint
+          onPointerDown={() => hint && closeHint()}
+          onWheel={() => hint && closeHint()}
+        />
+        {three && hint && (
+          <div className="table-hint">
+            <span>{coarse() ? 'Drag to turn · pinch to zoom' : 'Drag to turn · scroll to zoom'}</span>
+            <button type="button" aria-label="Hide this hint" onClick={closeHint}>
+              ✕
+            </button>
+          </div>
+        )}
+        {caption && (
+          <p className="table-caption" aria-live="polite">
+            {caption}
+          </p>
+        )}
         <div ref={tipRef} className="tip" hidden />
       </div>
       {legend}

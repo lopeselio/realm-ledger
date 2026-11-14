@@ -396,3 +396,23 @@ html.phone .account .guest { white-space: normal; }
 @media (prefers-reduced-motion: reduce) {
   #map .reach, #map .beacon { animation: none; }
 }
+
+/* ---- over the table: while it loads, the first-time controls hint, a season's caption ---- */
+.table-setting { min-height: min(62vh, 520px); display: grid; place-items: center; color: #cdbfa2; font-family: var(--font-display); font-size: 1.2rem; letter-spacing: 0.03em; }
+.table-hint, .table-caption {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  background: rgba(23, 17, 13, 0.86);
+  color: var(--parchment);
+  border: 1px solid var(--brass-dim);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+.table-hint { bottom: 12px; display: inline-flex; gap: 8px; align-items: center; padding: 4px 6px 4px 14px; font-size: 0.88rem; pointer-events: auto; }
+.table-hint button { background: none; border: 0; color: #cdbfa2; padding: 0 6px; min-height: 0 !important; font-size: 0.85rem; }
+.table-caption { top: 12px; margin: 0; padding: 6px 16px; font-family: var(--font-display); font-size: 1.15rem; color: var(--brass); pointer-events: none; animation: caption-in 0.4s ease-out; }
+@keyframes caption-in { from { opacity: 0; transform: translate(-50%, -6px); } }
+@media (prefers-reduced-motion: reduce) { .table-caption { animation: none; } }
