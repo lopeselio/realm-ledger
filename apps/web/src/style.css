@@ -416,3 +416,62 @@ html.phone .account .guest { white-space: normal; }
 .table-caption { top: 12px; margin: 0; padding: 6px 16px; font-family: var(--font-display); font-size: 1.15rem; color: var(--brass); pointer-events: none; animation: caption-in 0.4s ease-out; }
 @keyframes caption-in { from { opacity: 0; transform: translate(-50%, -6px); } }
 @media (prefers-reduced-motion: reduce) { .table-caption { animation: none; } }
+
+/* ---- the first season's checklist, pinned above the table ---- */
+.fs {
+  flex-basis: 100%;
+  background: linear-gradient(180deg, var(--parchment), var(--parchment-2));
+  color: var(--ink);
+  border: 1px solid var(--brass-dim);
+  border-left: 5px solid var(--brass);
+  border-radius: 8px;
+  padding: 8px 12px 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+.fs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.fs-title { font-family: var(--font-display); font-weight: 400; font-size: 1.15rem; margin: 0; }
+.fs-count { font-size: 0.8rem; color: var(--ink-soft); }
+.fs-steps { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; flex: 1; }
+.fs button { color: var(--ink); background: rgba(255, 255, 255, 0.55); border-color: rgba(43, 33, 24, 0.3); font-size: 0.85rem; padding: 4px 10px; }
+.fs button:hover { border-color: var(--ink); }
+.fs button.primary { background: #7a1f16; color: var(--parchment); border-color: #7a1f16; font-weight: 700; }
+.fs button.primary:hover { background: #962a1f; }
+.fs .fs-step { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 10px 3px 4px; }
+.fs-num { display: inline-grid; place-items: center; width: 1.45em; height: 1.45em; border-radius: 50%; border: 1px solid var(--ink-soft); font-size: 0.78rem; font-weight: 700; }
+.fs .fs-step.opt { border-style: dashed; }
+.fs .fs-step.done { background: rgba(63, 122, 69, 0.14); border-color: var(--good); color: #2d5a32; }
+.fs .fs-step.done .fs-num { background: var(--good); border-color: var(--good); color: #fff; }
+.fs .fs-step.on { box-shadow: 0 0 0 2px var(--brass); border-color: var(--brass-dim); }
+.fs .fs-x { background: none; border-color: transparent; color: var(--ink-soft); padding: 2px 8px; margin-left: auto; }
+.fs-now { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.fs-now p { margin: 0; font-size: 0.92rem; flex: 1 1 320px; }
+.fs-hint { color: var(--ink-soft); }
+.fs-opt { font-size: 0.78rem; color: var(--brass-dim); }
+.fs-done { color: var(--good); font-weight: 700; font-size: 0.85rem; }
+.fs-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.fs-finished { border-left-color: var(--good); }
+/* the phone dock's line: the step you're on, and Show me */
+.fs-dock { display: none; }
+html.phone .fs-dock { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 0.86rem; }
+html.phone .fs-dock-text { flex: 1; }
+html.phone .fs-dock button { color: var(--parchment); background: #7a1f16; border-color: #7a1f16; font-weight: 700; padding: 6px 12px; white-space: nowrap; }
+/* phones: the chips keep their numbers, and the strip stays short */
+html.phone .fs { padding: 6px 10px 8px; }
+html.phone .fs-short { display: none; }
+html.phone .fs .fs-step { padding: 2px; min-height: 36px; min-width: 36px; justify-content: center; }
+html.phone .fs-steps { gap: 3px; order: 3; flex: 1 0 100%; }
+html.phone .fs .fs-x { min-height: 36px; }
+/* the dock carries the step you're on; the strip's detail shows for a step you tap, or at the end */
+html.phone .fs:not(.fs-picked):not(.fs-finished) .fs-now { display: none; }
+html.phone .fs-now p { flex-basis: 100%; font-size: 0.88rem; }
+html.phone .fs-actions { width: 100%; justify-content: flex-end; }
+
+/* ---- folding panels: a heading you can open ---- */
+details.fold > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary h2::before { content: '▸'; display: inline-block; width: 1em; color: var(--brass-dim); font-size: 0.8em; transition: transform 0.15s ease; }
+details.fold[open] > summary h2::before { transform: rotate(90deg); }
+details.fold:not([open]) > summary h2 { margin-bottom: 0; }
+details.fold > summary:focus-visible { outline: 2px solid var(--brass-dim); outline-offset: 3px; border-radius: 4px; }
+.fold-note { font-size: 0.82rem; color: var(--ink-soft); }
+@media (prefers-reduced-motion: reduce) { details.fold > summary h2::before { transition: none; } }
