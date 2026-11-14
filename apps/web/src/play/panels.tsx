@@ -1,5 +1,5 @@
 // The side panels of the game page. Each reads the campaign view and calls the game's flows.
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { COST, GOODS, type GameState, type Good, type Treaty } from '@realm-ledger/rules';
 import { API, PUBLIC_API, type View } from '../api.ts';
 import { colorOf, provinceNotes } from '../map.ts';
@@ -7,6 +7,10 @@ import { describeOrder, nearblocks } from '../format.ts';
 import type { Game } from './useGame.ts';
 import { canAct, isFinal, shownScores, EndSeasonButton, forecastText, MarchTargets, useMarchForecasts } from './turn.tsx';
 import { usePhone } from '../media.ts';
+import { PurseLine } from './juice.tsx';
+import { boardFx, toast } from '../juice.ts';
+import { coinSound, parchmentSound, stampSound } from '../sound.ts';
+import { TIMING } from '../playback.ts';
 
 
 // ---------- your orders ----------
@@ -65,7 +69,6 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
   const [good, setGood] = useState<Good>('grain');
   const planning = canAct(game);
   const phone = usePhone();
-  const me = v.state.realms[v.human]!;
   const forecasts = useMarchForecasts(v, game.orders);
   return (
     <section className="panel" data-tour="orders" id="orders">
@@ -111,9 +114,7 @@ export function OrdersPanel({ game, v }: { game: Game; v: View }) {
           Add trade
         </button>
       </div>
-      <p className="purse" data-tour="purse">
-        Treasury: {me.purse.crowns} crowns · {GOODS.map((g) => `${me.purse[g]} ${g}`).join(' · ')}
-      </p>
+      <PurseLine v={v} orders={game.orders} />
       {v.phase !== 'over' && <EndSeasonButton game={game} v={v} />}
       <p className="fine">Your browser hashes your orders with a secret salt. Only the hash goes onchain until every ruler has sealed.</p>
       {v.phase === 'sealed' && game.forfeitAt !== null && <ForfeitButton game={game} at={game.forfeitAt} />}
@@ -136,6 +137,7 @@ export function ChancellorPanel({ game, v }: { game: Game; v: View }) {
   };
   const open = v.plans.flatMap((p) => (p.plan.steps.length ? p.jobs.filter((j) => v.openJobs.includes(j)) : []));
   const reportFor = (job: number) => v.reports.find((r) => r.job === job);
+  const { freshPlan, freshJobs } = useChancellorFx(v);
 
   return (
     <section className="panel" data-quest="chancellor">
@@ -169,8 +171,12 @@ export function ChancellorPanel({ game, v }: { game: Game; v: View }) {
           .reverse()
           .map(({ p, i }) => {
             const advice = p.season === s.season && v.phase === 'planning' ? p.plan.advice : [];
+            const fresh = i === freshPlan;
+            // a fresh plan reveals itself a beat at a time: asked, the quote against fair, the counter, bought or walked away
+            const beat = (n: number) => (fresh ? { style: { animationDelay: `${n * 0.45}s` }, className: 'beat' } : {});
+            let n = 0;
             return (
-              <li key={i}>
+              <li key={i} className={fresh ? 'fresh' : undefined}>
                 <span className="who">“{p.text}”</span> <span className="tag">{p.plan.spent} crowns</span>
                 <ul className="steps">
                   {p.plan.steps.map((st, k) => {
@@ -178,17 +184,31 @@ export function ChancellorPanel({ game, v }: { game: Game; v: View }) {
                     const haggle = st.counter ? ` · countered ${st.counter.offer} (${st.counter.reason}) → ${st.counter.accepted ? 'taken' : 'refused'}` : '';
                     return (
                       <li key={k}>
-                        {company(st.company)} asked {st.quote} for {what} (fair {st.fair}){haggle} ·{' '}
-                        <strong>{st.price !== undefined ? `bought for ${st.price}` : 'walked away'}</strong>
+                        <span {...beat(n++)}>
+                          {company(st.company)} asked {st.quote} for {what}
+                        </span>{' '}
+                        <span {...beat(n++)}>(fair {st.fair})</span>
+                        {haggle && <span {...beat(n++)}>{haggle}</span>} ·{' '}
+                        <strong {...beat(n++)}>{st.price !== undefined ? `bought for ${st.price}` : 'walked away'}</strong>
                       </li>
                     );
                   })}
                   {p.plan.summary.map((x, k) => (
                     <li key={`s${k}`} className="quiet">
-                      {x}
+                      <span {...beat(n++)}>{x}</span>
                     </li>
                   ))}
                 </ul>
+                {fresh && p.plan.spent > 0 && p.season === s.season && v.phase !== 'over' && (
+                  <p className="escrow beat" style={{ animationDelay: `${n * 0.45}s` }}>
+                    <span className="coins" aria-hidden="true">
+                      <i>🪙</i>
+                      <i>🪙</i>
+                      <i>🪙</i>
+                    </span>
+                    🔒 {p.plan.spent} crowns in escrow
+                  </p>
+                )}
                 {advice.length > 0 && (
                   <div className="advice">
                     {advice.map((o, k) => (
@@ -214,7 +234,19 @@ export function ChancellorPanel({ game, v }: { game: Game; v: View }) {
           const rep = reportFor(r.job);
           const what = r.deal.kind === 'spy' ? `report on ${pname(r.deal.province)}` : `${r.deal.count} swords at ${pname(r.deal.province)}`;
           return (
-            <li key={r.job}>
+            <li key={r.job} className={freshJobs.has(r.job) ? `fresh ${r.passed ? 'paid' : 'refunded'}` : undefined}>
+              {freshJobs.has(r.job) && (
+                <span className={`verdict ${r.passed ? 'yes' : 'no'}`}>
+                  {r.passed ? `✓ paid: ${r.deal.kind === 'spy' ? 'report matched' : 'work checked'}` : `↩ refunded: ${r.deal.kind === 'spy' ? 'false report' : 'work failed'}`}
+                  <span className="burst" aria-hidden="true">
+                    <i>🪙</i>
+                    <i>🪙</i>
+                    <i>🪙</i>
+                    <i>🪙</i>
+                    <i>🪙</i>
+                  </span>
+                </span>
+              )}
               <span className={`tag ${r.passed ? 'yes' : 'no'}`}>
                 job {r.job} {r.passed ? 'paid' : 'refunded'}
               </span>{' '}
@@ -232,6 +264,49 @@ export function ChancellorPanel({ game, v }: { game: Game; v: View }) {
       </ul>
     </section>
   );
+}
+
+/**
+ * The Chancellor's news as it arrives: a new plan (its beats revealed in turn, coins clinking into
+ * escrow, a stamp), and receipts settled at the season's turn (stamped once the season has played out).
+ */
+function useChancellorFx(v: View): { freshPlan: number | null; freshJobs: Set<number> } {
+  const seen = useRef<{ id: number; plans: number; receipts: number } | null>(null);
+  const [freshPlan, setFreshPlan] = useState<number | null>(null);
+  const [freshJobs, setFreshJobs] = useState<Set<number>>(() => new Set());
+  useEffect(() => {
+    const was = seen.current;
+    seen.current = { id: v.id, plans: v.plans.length, receipts: v.receipts.length };
+    if (!was || was.id !== v.id) {
+      setFreshPlan(null);
+      setFreshJobs(new Set());
+      return;
+    }
+    if (v.plans.length > was.plans) {
+      const i = v.plans.length - 1;
+      const p = v.plans[i]!;
+      setFreshPlan(i);
+      // on the same beats as the panel: coins when a step is bought, the stamp as escrow shows
+      let beat = 0;
+      for (const st of p.plan.steps) {
+        beat += st.counter ? 3 : 2;
+        if (st.price !== undefined) coinSound(beat * 0.45, 3);
+        beat += 1;
+      }
+      stampSound((beat + p.plan.summary.length) * 0.45);
+      if (p.plan.spent > 0) toast({ icon: '🔒', text: `${p.plan.spent} crowns in escrow`, detail: 'paid only if the work checks out', tone: 'gold' }, 3600);
+      else toast({ icon: '🤝', text: 'The Chancellor walked away', detail: 'nothing bought', tone: 'info' });
+    }
+    if (v.receipts.length > was.receipts) {
+      const fresh = v.receipts.slice(was.receipts);
+      setFreshJobs(new Set(fresh.map((r) => r.job)));
+      // stamped once the season's playback is over
+      const after = (TIMING.capture + TIMING.captureFor) / 1000;
+      stampSound(after);
+      coinSound(after + 0.15, fresh.some((r) => r.passed) ? 5 : 2);
+    }
+  }, [v.id, v.plans.length, v.receipts.length]);
+  return { freshPlan, freshJobs };
 }
 
 // ---------- envoys ----------
@@ -254,14 +329,21 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
   // keep the chosen rival while it lives; otherwise the first one left
   const to = rivals.some((r) => r.id === toChoice) ? toChoice! : (rivals[0]?.id ?? 0);
   const can = canAct(game) && v.envoysLeft > 0;
+  // the envoy on the road, until the reply comes back
+  const [riding, setRiding] = useState<number | null>(null);
 
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
+    if (!can) return;
+    setRiding(to);
+    parchmentSound();
+    boardFx({ kind: 'fly', from: s.realms[v.human]!.capital, to: s.realms[to]!.capital, icon: '🕊', ms: 2000 });
     const sent = await game.sendEnvoy({
       to,
       message,
       ...(kind ? { proposal: { kind, ...(kind === 'tribute' ? { amount } : {}) } } : {}),
     });
+    setRiding(null);
     if (sent) setMessage('');
   };
 
@@ -292,6 +374,14 @@ export function EnvoysPanel({ game, v }: { game: Game; v: View }) {
           </button>
         </div>
       </form>
+      {riding !== null && (
+        <p className="riding" role="status">
+          <span className="bird" aria-hidden="true">
+            🕊
+          </span>{' '}
+          Envoy rides to {s.realms[riding]?.name ?? 'the rival'}…
+        </p>
+      )}
       <ul className="envoys">
         {v.envoys
           .map((e, i) => ({ e, i }))

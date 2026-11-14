@@ -20,6 +20,7 @@ import { scriptFor } from '../playback.ts';
 import { Guide } from '../onboarding/Guide.tsx';
 import { useFirstSeason } from '../onboarding/FirstSeason.tsx';
 import { Fold } from '../components/Fold.tsx';
+import { CampaignEnd, EnvoyLetter, orderIcons, SeasonSummary, ToastStack, useOrderFx, useSeasonFx, type SeasonSummaryData } from '../play/juice.tsx';
 
 /** A shared challenge, /challenge/abc123, opens the play page ready to accept it. */
 /** A challenge code as pasted, forgiven its case and a stray character at either end from a chat message. */
@@ -86,6 +87,7 @@ export function Play() {
       targets: army && !marched ? new Set(s.map.provinces[selected]!.neighbors) : new Set<number>(),
       arrows: orders.flatMap((o) => (o.kind === 'march' ? [[o.from, o.to] as [number, number]] : [])),
       marks: new Set(orders.flatMap((o) => ('province' in o ? [o.province] : []))),
+      icons: orderIcons(orders),
       ...(beacon !== undefined ? { beacon } : {}),
     };
     // armyAt reads the view, which is a dependency already
@@ -105,6 +107,15 @@ export function Play() {
     return { key: replayKey, at: seenAt.current.get(replayKey)!, script: scriptFor(v.lastEvents), caption: `Season ${v.state.season} plays out…` };
     // v is read for the season it settled; later views of the same season don't change the replay
   }, [replayKey, before]);
+
+  // feedback: each order queued, the season's moments, its summary, and the campaign's end
+  useOrderFx(v, orders);
+  const [summary, setSummary] = useState<SeasonSummaryData | null>(null);
+  const [ended, setEnded] = useState<string | null>(null);
+  useSeasonFx(v, before, replay, (d) => (d.over ? setEnded(d.key) : setSummary(d)));
+  // a summary gives way once you plan again, or open another campaign
+  useEffect(() => setSummary(null), [orders.length > 0, v?.id]);
+  useEffect(() => setEnded(null), [v?.id]);
 
   // what the walkthrough watches, rebuilt only when one of them changes
   const guideSignals = useMemo(
@@ -260,6 +271,10 @@ export function Play() {
       </Footer>
       {v && phone && <PhoneDock game={game} v={v} selection={<Selection game={game} v={v} />} guide={guide.dockLine} />}
       {guide.spotlight}
+      <ToastStack />
+      {v && <EnvoyLetter v={v} />}
+      {summary && !ended && <SeasonSummary d={summary} onClose={() => setSummary(null)} />}
+      {v && ended && v.phase === 'over' && <CampaignEnd v={v} onClose={() => setEnded(null)} />}
     </>
   );
 }
