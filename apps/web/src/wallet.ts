@@ -129,6 +129,9 @@ export async function restoreSigner(): Promise<Signer | null> {
   }
 }
 
+/** True for the error NEAR Connect throws when its wallet picker is closed without choosing a wallet. */
+export const dismissed = (e: unknown): boolean => (e as Error)?.message === 'User rejected';
+
 /** Opens the wallet picker; the wallet asks you to approve the function-call key. */
 export async function signIn(): Promise<Signer> {
   const c = await connector();
