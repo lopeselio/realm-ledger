@@ -11,7 +11,7 @@ import { api, type CampaignSummary } from '../api.ts';
 import { seasonTitle } from '../format.ts';
 import { recentCampaigns } from '../recent.ts';
 import { findSecret } from '../secrets.ts';
-import { keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
+import { dismissed, keyIsCurrent, restoreSigner, signIn, type Signer } from '../wallet.ts';
 import { ChancellorPanel, EnvoysPanel, OrdersPanel, Proof, RealmList, Selection } from '../play/panels.tsx';
 import { useGame, type Game } from '../play/useGame.ts';
 import { ChallengeBoard, DailyBoard } from '../play/daily.tsx';
@@ -382,7 +382,8 @@ function StartForm({ busy, onStart }: { busy: boolean; onStart: (realms: number,
 function Account({ game, signer, setSigner }: { game: Game; signer: Signer | null; setSigner: (s: Signer | null) => void }) {
   const doSignIn = (): void =>
     void game.withBusy('Opening your wallet; approve the key limited to the realm contract…', async () => {
-      const s = await signIn();
+      const s = await signIn().catch((e: unknown) => { if (dismissed(e)) return null; throw e; });
+      if (!s) return game.say('The wallet picker was closed. Nothing changed.');
       setSigner(s);
       game.say(`Signed in as ${s.accountId}. New campaigns are ruled by your account.`);
     });
@@ -396,7 +397,7 @@ function Account({ game, signer, setSigner }: { game: Game; signer: Signer | nul
         setSigner(s);
         game.say(`Signed in as ${s.accountId} with a current key.`);
       } catch (e) {
-        throw new Error(`${(e as Error).message}. You are signed out: sign in again to keep playing with your wallet.`);
+        throw new Error(`${dismissed(e) ? '' : `${(e as Error).message}. `}You are signed out: sign in again to keep playing with your wallet.`);
       }
     });
   const doSignOut = (): void =>
